@@ -3,10 +3,13 @@ import { devtools, persist } from 'zustand/middleware';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import {
   BUILTIN_SIDE_CHAT_UI_PLUGIN,
+  BUILTIN_STREAM_METRICS_UI_PLUGIN,
+  getComposerMetricsContributions,
   getSideConversationContribution,
   parseUIPluginManifest,
   type OpenChamberUIPluginManifestV1,
   type SideConversationContribution,
+  type ComposerMetricsContribution,
 } from '@/lib/uiPlugins';
 import { createDeferredSafeJSONStorage } from './utils/safeStorage';
 
@@ -33,11 +36,17 @@ export const findEnabledSideConversationContribution = (
   state.catalog.filter((plugin) => isUIPluginEnabled(state, plugin.id)),
 );
 
+export const findEnabledComposerMetricsContributions = (
+  state: Pick<UIPluginsStore, 'catalog' | 'disabledPluginIds'>,
+): ComposerMetricsContribution[] => getComposerMetricsContributions(
+  state.catalog.filter((plugin) => isUIPluginEnabled(state, plugin.id)),
+);
+
 export const useUIPluginsStore = create<UIPluginsStore>()(
   devtools(
     persist(
       (set) => ({
-        catalog: [BUILTIN_SIDE_CHAT_UI_PLUGIN],
+        catalog: [BUILTIN_SIDE_CHAT_UI_PLUGIN, BUILTIN_STREAM_METRICS_UI_PLUGIN],
         disabledPluginIds: [],
         isLoading: false,
         loadError: false,

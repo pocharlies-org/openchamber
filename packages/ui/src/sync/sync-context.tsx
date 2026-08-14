@@ -116,6 +116,7 @@ import {
   setImperativeSessionMessageLoader,
   type SessionMessageLoadState,
 } from "./session-message-loader"
+import { streamMetrics } from "./stream-metrics"
 
 // ---------------------------------------------------------------------------
 // Context
@@ -1829,6 +1830,7 @@ export function handleEvent(
   }
 
   childStores.mark(resolvedDirectory)
+  streamMetrics.ingest(expectedRuntimeKey, resolvedDirectory, payload)
 
   if (payload.type === "permission.asked") {
     const permission: PermissionRequest = payload.properties
@@ -2642,6 +2644,7 @@ export function SyncProvider(props: {
         if (!replayReset && isFirstConnect && !pipelineDisconnectedBeforeFirstConnectRef.current) {
           return
         }
+        streamMetrics.invalidateLive(runtimeKey)
         if (!replayReset && isRecentBoot()) {
           return
         }
