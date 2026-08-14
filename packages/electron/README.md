@@ -24,7 +24,7 @@ The preload bridge exposes desktop-only APIs to the web UI through `window.__OPE
 | `ssh-manager.mjs` | SSH host import, connection lifecycle, tunnel/port forwarding helpers |
 | `scripts/electron-dev.mjs` | Desktop dev launcher with Vite HMR support |
 | `scripts/ensure-electron.mjs` | Verifies the installed Electron binary is complete and repairs it via the postinstall under Bun |
-| `scripts/build-web-assets.mjs` | Builds `packages/web` and stages UI assets into `resources/web-dist` |
+| `scripts/build-web-assets.mjs` | Builds `packages/web` and stages UI assets plus declarative UI-plugin manifests into packaged resources |
 | `scripts/prepare-opencode-cli.mjs` | Downloads and stages the pinned OpenCode CLI into `resources/opencode-cli` |
 | `scripts/bundle-main.mjs` | Bundles Electron main code into `dist-bundle/main.mjs` for packaging |
 | `scripts/rebuild-native.mjs` | Rebuilds native modules against the Electron runtime |
@@ -72,7 +72,7 @@ bun run electron:build
 
 That runs, in order:
 
-1. `build:web-assets` to build the web UI and copy it into `packages/electron/resources/web-dist`.
+1. `build:web-assets` to build the web UI, copy it into `packages/electron/resources/web-dist`, and stage both built-in declarative UI-plugin manifests in `packages/electron/resources/ui-plugins`.
 2. `prepare:opencode-cli` to download/cache the pinned OpenCode CLI and copy it into `packages/electron/resources/opencode-cli`.
 3. `bundle:main` to create `packages/electron/dist-bundle/main.mjs`.
 4. `rebuild:native` to rebuild native modules for Electron.

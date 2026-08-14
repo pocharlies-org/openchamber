@@ -170,6 +170,18 @@ fails and persists only the client's disabled IDs. The Chat settings page can
 therefore enable or disable a contribution immediately without restarting.
 Discovery must not become a remote-module or arbitrary-JavaScript loader.
 
+The same declarative host API accepts `composerMetrics` contributions. The
+generic `ComposerMetricsSurface` renders supported contributions in the footer;
+it never executes plugin code or branches on the Stream Metrics contribution
+ID. `@pocharlies/openchamber-stream-metrics` uses that surface on web and
+Desktop, the compact form on hosted and Capacitor mobile, and declares VS Code
+unsupported. The metric tracker lives in sync rather than `ChatInput`, and the
+footer subscribes to the active runtime-directory-session snapshot. It also
+reads only that session's message bucket when the bucket changes so opening or
+reloading Web can hydrate the latest completed assistant's authoritative token
+counters; streaming part deltas remain isolated in the tracker and do not
+rerender the footer.
+
 Side conversations are unavailable in the mobile and VS Code surfaces and
 cannot be started from an embedded side-chat composer. They inherit the parent
 composer's provider, model, agent, and variant, but their result is never

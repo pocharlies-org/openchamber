@@ -230,6 +230,22 @@ The profiler also emits a user-timing mark when pending global-session recency i
 
 Streaming assistant and reasoning text is throttled once before reaching the markdown renderer. The renderer incrementally reconciles changed markdown blocks but does not add a second character-pacing timer, which would multiply parse/morph work while catching up on large streamed chunks.
 
+`stream-metrics.ts` owns the client-observed response timing used by declarative
+composer metric contributions. An optimistic send begins TTFT only after the
+local send is accepted and the user message ID exists. Text, reasoning, or a
+non-pending tool fixes first-visible time exactly once; administrative and empty
+events do not. Live output tokens are explicitly estimated from incremental text
+character counts, while final assistant token fields replace them and recalculate
+exact speed even when they arrive after `session.idle`. When a client opens an
+already materialized session, the latest completed assistant message hydrates
+its authoritative token counters without inventing TTFT, speed, character, or
+byte measurements that this client did not observe. Counters and part state
+are isolated by runtime, normalized directory, session, turn, and assistant
+message, and bounded cleanup handles deletion, reconnect, runtime switching,
+cancellation, and error. SSE ingestion updates counters outside React in O(1)
+per ordinary delta and publishes only dirty session snapshots at the manifest's
+throttled interval (250 ms for the built-in plugin).
+
 The event pipeline delivers each ordered per-directory flush as one reducer batch. Events retain their individual global indexes, notifications, cleanup, routing, materialization, and debug side effects, while their directory mutations accumulate in order and publish one store transaction per touched directory. Each top-level state slice is cloned lazily at most once in that batch; no-op events do not change references.
 
 Streaming lifecycle derivation has two paths. Directory attach, switch, bootstrap, and reconnect may perform a full reconciliation. Normal store publications reconcile only sessions whose `session_status` or `message` bucket changed; part-only events update the affected streaming message heartbeat directly and must not rescan all busy sessions.

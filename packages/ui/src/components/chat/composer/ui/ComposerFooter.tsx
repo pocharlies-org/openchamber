@@ -23,6 +23,7 @@ import { ComposerActionButtons } from './ComposerActionButtons';
 import { ComposerAttachmentControls } from './ComposerAttachmentControls';
 import { FocusModeButton } from './FocusModeButton';
 import { PermissionAutoAcceptButton } from './PermissionAutoAcceptButton';
+import { ComposerMetricsSurface } from './ComposerMetricsSurface';
 
 const MemoModelControls = React.memo(ModelControls);
 const MemoComposerDictation = React.memo(ComposerDictation);
@@ -32,6 +33,7 @@ export interface ComposerFooterProps {
     isVSCode: boolean;
     sessionId: string | null;
     directory?: string;
+    runtimeKey: string;
     newSessionDraftOpen: boolean;
     messageLength: number;
 
@@ -74,6 +76,7 @@ export function ComposerFooter(props: ComposerFooterProps) {
         isVSCode,
         sessionId: currentSessionId,
         directory,
+        runtimeKey,
         newSessionDraftOpen,
         messageLength,
         radius: chatInputRadius,
@@ -150,6 +153,14 @@ export function ComposerFooter(props: ComposerFooterProps) {
                             <SessionGoalObjectiveCounter length={messageLength} />
                         </div>
                         <div className="flex items-center min-w-0 gap-x-1 justify-end">
+                            <ComposerMetricsSurface
+                                isMobile
+                                sessionId={currentSessionId}
+                                directory={directory}
+                                runtimeKey={runtimeKey}
+                                placement="footer"
+                                className="max-w-[9rem] flex-1 justify-end"
+                            />
                             <div className="flex items-center gap-x-1 flex-shrink-0">
                                 <button
                                     type="button"
@@ -226,6 +237,14 @@ export function ComposerFooter(props: ComposerFooterProps) {
                         <SessionGoalObjectiveCounter length={messageLength} />
                     </div>
                     <div className={cn('flex items-center flex-1 justify-end', footerGapClass, 'md:gap-x-3')}>
+                        <ComposerMetricsSurface
+                            isMobile={false}
+                            sessionId={currentSessionId}
+                            directory={directory}
+                            runtimeKey={runtimeKey}
+                            placement="footer"
+                            className="max-w-[22rem] flex-[1_1_12rem] justify-end"
+                        />
                         <MemoModelControls className={cn('flex-1 min-w-0 justify-end')} />
                         <MemoComposerDictation
                             radius={chatInputRadius}

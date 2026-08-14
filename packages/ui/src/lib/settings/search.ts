@@ -348,6 +348,14 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     isAvailable: (ctx) => !ctx.isMobile && !ctx.isVSCode,
   },
   {
+    id: 'chat.ui-plugins.stream-metrics',
+    page: 'chat',
+    titleKey: 'settings.chat.uiPlugins.streamMetrics.label',
+    descriptionKey: 'settings.chat.uiPlugins.streamMetrics.info',
+    keywords: ['plugin', 'extension', 'stream', 'tokens', 'ttft', 'speed'],
+    isAvailable: (ctx) => !ctx.isVSCode,
+  },
+  {
     id: 'chat.spellcheck',
     page: 'chat',
     titleKey: 'settings.openchamber.visual.field.enableSpellcheckInTextInputs',

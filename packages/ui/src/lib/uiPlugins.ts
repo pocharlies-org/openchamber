@@ -10,6 +10,23 @@ export type SideConversationContribution = {
   closePolicy: 'confirm-if-nonempty';
 };
 
+export type UIPluginSupportStatus = 'supported' | 'unsupported';
+export type UIPluginRuntime = 'web' | 'desktop' | 'vscode' | 'hostedMobile' | 'capacitorMobile';
+
+export type ComposerMetricsContribution = {
+  id: string;
+  placement: 'footer';
+  mobile: 'compact';
+  updateIntervalMs: number;
+  support: {
+    web: UIPluginSupportStatus;
+    desktop: UIPluginSupportStatus;
+    vscode: UIPluginSupportStatus;
+    hostedMobile: UIPluginSupportStatus;
+    capacitorMobile: UIPluginSupportStatus;
+  };
+};
+
 export type OpenChamberUIPluginManifestV1 = {
   schemaVersion: 1;
   id: string;
@@ -17,7 +34,10 @@ export type OpenChamberUIPluginManifestV1 = {
   displayName: LocalizedText;
   description: LocalizedText;
   engines: { openchamber: string };
-  contributes: { sideConversations?: SideConversationContribution[] };
+  contributes: {
+    sideConversations?: SideConversationContribution[];
+    composerMetrics?: ComposerMetricsContribution[];
+  };
 };
 
 export const BUILTIN_SIDE_CHAT_UI_PLUGIN: OpenChamberUIPluginManifestV1 = {
@@ -43,8 +63,36 @@ export const BUILTIN_SIDE_CHAT_UI_PLUGIN: OpenChamberUIPluginManifestV1 = {
   },
 };
 
+export const BUILTIN_STREAM_METRICS_UI_PLUGIN: OpenChamberUIPluginManifestV1 = {
+  schemaVersion: 1,
+  id: '@pocharlies/openchamber-stream-metrics',
+  version: '0.1.0',
+  displayName: { default: 'Stream Metrics', es: 'Métricas de streaming' },
+  description: {
+    default: 'Show live and final response metrics in the composer footer.',
+    es: 'Muestra métricas en vivo y finales de la respuesta en el pie del compositor.',
+  },
+  engines: { openchamber: '>=1.18.2' },
+  contributes: {
+    composerMetrics: [{
+      id: 'stream-metrics',
+      placement: 'footer',
+      mobile: 'compact',
+      updateIntervalMs: 250,
+      support: {
+        web: 'supported',
+        desktop: 'supported',
+        vscode: 'unsupported',
+        hostedMobile: 'supported',
+        capacitorMobile: 'supported',
+      },
+    }],
+  },
+};
+
 const manifests = new Map<string, OpenChamberUIPluginManifestV1>([
   [BUILTIN_SIDE_CHAT_UI_PLUGIN.id, BUILTIN_SIDE_CHAT_UI_PLUGIN],
+  [BUILTIN_STREAM_METRICS_UI_PLUGIN.id, BUILTIN_STREAM_METRICS_UI_PLUGIN],
 ]);
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -79,6 +127,30 @@ export const parseUIPluginManifest = (value: unknown): OpenChamberUIPluginManife
       throw new Error(`Invalid side-conversation contribution: ${value.id}`);
     }
   }
+  const composerMetrics = value.contributes.composerMetrics;
+  if (composerMetrics !== undefined && !Array.isArray(composerMetrics)) {
+    throw new Error(`Invalid composer-metrics contributions: ${value.id}`);
+  }
+  for (const contribution of composerMetrics ?? []) {
+    const support = isRecord(contribution) ? contribution.support : null;
+    const supportKeys = support ? Object.keys(support) : [];
+    const supportValues = support ? Object.values(support) : [];
+    if (!isRecord(contribution)
+      || typeof contribution.id !== 'string'
+      || !/^[a-z][a-z0-9-]*$/.test(contribution.id)
+      || contribution.placement !== 'footer'
+      || contribution.mobile !== 'compact'
+      || typeof contribution.updateIntervalMs !== 'number'
+      || !Number.isInteger(contribution.updateIntervalMs)
+      || contribution.updateIntervalMs < 100
+      || contribution.updateIntervalMs > 2_000
+      || !support
+      || supportKeys.length !== 5
+      || !['web', 'desktop', 'vscode', 'hostedMobile', 'capacitorMobile'].every((key) => supportKeys.includes(key))
+      || !supportValues.every((status) => status === 'supported' || status === 'unsupported')) {
+      throw new Error(`Invalid composer-metrics contribution: ${value.id}`);
+    }
+  }
   return value as OpenChamberUIPluginManifestV1;
 };
 
@@ -104,3 +176,14 @@ export const getSideConversationContribution = (
   }
   return null;
 };
+
+export const getComposerMetricsContributions = (
+  pluginManifests: readonly OpenChamberUIPluginManifestV1[] = getRegisteredUIPluginManifests(),
+): ComposerMetricsContribution[] => pluginManifests.flatMap(
+  (plugin) => plugin.contributes.composerMetrics ?? [],
+);
+
+export const isComposerMetricsContributionSupported = (
+  contribution: ComposerMetricsContribution,
+  runtime: UIPluginRuntime,
+): boolean => contribution.support[runtime] === 'supported';

@@ -185,6 +185,17 @@ Important properties:
 
 ## Ownership Rules
 
+### Declarative UI plugin catalog
+
+`useUIPluginsStore.ts` owns the authenticated declarative UI-plugin catalog and
+per-client enablement. Its built-in fallback contains Side Chat and Stream
+Metrics, so a transient catalog failure preserves usable contributions instead
+of becoming authoritative empty state. Successful refreshes replace the full
+validated catalog; stale runtime responses are rejected by generation. Only
+disabled plugin IDs are persisted. Web, Desktop, hosted mobile, and Capacitor
+load the active runtime's catalog, while VS Code has a stable unsupported
+Stream Metrics policy and performs no metric tracking.
+
 These rules are important. Breaking them tends to reintroduce idle CPU churn, stale UI, or rerender fanout.
 
 1. No broad `directories` or `entries` subscriptions in normal UI components.

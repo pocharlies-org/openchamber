@@ -64,6 +64,10 @@
         "to": "web-dist"
       },
       {
+        "from": "resources/ui-plugins",
+        "to": "ui-plugins"
+      },
+      {
         "from": "resources/icons/icon.ico",
         "to": "icons/icon.ico"
       },
