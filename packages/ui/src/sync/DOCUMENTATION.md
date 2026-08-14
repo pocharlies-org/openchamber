@@ -578,6 +578,22 @@ The profiler also emits a user-timing mark when pending global-session recency i
 
 Streaming assistant and reasoning text is throttled once before reaching the markdown renderer. The renderer incrementally reconciles changed markdown blocks but does not add a second character-pacing timer, which would multiply parse/morph work while catching up on large streamed chunks.
 
+`stream-metrics.ts` owns the client-observed response timing used by declarative
+composer metric contributions. An optimistic send begins TTFT only after the
+local send is accepted and the user message ID exists. Text, reasoning, or a
+non-pending tool fixes first-visible time exactly once; administrative and empty
+events do not. Live output tokens are explicitly estimated from incremental text
+character counts, while final assistant token fields replace them and recalculate
+exact speed even when they arrive after `session.idle`. When a client opens an
+already materialized session, the latest completed assistant message hydrates
+its authoritative token counters without inventing TTFT, speed, character, or
+byte measurements that this client did not observe. Counters and part state
+are isolated by runtime, normalized directory, session, turn, and assistant
+message, and bounded cleanup handles deletion, reconnect, runtime switching,
+cancellation, and error. SSE ingestion updates counters outside React in O(1)
+per ordinary delta and publishes only dirty session snapshots at the manifest's
+throttled interval (250 ms for the built-in plugin).
+
 The event pipeline delivers each ordered per-directory flush as one reducer batch. Events retain their individual notifications, cleanup, routing, materialization, and debug side effects, while directory mutations accumulate in order and publish one store transaction per touched directory. Global session mutations and live status, ordering, and timing transitions also accumulate in event order and each owner publishes at most once for the flush. Each top-level state slice is cloned lazily at most once in that batch; no-op events do not change references.
 
 A sustained stream is flushed at most every 100ms (`FLUSH_FRAME_MS`); the first event after a quiet spell is flushed at once, so a lone permission or status event is never held back. The interval matches the 100ms at which streamed text is shown: each flush publishes the directory store and re-renders the streaming message, so a shorter interval pays for renders that change nothing on screen. Measure with `bun run profile:session` against the fixture provider before changing it.

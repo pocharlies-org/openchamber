@@ -12,9 +12,13 @@ import { setExternallyViewedSession } from '@/sync/sync-context';
 import { useSync } from '@/sync/use-sync';
 import { isServerOwnedMessageQueue } from '@/stores/messageQueueStore';
 import { useUIPluginsStore } from '@/stores/useUIPluginsStore';
+import { findEnabledComposerMetricsContributions, useUIPluginsStore } from '@/stores/useUIPluginsStore';
+import { isDesktopShell, isVSCodeRuntime } from '@/lib/desktop';
+import { isCapacitorApp } from '@/lib/platform';
+import { isComposerMetricsContributionSupported, type UIPluginRuntime } from '@/lib/uiPlugins';
 import { useUIStore } from '@/stores/useUIStore';
-import { isVSCodeRuntime } from '@/lib/desktop';
 import { subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
+import { streamMetrics } from '@/sync/stream-metrics';
 
 const MINI_CHAT_PRESENCE_CHANNEL = 'openchamber:mini-chat-presence';
 
@@ -91,11 +95,30 @@ export function SyncAppEffects({ backgroundWorkEnabled }: {
   const isMobile = useUIStore((state) => state.isMobile);
 
   React.useEffect(() => {
-    if (isMobile || isVSCodeRuntime()) return;
+    const configure = () => {
+      const runtime: UIPluginRuntime = isVSCodeRuntime()
+        ? 'vscode'
+        : isMobile
+          ? isCapacitorApp() ? 'capacitorMobile' : 'hostedMobile'
+          : isDesktopShell() ? 'desktop' : 'web';
+      const contributions = findEnabledComposerMetricsContributions(useUIPluginsStore.getState())
+        .filter((contribution) => isComposerMetricsContributionSupported(contribution, runtime));
+      const interval = contributions.reduce(
+        (minimum, contribution) => Math.min(minimum, contribution.updateIntervalMs),
+        Number.POSITIVE_INFINITY,
+      );
+      streamMetrics.setEnabled(contributions.length > 0, Number.isFinite(interval) ? interval : undefined);
+    };
+    configure();
+    return useUIPluginsStore.subscribe(configure);
+  }, [isMobile]);
+
+  React.useEffect(() => {
+    if (isVSCodeRuntime()) return;
     const loadCatalog = () => { void useUIPluginsStore.getState().loadCatalog(); };
     loadCatalog();
     return subscribeRuntimeEndpointChanged(loadCatalog);
-  }, [isMobile]);
+  }, []);
 
   return (
     <>

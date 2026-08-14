@@ -90,7 +90,7 @@ IPC results if its endpoint changes while the read is pending.
 | `ssh-manager.mjs` | SSH host import, connection lifecycle, tunnel/port forwarding helpers |
 | `scripts/electron-dev.mjs` | Desktop dev launcher with Vite HMR support |
 | `scripts/ensure-electron.mjs` | Verifies the installed Electron binary is complete and repairs it via the postinstall under Bun |
-| `scripts/build-web-assets.mjs` | Builds `packages/web` and stages UI assets into `resources/web-dist` |
+| `scripts/build-web-assets.mjs` | Builds `packages/web` and stages UI assets plus declarative UI-plugin manifests into packaged resources |
 | `scripts/prepare-opencode-cli.mjs` | Downloads and stages the pinned OpenCode CLI into `resources/opencode-cli` |
 | `scripts/opencode-cli-version.mjs` | Reads the pinned OpenCode CLI version and parses `opencode --version` output |
 | `scripts/bundle-main.mjs` | Bundles Electron main code into `dist-bundle/{entry,main,early-startup}.mjs` for packaging |
@@ -166,7 +166,7 @@ bun run electron:build
 
 That runs, in order:
 
-1. `build:web-assets` to build the web UI and copy it into `packages/electron/resources/web-dist`.
+1. `build:web-assets` to build the web UI, copy it into `packages/electron/resources/web-dist`, and stage both built-in declarative UI-plugin manifests in `packages/electron/resources/ui-plugins`.
 2. `prepare:opencode-cli` to download/cache the pinned OpenCode CLI and copy it into `packages/electron/resources/opencode-cli`.
 3. `bundle:main` to create `packages/electron/dist-bundle/{entry,main,early-startup}.mjs`.
 4. `rebuild:native` to rebuild native modules for Electron.

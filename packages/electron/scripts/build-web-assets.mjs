@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { stageUIPluginManifests } from './stage-ui-plugin-manifests.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -9,9 +10,11 @@ const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, '..', '..', '..');
 const webDir = path.join(repoRoot, 'packages', 'web');
 const electronDir = path.join(repoRoot, 'packages', 'electron');
+const pluginsDir = path.join(repoRoot, 'plugins');
 
 const resourcesDir = path.join(electronDir, 'resources');
 const resourcesWebDistDir = path.join(resourcesDir, 'web-dist');
+const resourcesUIPluginsDir = path.join(resourcesDir, 'ui-plugins');
 const webDistDir = path.join(webDir, 'dist');
 
 const quoteWindowsCommandArg = (value) => `"${String(value).replace(/"/g, '""')}"`;
@@ -86,5 +89,7 @@ const stagedWebDistDir = await fs.mkdtemp(path.join(resourcesDir, 'web-dist-stag
 await copyDir(webDistDir, stagedWebDistDir);
 await removeDir(resourcesWebDistDir);
 await fs.rename(stagedWebDistDir, resourcesWebDistDir);
+await stageUIPluginManifests({ pluginsDir, destinationDir: resourcesUIPluginsDir });
 
 console.log(`[electron] web assets ready: ${resourcesWebDistDir}`);
+console.log(`[electron] UI plugin manifests ready: ${resourcesUIPluginsDir}`);

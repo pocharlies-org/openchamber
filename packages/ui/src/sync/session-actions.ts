@@ -55,6 +55,7 @@ import { recordSessionActionFailure } from "./session-action-failures"
 import { applyForkInheritance } from "@/lib/sessionForkInheritance"
 import { getSessionGoal } from "@/lib/sessionGoalMetadata"
 import { fetchGoalObjectiveContent, writeGoalObjectiveFile } from "@/lib/goalObjectiveFiles"
+import { streamMetrics } from "./stream-metrics"
 
 const MESSAGE_REFETCH_LIMIT = 100
 const SEND_CONFIRMATION_REFETCH_LIMIT = 30
@@ -2060,6 +2061,16 @@ export async function optimisticSend(input: {
     },
   })
 
+  streamMetrics.begin({
+    runtimeKey: input.runtimeKey ?? getRuntimeKey(),
+    directory: targetDirectory ?? "",
+    sessionId: input.sessionId,
+    turnId: messageID,
+    userMessageId: messageID,
+    providerId: input.providerID,
+    modelId: input.modelID,
+  })
+
   try {
     assertRuntimeUnchanged()
     await input.send(messageID, context)
@@ -2081,6 +2092,12 @@ export async function optimisticSend(input: {
       }
       return
     }
+
+    streamMetrics.finish({
+      runtimeKey: input.runtimeKey ?? getRuntimeKey(),
+      directory: targetDirectory ?? "",
+      sessionId: input.sessionId,
+    }, "error")
 
     // The rollback below makes the user's message disappear with no other
     // trace, and the composer intentionally stays silent for transport-level
@@ -2211,6 +2228,7 @@ export async function abortCurrentOperation(sessionId: string): Promise<void> {
   const { directory } = dirStoreForSession(sessionId)
   try {
     await opencodeClient.abortSession(sessionId, directory)
+    streamMetrics.finish({ runtimeKey: getRuntimeKey(), directory: directory ?? "", sessionId }, "cancelled")
   } catch (error) {
     console.error("[session-actions] abort failed", error)
   }

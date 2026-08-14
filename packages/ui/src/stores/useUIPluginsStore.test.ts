@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test';
-import { BUILTIN_SIDE_CHAT_UI_PLUGIN } from '@/lib/uiPlugins';
+import { BUILTIN_SIDE_CHAT_UI_PLUGIN, BUILTIN_STREAM_METRICS_UI_PLUGIN } from '@/lib/uiPlugins';
 
 const originalFetch = globalThis.fetch;
 const originalConsoleError = console.error;
@@ -9,6 +9,7 @@ mock.module('@/lib/runtime-fetch', () => ({
 
 const {
   findEnabledSideConversationContribution,
+  findEnabledComposerMetricsContributions,
   isUIPluginEnabled,
   useUIPluginsStore,
 } = await import('./useUIPluginsStore');
@@ -22,7 +23,7 @@ describe('useUIPluginsStore', () => {
   beforeEach(() => {
     console.error = mock(() => undefined);
     useUIPluginsStore.setState({
-      catalog: [BUILTIN_SIDE_CHAT_UI_PLUGIN],
+      catalog: [BUILTIN_SIDE_CHAT_UI_PLUGIN, BUILTIN_STREAM_METRICS_UI_PLUGIN],
       disabledPluginIds: [],
       isLoading: false,
       loadError: false,
@@ -61,9 +62,17 @@ describe('useUIPluginsStore', () => {
     const state = useUIPluginsStore.getState();
     expect(isUIPluginEnabled(state, BUILTIN_SIDE_CHAT_UI_PLUGIN.id)).toBe(false);
     expect(findEnabledSideConversationContribution(state, 'btw')).toBeNull();
-    expect(state.catalog).toHaveLength(1);
+    expect(state.catalog).toHaveLength(2);
     useUIPluginsStore.getState().setPluginEnabled(BUILTIN_SIDE_CHAT_UI_PLUGIN.id, true);
     expect(findEnabledSideConversationContribution(useUIPluginsStore.getState(), 'side')).not.toBeNull();
+  });
+
+  test('stream metrics is enabled by default and can be disabled per client', () => {
+    expect(findEnabledComposerMetricsContributions(useUIPluginsStore.getState())).toHaveLength(1);
+    useUIPluginsStore.getState().setPluginEnabled(BUILTIN_STREAM_METRICS_UI_PLUGIN.id, false);
+    expect(findEnabledComposerMetricsContributions(useUIPluginsStore.getState())).toHaveLength(0);
+    useUIPluginsStore.getState().setPluginEnabled(BUILTIN_STREAM_METRICS_UI_PLUGIN.id, true);
+    expect(findEnabledComposerMetricsContributions(useUIPluginsStore.getState())).toHaveLength(1);
   });
 
   test('a stale catalog response cannot overwrite a newer runtime response', async () => {
