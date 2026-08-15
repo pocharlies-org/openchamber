@@ -37,6 +37,7 @@ import type { ComposerLanguageContext } from '../language/tokenize';
 import { composerLanguage, setLanguageContext } from './composerLanguage';
 import type { ComposerEditorViewStore } from './viewStore';
 import { composerEditorTheme, composerSelectionExtension } from './theme';
+import { ghostTextExtension } from './ghostText';
 import { handleComposerHostMouseDown } from './hostMouseDown';
 
 export interface ComposerSelection {
@@ -97,6 +98,11 @@ export interface ComposerEditorProps {
     /** Lines of text shown before the editor starts scrolling. */
     maxLines?: number;
     /**
+     * A suggestion drawn past the last character as unwritten text. It never
+     * enters the document; the caller inserts it if the user takes it.
+     */
+    ghostText?: string;
+    /**
      * Selector of the ancestor the composer must never outgrow. The cap is
      * measured — the ancestor's height minus the chrome around the editor,
      * both read from the DOM — and the smaller of it and `maxLines` wins.
@@ -148,6 +154,7 @@ function isDeferredSyntheticEvent(event: KeyboardEvent): boolean {
  */
 const editableCompartment = new Compartment();
 const placeholderCompartment = new Compartment();
+const ghostTextCompartment = new Compartment();
 
 export const ComposerEditor = React.forwardRef<ComposerEditorHandle, ComposerEditorProps>(
     function ComposerEditor(props, ref) {
@@ -161,6 +168,7 @@ export const ComposerEditor = React.forwardRef<ComposerEditorHandle, ComposerEdi
             autoCapitalize = 'none',
             fillContainer = false,
             maxLines = 8,
+            ghostText,
             boundSelector,
             boundGapPx = 0,
             className,
@@ -253,6 +261,9 @@ export const ComposerEditor = React.forwardRef<ComposerEditorHandle, ComposerEdi
                         ),
                         placeholderCompartment.of(
                             placeholderExtension(handlersRef.current.placeholder ?? ''),
+                        ),
+                        ghostTextCompartment.of(
+                            ghostTextExtension(handlersRef.current.ghostText ?? ''),
                         ),
                         composerEditorTheme,
                         EditorView.updateListener.of((update) => {
@@ -390,6 +401,12 @@ export const ComposerEditor = React.forwardRef<ComposerEditorHandle, ComposerEdi
                 effects: placeholderCompartment.reconfigure(placeholderExtension(placeholder ?? '')),
             });
         }, [placeholder]);
+
+        React.useEffect(() => {
+            viewRef.current?.dispatch({
+                effects: ghostTextCompartment.reconfigure(ghostTextExtension(ghostText ?? '')),
+            });
+        }, [ghostText]);
 
         // Grow with the content up to `maxLines`, then scroll. The limit is
         // measured from the rendered line height rather than assumed, so it

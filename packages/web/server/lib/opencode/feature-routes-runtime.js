@@ -1,6 +1,7 @@
 import { registerFsRoutes } from '../fs/routes.js';
 import { registerQuotaRoutes } from '../quota/routes.js';
 import { registerSmallModelRoutes } from '../small-model/routes.js';
+import { registerComposerGhostRoutes } from '../composer-ghost/routes.js';
 import { registerWalkthroughRoutes } from '../walkthrough/routes.js';
 import { registerSessionGoalRoutes } from '../session-goal/routes.js';
 import { registerGitHubRoutes } from '../github/routes.js';
@@ -71,6 +72,14 @@ export const createFeatureRoutesRuntime = (dependencies) => {
       smallModelService = await import('../small-model/index.js');
     }
     return smallModelService;
+  };
+
+  let composerGhostService = null;
+  const getComposerGhostService = async () => {
+    if (!composerGhostService) {
+      composerGhostService = await import('../composer-ghost/ghost.js');
+    }
+    return composerGhostService;
   };
 
   let walkthroughService = null;
@@ -300,6 +309,7 @@ export const createFeatureRoutesRuntime = (dependencies) => {
 
     registerQuotaRoutes(app, { getQuotaProviders });
     registerSmallModelRoutes(app, { getSmallModelService });
+    registerComposerGhostRoutes(app, { getComposerGhostService, resolveOptionalProjectDirectory });
     registerWalkthroughRoutes(app, { getWalkthroughService });
     registerSessionGoalRoutes(app);
     registerGitHubRoutes(app);
