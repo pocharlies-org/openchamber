@@ -179,6 +179,7 @@ import {
     filterMissingInlineAttachments,
 } from './composer/attachments/inlineMentionAttachments';
 import { buildComposerContext, buildOutgoingMessage } from './composer/submit/buildOutgoingMessage';
+import { useComposerGhost } from './composer/ghost/useComposerGhost';
 import {
     buildCommandVariables,
     canRunCommand,
@@ -1187,6 +1188,20 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     const { phase: currentSessionPhase } = useSessionActivity(currentSessionId, currentSessionDirectoryForSync ?? currentDirectory ?? undefined);
     const { phase: btwSessionPhase } = useSessionActivity(btwSessionId, btwDirectory ?? undefined);
     const sessionPhase = isBtwActive ? btwSessionPhase : currentSessionPhase;
+    const ghost = useComposerGhost({
+        sessionId: currentSessionId,
+        directory: currentSessionDirectoryForSync ?? currentDirectory,
+        draft: message,
+        phase: sessionPhase,
+        enabled: inputMode === 'normal',
+    });
+
+    // A picker owns Tab while it is open, so a ghost waiting for the same key
+    // would leave the user with no way to tell which one they are about to take.
+    const clearGhost = ghost.clear;
+    React.useEffect(() => {
+        if (openAutocomplete !== null) clearGhost();
+    }, [openAutocomplete, clearGhost]);
     const autoReviewRunning = useAutoReviewStore(React.useCallback((state) => {
         if (!currentSessionId) return false;
         const run = state.runsByOriginalSessionID[currentSessionId];
@@ -2330,6 +2345,23 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             e.preventDefault();
             e.stopPropagation();
             handleExitBtw();
+            return;
+        }
+
+        // Past every picker: Tab belongs to the ghost only when none of them
+        // claimed it above.
+        if (e.key === 'Tab' && !e.shiftKey && openAutocomplete === null && ghost.suggestion && composerRef.current) {
+            e.preventDefault();
+            e.stopPropagation();
+            const accepted = ghost.accept();
+            if (accepted) {
+                const editor = composerRef.current;
+                // The suggestion is drawn past the last character, so that is
+                // where taking it has to put the text.
+                const end = editor.getValue().length;
+                editor.replaceRange(end, end, accepted);
+                editor.focus();
+            }
             return;
         }
 
@@ -4146,6 +4178,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                                     cursorPosRef.current = selection.start;
                                     updateAutocompleteOverlayPosition();
                                 }}
+                                ghostText={ghost.suggestion ?? undefined}
                                 onFocus={mobileShell.onEditorFocus}
                                 onBlur={() => {
                                     largeTextPasteGesture.invalidate();

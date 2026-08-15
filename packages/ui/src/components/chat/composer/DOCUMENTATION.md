@@ -162,6 +162,7 @@ does not hide its entry actions behind the chat header.
 | `language/` | What the text *means*: `@` references, `/` and `#` tokens, markdown, and which picker a caret asks for |
 | `editor/` | The CodeMirror view that renders the language and owns the caret |
 | `state/` | Composer-local lifecycle state: ArrowUp/ArrowDown browsing, draft stash/restore, mobile shell, popup placement, draft targeting |
+| `ghost/` | The suggestion drawn behind the caret: when to ask for it, and what comes back |
 | `comment/` | Mobile comment mode: quoted-selection state, its scope ownership, and the shell that replaces the composer while a comment is written |
 | `submit/` | Turning what the user has into what gets sent. `guestCommands.ts` routes an extension's slash command (`contributes.commands`) before anything is sent: `/name args` never reaches the model, the extension resolves it into a chip |
 | `attachments/` | Files: paths, drop payloads |
@@ -545,6 +546,36 @@ one app-wide composer state is split per column:
   keystrokes away from the main chat.
 - **Stop prompt.** `armAbortPrompt` arms for a given session. A composer
   clears the prompt of the session it leaves, never another column's.
+## Ghost autocomplete
+
+`ghost/` predicts the text the user would type next and draws it behind the
+caret. `Tab` takes it; anything else dismisses it. The suggestion is a
+CodeMirror widget past the last character, never document text — `getValue()`
+cannot return it, so an unaccepted suggestion can never be sent.
+
+Three things about it are load-bearing:
+
+- **It is asked for on a slow cadence and when a turn settles — never per
+  keystroke.** A completion here costs seconds against the same endpoint the
+  session itself uses. Per-keystroke triggering would queue answers for drafts
+  the user has already moved past.
+- **Nothing is requested unless the window is visible and focused.** The poll
+  keeps ticking in a hidden tab and does no work, so a workspace left open
+  overnight costs nothing.
+- **The request is a stable prefix followed by the varying tail**: fixed system
+  message, conversation, then the draft with a fixed instruction appended after
+  it. Between polls the only bytes that move are the ones the user typed, which
+  is what lets the endpoint reuse a cached prefix. Adding anything that varies
+  ahead of the draft — a timestamp, a request id — defeats that silently, with
+  no failure to notice.
+
+An empty draft is a first-class case, not a skip: right after a turn settles
+there is no draft, and a whole suggested next message is the most useful thing
+the feature does.
+
+The server side is `packages/web/server/lib/composer-ghost/`. It is not
+`small-model`: that module sends `max_tokens`, which a reasoning model spends
+entirely on reasoning before answering with `content: null`.
 
 ## Mobile
 
