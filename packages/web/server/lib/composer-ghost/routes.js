@@ -1,10 +1,16 @@
-export function registerComposerGhostRoutes(app, { getComposerGhostService, resolveOptionalProjectDirectory }) {
+export function registerComposerGhostRoutes(app, { getComposerGhostService, validateDirectoryPath }) {
   app.post('/api/composer/ghost', async (req, res) => {
     try {
       const { generateComposerGhost } = await getComposerGhostService();
-      const directory = typeof req.body?.directory === 'string' && req.body.directory
-        ? (resolveOptionalProjectDirectory?.(req.body.directory) ?? req.body.directory)
-        : undefined;
+      const requestedDirectory = typeof req.body?.directory === 'string' ? req.body.directory.trim() : '';
+      let directory;
+      if (requestedDirectory) {
+        const validated = await validateDirectoryPath(requestedDirectory);
+        if (!validated.ok) {
+          return res.status(400).json({ error: validated.error });
+        }
+        directory = validated.directory;
+      }
 
       const result = await generateComposerGhost({
         directory,

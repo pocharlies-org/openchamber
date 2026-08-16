@@ -418,7 +418,7 @@ export const createFeatureRoutesRuntime = (dependencies) => {
 
     registerQuotaRoutes(app, { getQuotaProviders });
     registerSmallModelRoutes(app, { getSmallModelService });
-    registerComposerGhostRoutes(app, { getComposerGhostService, resolveOptionalProjectDirectory });
+    registerComposerGhostRoutes(app, { getComposerGhostService, validateDirectoryPath });
     registerSessionGoalRoutes(app);
     const gitBinary = resolveGitBinaryForSpawn();
     const gitlabAuthStore = createSourceControlAuthStore({
