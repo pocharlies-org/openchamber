@@ -2232,6 +2232,7 @@ export const dict: Record<I18nKey, string> = {
   'chat.chatInput.actions.stopGeneratingAria': '停止生成',
   'chat.chatInput.focusMode.toggleAria': '切换专注模式',
   'chat.chatInput.focusMode.label': '专注模式',
+  'chat.chatInput.ghost.accept': '采用建议',
   'chat.chatInput.permissionAutoAccept.disable': '关闭权限自动接受',
   'chat.chatInput.permissionAutoAccept.enable': '开启权限自动接受',
   'chat.chatInput.permissionAutoAccept.on': '权限自动接受：开',

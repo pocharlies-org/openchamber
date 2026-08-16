@@ -2262,6 +2262,7 @@ export const dict: Record<I18nKey, string> = {
   'chat.chatInput.actions.stopGeneratingAria': '生成を停止',
   'chat.chatInput.focusMode.toggleAria': 'フォーカスモードの切り替え',
   'chat.chatInput.focusMode.label': 'フォーカスモード',
+  'chat.chatInput.ghost.accept': '提案を採用',
   'chat.chatInput.permissionAutoAccept.disable': '権限の自動承認を無効にする',
   'chat.chatInput.permissionAutoAccept.enable': '権限の自動承認を有効にする',
   'chat.chatInput.permissionAutoAccept.on': '権限の自動承認: オン',

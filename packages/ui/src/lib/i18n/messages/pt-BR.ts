@@ -2244,6 +2244,7 @@ export const dict: Record<I18nKey, string> = {
   "chat.chatInput.actions.stopGeneratingAria": "Parar geração",
   "chat.chatInput.focusMode.toggleAria": "Ativar ou desativar modo de foco",
   "chat.chatInput.focusMode.label": "Modo de foco",
+  "chat.chatInput.ghost.accept": "Aceitar sugestao",
   "chat.chatInput.permissionAutoAccept.disable": "Desativar aceitação automática de permissões",
   "chat.chatInput.permissionAutoAccept.enable": "Ativar aceitação automática de permissões",
   "chat.chatInput.permissionAutoAccept.on": "Aceitação automática de permissões: ativada",

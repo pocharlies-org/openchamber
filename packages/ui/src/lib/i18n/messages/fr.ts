@@ -1986,6 +1986,7 @@ export const dict = {
   'chat.chatInput.actions.stopGeneratingAria': 'Arrêter de générer',
   'chat.chatInput.focusMode.toggleAria': 'Basculer le mode de mise au point',
   'chat.chatInput.focusMode.label': 'Mode de mise au point',
+  'chat.chatInput.ghost.accept': 'Accepter la suggestion',
   'chat.chatInput.permissionAutoAccept.disable': 'Désactiver l\'acceptation automatique des autorisations',
   'chat.chatInput.permissionAutoAccept.enable': 'Activer l\'acceptation automatique des autorisations',
   'chat.chatInput.permissionAutoAccept.on': 'Acceptation automatique des autorisations : activée',
