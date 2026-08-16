@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
+import { registerComposerGhostRoutes } from '../composer-ghost/routes.js';
 import { createTunnelAuth } from './tunnel-auth.js';
 import { registerAuthAndAccessRoutes, registerCommonRequestMiddleware, registerServerStatusRoutes } from './core-routes.js';
 
@@ -155,6 +156,33 @@ describe('core-routes', () => {
           models: { fast: { name: 'Fast' } },
         },
       },
+    });
+  });
+
+  it('should parse JSON bodies before the composer ghost route', async () => {
+    const app = express();
+    const generateComposerGhost = vi.fn(async () => ({ text: 'continua con las pruebas' }));
+    registerCommonRequestMiddleware(app, { express });
+    registerComposerGhostRoutes(app, {
+      getComposerGhostService: async () => ({ generateComposerGhost }),
+      resolveOptionalProjectDirectory: (directory) => directory,
+    });
+
+    const messages = [
+      { role: 'system', content: 'Complete the prompt.' },
+      { role: 'user', content: 'vale, ahora' },
+    ];
+    await request(app)
+      .post('/api/composer/ghost')
+      .send({ messages, directory: '/repo' })
+      .expect(200, { text: 'continua con las pruebas' });
+
+    expect(generateComposerGhost).toHaveBeenCalledWith({
+      directory: '/repo',
+      messages,
+      model: undefined,
+      maxCompletionTokens: undefined,
+      promptCacheKey: undefined,
     });
   });
 
