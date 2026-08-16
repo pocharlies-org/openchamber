@@ -162,10 +162,15 @@ describe('core-routes', () => {
   it('should parse JSON bodies before the composer ghost route', async () => {
     const app = express();
     const generateComposerGhost = vi.fn(async () => ({ text: 'continua con las pruebas' }));
+    const validateDirectoryPath = vi.fn(async (directory) => ({
+      ok: true,
+      directory,
+      error: null,
+    }));
     registerCommonRequestMiddleware(app, { express });
     registerComposerGhostRoutes(app, {
       getComposerGhostService: async () => ({ generateComposerGhost }),
-      resolveOptionalProjectDirectory: (directory) => directory,
+      validateDirectoryPath,
     });
 
     const messages = [
@@ -177,6 +182,7 @@ describe('core-routes', () => {
       .send({ messages, directory: '/repo' })
       .expect(200, { text: 'continua con las pruebas' });
 
+    expect(validateDirectoryPath).toHaveBeenCalledWith('/repo');
     expect(generateComposerGhost).toHaveBeenCalledWith({
       directory: '/repo',
       messages,

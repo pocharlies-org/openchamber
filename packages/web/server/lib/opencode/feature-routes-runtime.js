@@ -309,7 +309,7 @@ export const createFeatureRoutesRuntime = (dependencies) => {
 
     registerQuotaRoutes(app, { getQuotaProviders });
     registerSmallModelRoutes(app, { getSmallModelService });
-    registerComposerGhostRoutes(app, { getComposerGhostService, resolveOptionalProjectDirectory });
+    registerComposerGhostRoutes(app, { getComposerGhostService, validateDirectoryPath });
     registerWalkthroughRoutes(app, { getWalkthroughService });
     registerSessionGoalRoutes(app);
     registerGitHubRoutes(app);
