@@ -167,6 +167,8 @@ import {
     filterMissingInlineAttachments,
 } from './composer/attachments/inlineMentionAttachments';
 import { buildComposerContext, buildOutgoingMessage } from './composer/submit/buildOutgoingMessage';
+import { buildOutgoingMessage } from './composer/submit/buildOutgoingMessage';
+import { insertGhostSuggestion } from './composer/ghost/acceptGhost';
 import { useComposerGhost } from './composer/ghost/useComposerGhost';
 import {
     buildCommandVariables,
@@ -1210,6 +1212,16 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         phase: sessionPhase,
         enabled: inputMode === 'normal',
     });
+
+    // The one path that takes a suggestion. `Tab` and the footer button — which
+    // exists because phones have no Tab — both go through here, so the insert
+    // cannot drift into two versions. The offset itself lives in
+    // `insertGhostSuggestion`, where it is tested.
+    const acceptGhost = ghost.accept;
+    const acceptGhostSuggestion = React.useCallback(
+        () => insertGhostSuggestion(composerRef.current, acceptGhost()),
+        [acceptGhost],
+    );
 
     // A picker owns Tab while it is open, so a ghost waiting for the same key
     // would leave the user with no way to tell which one they are about to take.
@@ -2393,15 +2405,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         if (e.key === 'Tab' && !e.shiftKey && openAutocomplete === null && ghost.suggestion && composerRef.current) {
             e.preventDefault();
             e.stopPropagation();
-            const accepted = ghost.accept();
-            if (accepted) {
-                const editor = composerRef.current;
-                // The suggestion is drawn past the last character, so that is
-                // where taking it has to put the text.
-                const end = editor.getValue().length;
-                editor.replaceRange(end, end, accepted);
-                editor.focus();
-            }
+            acceptGhostSuggestion();
             return;
         }
 
@@ -4119,6 +4123,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                         canSend={canSend}
                         canAbort={canAbort}
                         hasContent={Boolean(hasContent)}
+                        canAcceptGhost={Boolean(ghost.suggestion)}
+                        onAcceptGhost={acceptGhostSuggestion}
                         isExpandedInput={isExpandedInput}
                         permissionMode={shownPermissionMode}
                         isPermissionAutoAcceptInteractive={isPermissionAutoAcceptInteractive}
