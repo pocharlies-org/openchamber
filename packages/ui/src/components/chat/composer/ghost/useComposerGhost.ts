@@ -1,9 +1,9 @@
 /**
  * Drives the composer's ghost suggestion.
  *
- * The suggestion is asked for after typing settles and the moment a turn
- * finishes. Typing requests have a cost floor so bursts cannot turn a slow
- * completion into a queue of paid work.
+ * The suggestion is asked for after 15 seconds of focused inactivity with an
+ * empty composer, and the moment a turn finishes. Identical inputs are asked
+ * only once, including misses.
  *
  * Nothing is requested unless the window is actually in front of the user, so
  * a workspace left open overnight costs nothing.
@@ -11,14 +11,11 @@
 
 import React from 'react';
 import { runtimeFetch } from '@/lib/runtime-fetch';
-import { getSyncMessages, getSyncParts } from '@/sync/sync-refs';
 import {
-    buildGhostMessages,
     ghostFingerprint,
     sanitizeGhostTextForCurrentDraft,
-    turnsFromMessages,
 } from './ghostCompletion';
-import { createGhostRequestGate, ghostTypingDebounceMs } from './ghostRequestTiming';
+import { createGhostRequestGate, ghostIdlePollMs } from './ghostRequestTiming';
 
 export interface UseComposerGhostOptions {
     sessionId: string | null;
@@ -52,7 +49,8 @@ export function useComposerGhost({
     const [suggestion, setSuggestion] = React.useState<string | null>(null);
 
     const suggestionRef = React.useRef<string | null>(null);
-    const fingerprintRef = React.useRef<string | null>(null);
+    const serverRevisionRef = React.useRef({ generation: 0, turnCount: 0 });
+    const requestedFingerprintRef = React.useRef<string | null>(null);
     const inFlightRef = React.useRef<AbortController | null>(null);
     const draftRef = React.useRef(draft);
     const requestGateRef = React.useRef<ReturnType<typeof createGhostRequestGate> | null>(null);
@@ -60,7 +58,6 @@ export function useComposerGhost({
 
     const clear = React.useCallback(() => {
         suggestionRef.current = null;
-        fingerprintRef.current = null;
         setSuggestion(null);
     }, []);
 
@@ -76,12 +73,14 @@ export function useComposerGhost({
         inFlightRef.current?.abort();
         inFlightRef.current = null;
         requestGateRef.current = createGhostRequestGate();
+        requestedFingerprintRef.current = null;
+        serverRevisionRef.current = { generation: 0, turnCount: 0 };
         clear();
     }, [sessionId, directory, clear]);
 
     React.useEffect(() => () => inFlightRef.current?.abort(), []);
 
-    const request = React.useCallback(async (requestedDraft?: string) => {
+    const request = React.useCallback(async (requestedDraft?: string, reconcileHistory = false) => {
         if (!enabled || !sessionId) return;
         if (!isWindowInFront()) return;
         if (inFlightRef.current) return;
@@ -89,67 +88,85 @@ export function useComposerGhost({
         if (requestGate.delay(Date.now(), 0) > 0) return;
 
         const currentDraft = requestedDraft ?? draftRef.current;
-        const turns = turnsFromMessages(
-            getSyncMessages(sessionId, directory),
-            (messageId) => getSyncParts(messageId, directory),
-        );
-        // With neither history nor a draft there is nothing to predict from.
-        if (turns.length === 0 && !currentDraft.trim()) return;
-
-        const fingerprint = ghostFingerprint(turns, currentDraft);
-        // Same input as the suggestion already on screen: asking again would
-        // buy the same answer.
-        if (suggestionRef.current !== null && fingerprintRef.current === fingerprint) return;
+        const serverRevision = serverRevisionRef.current;
+        const fingerprint = ghostFingerprint(serverRevision.generation, serverRevision.turnCount, currentDraft);
+        if (!reconcileHistory && serverRevision.generation > 0 && requestedFingerprintRef.current === fingerprint) return;
 
         const controller = new AbortController();
         inFlightRef.current = controller;
+        requestedFingerprintRef.current = fingerprint;
         requestGate.markStarted(Date.now());
         try {
             const response = await runtimeFetch('/api/composer/ghost', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
+                    sessionId,
                     directory,
-                    messages: buildGhostMessages(turns, currentDraft),
-                    // Stable for the whole session so repeated polls present
-                    // the endpoint with the same cache identity.
-                    promptCacheKey: `openchamber-ghost:${directory ?? ''}:${sessionId}`,
+                    draft: currentDraft,
                 }),
                 signal: controller.signal,
             });
             if (!response.ok) return;
 
-            const payload = await response.json() as { text?: string | null };
+            const payload = await response.json() as {
+                text?: string | null;
+                generation?: number;
+                turnCount?: number;
+                prefixHash?: string;
+            };
             if (controller.signal.aborted || inFlightRef.current !== controller) return;
+            if (!isWindowInFront()) return;
+            if (Number.isFinite(payload.generation) && Number.isFinite(payload.turnCount)) {
+                const nextRevision = { generation: payload.generation!, turnCount: payload.turnCount! };
+                serverRevisionRef.current = nextRevision;
+                requestedFingerprintRef.current = ghostFingerprint(
+                    nextRevision.generation,
+                    nextRevision.turnCount,
+                    currentDraft,
+                );
+            }
+            if (payload.prefixHash) console.debug('[composer-ghost] prefix', payload.prefixHash);
             const latestDraft = draftRef.current;
-            const text = sanitizeGhostTextForCurrentDraft(payload?.text, currentDraft, latestDraft);
+            const text = sanitizeGhostTextForCurrentDraft(payload.text, currentDraft, latestDraft);
             if (!text) return;
 
             suggestionRef.current = text;
-            fingerprintRef.current = ghostFingerprint(turns, latestDraft);
             setSuggestion(text);
         } catch {
-            // Aborted, offline, rate-limited: a ghost that cannot be produced
-            // is simply not shown. Never surfaced to the user.
+            // Ghost suggestions fail silently.
         } finally {
             if (inFlightRef.current === controller) inFlightRef.current = null;
         }
     }, [directory, enabled, sessionId]);
 
     React.useEffect(() => {
-        if (!enabled || !sessionId || !draft.trim()) return;
-        let timer: ReturnType<typeof setTimeout>;
-        const attempt = () => {
-            const delay = requestGateRef.current!.delay(Date.now(), 0);
-            if (delay > 0) {
-                timer = setTimeout(attempt, delay);
-                return;
-            }
-            void request();
+        if (!enabled || !sessionId || phase !== 'idle' || draft.trim()) return;
+        let timer: ReturnType<typeof setInterval> | undefined;
+        const stop = () => {
+            if (timer) clearInterval(timer);
+            timer = undefined;
+            inFlightRef.current?.abort();
+            inFlightRef.current = null;
+            clear();
         };
-        timer = setTimeout(attempt, ghostTypingDebounceMs());
-        return () => clearTimeout(timer);
-    }, [draft, enabled, request, sessionId]);
+        const start = () => {
+            stop();
+            if (!isWindowInFront()) return;
+            timer = setInterval(() => { void request(''); }, ghostIdlePollMs());
+        };
+        const handleActivity = () => start();
+        window.addEventListener('focus', handleActivity);
+        window.addEventListener('blur', stop);
+        document.addEventListener('visibilitychange', handleActivity);
+        start();
+        return () => {
+            stop();
+            window.removeEventListener('focus', handleActivity);
+            window.removeEventListener('blur', stop);
+            document.removeEventListener('visibilitychange', handleActivity);
+        };
+    }, [clear, draft, enabled, phase, request, sessionId]);
 
     // A turn settling is the moment the next prompt is worth guessing.
     const previousPhaseRef = React.useRef(phase);
@@ -158,6 +175,7 @@ export function useComposerGhost({
         previousPhaseRef.current = phase;
         if (previous === 'idle' || phase !== 'idle') return;
         const settledDraft = draftRef.current;
+        let remainingReconciliations = 1;
         let timer: ReturnType<typeof setTimeout>;
         const attempt = () => {
             const delay = requestGateRef.current!.delay(Date.now(), 0);
@@ -165,7 +183,11 @@ export function useComposerGhost({
                 timer = setTimeout(attempt, delay);
                 return;
             }
-            void request(settledDraft);
+            void request(settledDraft, true);
+            if (remainingReconciliations > 0) {
+                remainingReconciliations -= 1;
+                timer = setTimeout(attempt, ghostIdlePollMs() + 1);
+            }
         };
         attempt();
         return () => clearTimeout(timer);
