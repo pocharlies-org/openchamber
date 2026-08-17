@@ -91,6 +91,17 @@ describe('generateComposerGhost', () => {
     expect(JSON.parse(fetchMock.mock.calls[1][1].body)).not.toHaveProperty('prompt_cache_key');
   });
 
+  it('preserves a long server-built prefix and the empty draft boundary', async () => {
+    const longMessages = [
+      { role: 'system', content: 'base' },
+      ...Array.from({ length: 45 }, (_, index) => ({ role: index % 2 ? 'assistant' : 'user', content: `turn-${index}` })),
+      { role: 'user', content: '' },
+      { role: 'user', content: 'suffix' },
+    ];
+    await generateComposerGhost({ directory: '/repo', messages: longMessages });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).messages).toEqual(longMessages);
+  });
+
   it('clamps the completion budget', async () => {
     await generateComposerGhost({ directory: '/repo', messages, maxCompletionTokens: 99999 });
     expect(JSON.parse(fetchMock.mock.calls[0][1].body).max_completion_tokens).toBe(512);
@@ -107,7 +118,7 @@ describe('generateComposerGhost', () => {
 
   it('surfaces cache usage when the endpoint reports it', async () => {
     const result = await generateComposerGhost({ directory: '/repo', messages });
-    expect(result).toMatchObject({ cachedTokens: 128, promptTokens: 210, model: 'agent' });
+    expect(result).toMatchObject({ cachedTokens: 128, promptTokens: 210, model: 'gpt-5.4-mini' });
   });
 
   it('uses the model from the environment when set', async () => {

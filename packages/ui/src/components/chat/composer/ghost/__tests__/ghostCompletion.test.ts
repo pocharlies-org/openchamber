@@ -100,18 +100,15 @@ describe('buildGhostMessages', () => {
 
 describe('ghostFingerprint', () => {
     test('changes with the draft', () => {
-        const turns = [{ role: 'user' as const, text: 'hola' }];
-        expect(ghostFingerprint(turns, 'a')).not.toBe(ghostFingerprint(turns, 'ab'));
+        expect(ghostFingerprint(0, 1, 'a')).not.toBe(ghostFingerprint(0, 1, 'ab'));
     });
 
     test('changes when the history grows', () => {
-        const draft = 'a';
-        const before = ghostFingerprint([{ role: 'user', text: 'hola' }], draft);
-        const after = ghostFingerprint(
-            [{ role: 'user', text: 'hola' }, { role: 'assistant', text: 'listo' }],
-            draft,
-        );
-        expect(before).not.toBe(after);
+        expect(ghostFingerprint(0, 1, '')).not.toBe(ghostFingerprint(0, 2, ''));
+    });
+
+    test('changes when the server compacts the prefix', () => {
+        expect(ghostFingerprint(0, 10, '')).not.toBe(ghostFingerprint(1, 10, ''));
     });
 });
 
