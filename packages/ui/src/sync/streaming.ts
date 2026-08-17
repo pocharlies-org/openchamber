@@ -25,17 +25,24 @@ export type StreamingStore = {
   streamingMessageIds: Map<string, string | null>
   /** Lifecycle phase per message */
   messageStreamStates: Map<string, MessageStreamState>
+  /** Latest observed message or part event, including status-less fallback turns */
+  messageActivityAt: Map<string, number>
 }
 
 export const useStreamingStore = create<StreamingStore>()(() => ({
   streamingMessageIds: new Map(),
   messageStreamStates: new Map(),
+  messageActivityAt: new Map(),
 }))
 
+let lastMessageActivityPruneAt = 0
+
 export function resetStreamingState() {
+  lastMessageActivityPruneAt = 0
   useStreamingStore.setState({
     streamingMessageIds: new Map(),
     messageStreamStates: new Map(),
+    messageActivityAt: new Map(),
   })
 }
 
@@ -45,6 +52,8 @@ export function resetStreamingState() {
  */
 /** Only update lastUpdateAt every this many ms to avoid 60Hz store churn */
 const STREAMING_HEARTBEAT_MS = 1000
+export const MESSAGE_ACTIVITY_STALE_MS = 90_000
+const MESSAGE_ACTIVITY_PRUNE_MS = 30_000
 
 const findTrailingAssistantMessage = (messages: Message[] | undefined): Message | null => {
   if (!messages) return null
@@ -261,4 +270,21 @@ export function touchStreamingSession(sessionID: string, now = Date.now()): void
   messageStreamStates.set(messageID, { ...existing, lastUpdateAt: now })
   countSyncPerformance("streamingHeartbeatCommits")
   useStreamingStore.setState({ messageStreamStates })
+}
+
+export function touchMessageActivity(messageID: string, now = Date.now()): void {
+  const current = useStreamingStore.getState()
+  const existing = current.messageActivityAt.get(messageID)
+  const shouldPrune = now - lastMessageActivityPruneAt >= MESSAGE_ACTIVITY_PRUNE_MS
+  if (!shouldPrune && existing !== undefined && now - existing < STREAMING_HEARTBEAT_MS) return
+
+  const messageActivityAt = new Map(current.messageActivityAt)
+  if (shouldPrune) {
+    for (const [trackedMessageID, activityAt] of messageActivityAt) {
+      if (now - activityAt > MESSAGE_ACTIVITY_STALE_MS) messageActivityAt.delete(trackedMessageID)
+    }
+    lastMessageActivityPruneAt = now
+  }
+  messageActivityAt.set(messageID, now)
+  useStreamingStore.setState({ messageActivityAt })
 }

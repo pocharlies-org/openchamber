@@ -3,6 +3,8 @@ import type { Message, SessionStatus } from "@opencode-ai/sdk/v2/client"
 import { INITIAL_STATE, type State } from "./types"
 import {
   touchStreamingSession,
+  touchMessageActivity,
+  resetStreamingState,
   updateChangedStreamingSessions,
   updateStreamingState,
   useStreamingStore,
@@ -31,10 +33,7 @@ const stateWithMessages = (messages: Message[], status: SessionStatus = { type: 
 describe("updateStreamingState", () => {
   beforeEach(() => {
     setSyncPerformanceDiagnosticsEnabled(false)
-    useStreamingStore.setState({
-      streamingMessageIds: new Map(),
-      messageStreamStates: new Map(),
-    })
+    resetStreamingState()
   })
 
   test("does not mark a previous assistant message as streaming during a new user turn", () => {
@@ -142,6 +141,27 @@ describe("updateStreamingState", () => {
     expect(getSyncPerformanceDiagnostics()?.streamingHeartbeatCommits).toBe(1)
     expect(getSyncPerformanceDiagnostics()?.streamingFullReconciliations).toBe(0)
     expect(getSyncPerformanceDiagnostics()?.streamingSessionCandidatesVisited).toBe(0)
+  })
+
+  test("tracks message activity without an authoritative streaming session", () => {
+    touchMessageActivity("msg_assistant_1", 1_000)
+    touchMessageActivity("msg_assistant_1", 1_999)
+    touchMessageActivity("msg_assistant_1", 2_000)
+
+    expect(useStreamingStore.getState().messageActivityAt.get("msg_assistant_1")).toBe(2_000)
+    expect(useStreamingStore.getState().streamingMessageIds.size).toBe(0)
+    expect(useStreamingStore.getState().messageStreamStates.size).toBe(0)
+  })
+
+  test("periodically prunes stale message activity", () => {
+    touchMessageActivity("msg_stale", 1)
+    touchMessageActivity("msg_recent", 90_001)
+    touchMessageActivity("msg_current", 120_001)
+
+    const activity = useStreamingStore.getState().messageActivityAt
+    expect(activity.has("msg_stale")).toBe(false)
+    expect(activity.get("msg_recent")).toBe(90_001)
+    expect(activity.get("msg_current")).toBe(120_001)
   })
 
   test("incrementally completes a replaced assistant message", () => {

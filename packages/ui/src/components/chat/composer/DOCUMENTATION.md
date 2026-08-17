@@ -157,6 +157,11 @@ The following behavior is load-bearing:
   resolving to idle does not bypass the 15-second wait. Identical
   history-generation/turn-count/draft fingerprints are requested only once,
   including model misses, and requests retain a 30-second start-to-start floor.
+- **An unfinished assistant record is only a temporary activity fallback.** An
+  attached error settles it immediately. Without an error it remains active
+  while its message/part heartbeat is newer than 90 seconds, then expires so a
+  process-crash orphan cannot silence autocomplete forever. Authoritative
+  busy/retry status still wins and is never expired by this fallback timeout.
 - **Nothing is requested unless the window is visible and focused.** The idle
   interval is stopped while hidden or blurred and restarts its full 15-second
   wait when the workspace returns to the foreground.

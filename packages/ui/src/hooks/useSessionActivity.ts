@@ -1,9 +1,25 @@
 import React from 'react';
+import type { Message } from '@opencode-ai/sdk/v2/client';
+import { useDurationTickerNow } from '@/hooks/useDurationTicker';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useSessionStatus, useSessionMessages, useSessionPermissions, useSessionQuestions } from '@/sync/sync-context';
+import { MESSAGE_ACTIVITY_STALE_MS, useStreamingStore } from '@/sync/streaming';
 
 // Mirrors OpenCode SessionStatus: busy|retry|idle.
 type SessionActivityPhase = 'idle' | 'busy' | 'retry';
+export function isIncompleteAssistantWorking(
+  message: Message | undefined,
+  now: number,
+  lastUpdateAt?: number,
+): boolean {
+  if (!message || message.role !== 'assistant') return false;
+  if (typeof message.time?.completed === 'number' || message.error !== undefined) return false;
+
+  const activityAt = typeof lastUpdateAt === 'number' && Number.isFinite(lastUpdateAt)
+    ? Math.max(message.time.created, lastUpdateAt)
+    : message.time.created;
+  return now - activityAt <= MESSAGE_ACTIVITY_STALE_MS;
+}
 
 export interface SessionActivityResult {
   phase: SessionActivityPhase;
@@ -41,6 +57,17 @@ export function useSessionActivity(sessionId: string | null | undefined, directo
   const messages = useSessionMessages(sessionId ?? '', directory);
   const permissions = useSessionPermissions(sessionId ?? '', directory);
   const questions = useSessionQuestions(sessionId ?? '', directory);
+  const lastMessage = messages[messages.length - 1];
+  const lastAssistantId = lastMessage?.role === 'assistant' ? lastMessage.id : null;
+  const lastAssistantActivityAt = useStreamingStore(React.useCallback(
+    (state) => lastAssistantId ? state.messageActivityAt.get(lastAssistantId) : undefined,
+    [lastAssistantId],
+  ));
+  const needsFallbackClock = status === undefined
+    && lastMessage?.role === 'assistant'
+    && typeof lastMessage.time?.completed !== 'number'
+    && lastMessage.error === undefined;
+  const now = useDurationTickerNow(needsFallbackClock, 5_000);
 
   return React.useMemo<SessionActivityResult>(() => {
     if (!sessionId) return IDLE_RESULT;
@@ -58,12 +85,7 @@ export function useSessionActivity(sessionId: string | null | undefined, directo
 
     // Only trust the trailing assistant message as a transient fallback while
     // waiting for session.status/message.updated to settle.
-    const lastMessage = messages[messages.length - 1];
-    const hasPendingAssistant = Boolean(
-      lastMessage
-      && lastMessage.role === 'assistant'
-      && typeof (lastMessage as { time?: { completed?: number } }).time?.completed !== 'number',
-    );
+    const hasPendingAssistant = isIncompleteAssistantWorking(lastMessage, now, lastAssistantActivityAt);
 
     const statusWorking = hasAuthoritativeStatus && phase !== 'idle';
     const isWorking = statusWorking || hasPendingAssistant;
@@ -80,7 +102,7 @@ export function useSessionActivity(sessionId: string | null | undefined, directo
       isBusy: phase === 'busy' || (!statusWorking && hasPendingAssistant),
       isCooldown: false,
     };
-  }, [sessionId, status, messages, permissions, questions]);
+  }, [sessionId, status, permissions, questions, lastMessage, now, lastAssistantActivityAt]);
 }
 
 export function useCurrentSessionActivity(): SessionActivityResult {
