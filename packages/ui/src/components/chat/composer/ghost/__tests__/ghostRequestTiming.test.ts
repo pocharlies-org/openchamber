@@ -1,6 +1,13 @@
 import { describe, expect, test } from 'bun:test';
 
-import { createGhostRequestGate, ghostIdlePollMs, ghostRequestDelay } from '../ghostRequestTiming';
+import {
+    createGhostRequestGate,
+    ghostIdlePollMs,
+    ghostRequestDelay,
+    isAuthoritativeGhostSettle,
+    shouldRunGhostIdle,
+    shouldScheduleGhostIdle,
+} from '../ghostRequestTiming';
 
 const IDLE_POLL_MS = ghostIdlePollMs();
 const MIN_INTERVAL_MS = 30_000;
@@ -40,5 +47,33 @@ describe('createGhostRequestGate', () => {
         gate.markStarted(11_500);
         expect(gate.delay(12_000, 0)).toBe(29_500);
         expect(gate.delay(12_000, IDLE_POLL_MS)).toBe(29_500);
+    });
+});
+
+describe('shouldScheduleGhostIdle', () => {
+    test('arms for an empty enabled session independently of session activity', () => {
+        expect(shouldScheduleGhostIdle({ enabled: true, sessionId: 'ses_1', draft: '' })).toBe(true);
+    });
+
+    test('does not arm without a session, while disabled, or with a non-empty draft', () => {
+        expect(shouldScheduleGhostIdle({ enabled: true, sessionId: null, draft: '' })).toBe(false);
+        expect(shouldScheduleGhostIdle({ enabled: false, sessionId: 'ses_1', draft: '' })).toBe(false);
+        expect(shouldScheduleGhostIdle({ enabled: true, sessionId: 'ses_1', draft: 'next' })).toBe(false);
+    });
+
+    test('allows unknown startup activity but stops an active phase after server reconciliation', () => {
+        expect(shouldRunGhostIdle('busy', false, false)).toBe(true);
+        expect(shouldRunGhostIdle('retry', false, false)).toBe(true);
+        expect(shouldRunGhostIdle('busy', true, false)).toBe(false);
+        expect(shouldRunGhostIdle('retry', true, false)).toBe(false);
+        expect(shouldRunGhostIdle('busy', false, true)).toBe(false);
+        expect(shouldRunGhostIdle('idle', true, true)).toBe(true);
+    });
+
+    test('treats only authoritative active-to-idle transitions as settled turns', () => {
+        expect(isAuthoritativeGhostSettle('busy', true, 'idle')).toBe(true);
+        expect(isAuthoritativeGhostSettle('retry', true, 'idle')).toBe(true);
+        expect(isAuthoritativeGhostSettle('busy', false, 'idle')).toBe(false);
+        expect(isAuthoritativeGhostSettle('idle', true, 'idle')).toBe(false);
     });
 });
