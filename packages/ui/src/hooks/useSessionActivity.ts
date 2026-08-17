@@ -8,8 +8,6 @@ type SessionActivityPhase = 'idle' | 'busy' | 'retry';
 
 export interface SessionActivityResult {
   phase: SessionActivityPhase;
-  authoritativePhase: SessionActivityPhase | null;
-  hasAuthoritativeStatus: boolean;
   isWorking: boolean;
   isBusy: boolean;
   isCooldown: boolean;
@@ -17,16 +15,9 @@ export interface SessionActivityResult {
 
 const IDLE_RESULT: SessionActivityResult = {
   phase: 'idle',
-  authoritativePhase: null,
-  hasAuthoritativeStatus: false,
   isWorking: false,
   isBusy: false,
   isCooldown: false,
-};
-const AUTHORITATIVE_IDLE_RESULT: SessionActivityResult = {
-  ...IDLE_RESULT,
-  authoritativePhase: 'idle',
-  hasAuthoritativeStatus: true,
 };
 
 /**
@@ -46,16 +37,11 @@ export function useSessionActivity(sessionId: string | null | undefined, directo
   return React.useMemo<SessionActivityResult>(() => {
     if (!sessionId) return IDLE_RESULT;
 
-    const phase: SessionActivityPhase = (status?.type ?? 'idle') as SessionActivityPhase;
-    const hasAuthoritativeStatus = status !== undefined;
-
     // Permissions or forms pending → idle (the blocking indicator takes
     // priority and the send button must remain a send, not a stop).
-    if (permissions.length > 0 || forms.length > 0) {
-      return hasAuthoritativeStatus
-        ? { ...AUTHORITATIVE_IDLE_RESULT, authoritativePhase: phase }
-        : IDLE_RESULT;
-    }
+    if (permissions.length > 0 || forms.length > 0) return IDLE_RESULT;
+
+    const phase: SessionActivityPhase = (status?.type ?? 'idle') as SessionActivityPhase;
 
     // Only trust the trailing assistant message as a transient fallback while
     // waiting for session.status/message.updated to settle.
@@ -63,17 +49,16 @@ export function useSessionActivity(sessionId: string | null | undefined, directo
     // landing after the streaming assistant must not read as the turn ending.
     const hasPendingAssistant = isIncompleteAssistantTurn(getLastConversationMessage(messages));
 
+    const hasAuthoritativeStatus = status !== undefined;
     const statusWorking = hasAuthoritativeStatus && phase !== 'idle';
     const isWorking = statusWorking || hasPendingAssistant;
 
-    if (hasAuthoritativeStatus && !statusWorking) return AUTHORITATIVE_IDLE_RESULT;
+    if (hasAuthoritativeStatus && !statusWorking) return IDLE_RESULT;
 
     if (!isWorking) return IDLE_RESULT;
 
     return {
       phase: statusWorking ? phase : 'busy',
-      authoritativePhase: hasAuthoritativeStatus ? phase : null,
-      hasAuthoritativeStatus,
       isWorking: true,
       isBusy: phase === 'busy' || (!statusWorking && hasPendingAssistant),
       isCooldown: false,
