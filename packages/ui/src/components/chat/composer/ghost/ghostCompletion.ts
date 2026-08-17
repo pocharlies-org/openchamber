@@ -145,3 +145,27 @@ export function sanitizeGhostText(raw: string | null | undefined, draft: string)
         && !/^[\s.,;:!?)\]}]/.test(text);
     return needsSpace ? ` ${text}` : text;
 }
+
+/**
+ * Reconcile a completion with typing that raced its request. Edits elsewhere
+ * make the answer stale; a strict append can consume the overlap the user
+ * already typed and retain only the still-useful tail.
+ */
+export function sanitizeGhostTextForCurrentDraft(
+    raw: string | null | undefined,
+    requestedDraft: string,
+    currentDraft: string,
+): string | null {
+    if (currentDraft === requestedDraft) return sanitizeGhostText(raw, currentDraft);
+    if (!currentDraft.startsWith(requestedDraft)) return null;
+
+    const requestedSuggestion = sanitizeGhostText(raw, requestedDraft);
+    if (!requestedSuggestion) return null;
+
+    const typedSinceRequest = currentDraft.slice(requestedDraft.length);
+    if (requestedSuggestion.startsWith(typedSinceRequest)) {
+        return requestedSuggestion.slice(typedSinceRequest.length) || null;
+    }
+
+    return sanitizeGhostText(raw, currentDraft);
+}

@@ -148,13 +148,14 @@ cannot return it, so an unaccepted suggestion can never be sent.
 
 Three things about it are load-bearing:
 
-- **It is asked for on a slow cadence and when a turn settles — never per
-  keystroke.** A completion here costs seconds against the same endpoint the
-  session itself uses. Per-keystroke triggering would queue answers for drafts
-  the user has already moved past.
-- **Nothing is requested unless the window is visible and focused.** The poll
-  keeps ticking in a hidden tab and does no work, so a workspace left open
-  overnight costs nothing.
+- **It is asked for 1.5 seconds after typing stops and when a turn settles.**
+  All requests have a 30-second minimum start-to-start interval. The
+  turn-settled trigger remains, without the typing debounce, because it predicts
+  a different, empty-draft message. Editing aborts obsolete work. A late
+  completion is kept only when the current draft strictly extends the requested
+  draft, with any already-typed overlap removed.
+- **Nothing is requested unless the window is visible and focused.** There is
+  no idle poll, so a workspace left open without typing costs nothing.
 - **The request is a stable prefix followed by the varying tail**: fixed system
   message, conversation, then the draft with a fixed instruction appended after
   it. Between polls the only bytes that move are the ones the user typed, which
