@@ -1,8 +1,8 @@
-const GHOST_TYPING_DEBOUNCE_MS = 1_500;
+const GHOST_IDLE_POLL_MS = 15_000;
 const GHOST_REQUEST_MIN_INTERVAL_MS = 30_000;
 
-export function ghostTypingDebounceMs(): number {
-    return GHOST_TYPING_DEBOUNCE_MS;
+export function ghostIdlePollMs(): number {
+    return GHOST_IDLE_POLL_MS;
 }
 
 export interface GhostRequestGate {
