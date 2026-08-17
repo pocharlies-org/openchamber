@@ -150,7 +150,11 @@ The following behavior is load-bearing:
 
 - **The empty composer is the primary case.** While the window is visible and
   focused, 15 seconds of inactivity asks for the whole message the user would
-  send next. A busy-to-idle turn edge remains an immediate trigger. Identical
+  send next. A stale trailing-assistant activity fallback does not suppress the
+  first request, while an authoritative busy/retry status does. After the first
+  server reconciliation, the fallback cannot keep polling. An authoritative
+  busy-to-idle turn edge remains an immediate trigger; a fallback-busy state
+  resolving to idle does not bypass the 15-second wait. Identical
   history-generation/turn-count/draft fingerprints are requested only once,
   including model misses, and requests retain a 30-second start-to-start floor.
 - **Nothing is requested unless the window is visible and focused.** The idle
@@ -165,9 +169,11 @@ The following behavior is load-bearing:
 - **The prompt is BASE + append-only LEDGER + DRAFT + fixed SUFFIX.** BASE is
   the versioned system prompt plus the first user message (2 KB maximum). BASE
   plus LEDGER has a 16 KB budget; crossing it deterministically rebases below
-  8 KB on turn boundaries, preserving BASE, every retained user message, the
-  first sentence of older assistant messages, and the newest turns verbatim.
-  Tool output and synthetic text never enter the ledger.
+  8 KB on turn boundaries. BASE has absolute priority, followed by whole user
+  messages from newest to oldest, then first sentences from assistant messages.
+  Entries that do not fit are dropped rather than summarized, and even an
+  oversized user-only history degrades to a bounded prompt instead of rejecting
+  autocomplete. Tool output and synthetic text never enter the ledger.
 - Every request reports `prefixHash`, `prefixBytes`, `generation`, and
   `turnCount`. The hash can prove byte stability; `cachedTokens` cannot prove
   cache reuse because the deployed provider commonly reports it as null/zero.

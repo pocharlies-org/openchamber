@@ -60,24 +60,29 @@ const prefixMessages = (state) => [
 const prefixBytes = (state) => byteLength(JSON.stringify(prefixMessages(state)));
 
 const compactLedger = (state) => {
-  const compacted = state.ledger.map((turn) => ({ ...turn }));
-  let compactedPrefixEnd = 0;
-  for (let index = 0; index < compacted.length; index += 1) {
-    if (compacted[index].role !== 'assistant') continue;
-    compacted[index].text = firstSentence(compacted[index].text);
-    if (prefixBytes({ ...state, ledger: compacted }) <= GHOST_COMPACT_TARGET_BYTES) {
-      compactedPrefixEnd = index + 1;
-      break;
-    }
+  while (prefixBytes({ ...state, ledger: [] }) > GHOST_COMPACT_TARGET_BYTES && state.firstUser) {
+    state.firstUser = truncateUtf8(state.firstUser, Math.max(0, byteLength(state.firstUser) - 256));
   }
-  if (prefixBytes({ ...state, ledger: compacted }) > GHOST_COMPACT_TARGET_BYTES) {
-    const error = new Error('Ghost user context exceeds the deterministic compaction budget');
-    error.statusCode = 409;
-    error.code = 'ghost_context_budget_exceeded';
-    throw error;
+
+  const retained = [];
+  const retainIfItFits = (turn) => {
+    const candidate = [...retained, turn].sort((left, right) => left.index - right.index);
+    if (prefixBytes({ ...state, ledger: candidate }) > GHOST_COMPACT_TARGET_BYTES) return false;
+    retained.push(turn);
+    return true;
+  };
+  for (let index = state.ledger.length - 1; index >= 0; index -= 1) {
+    const turn = state.ledger[index];
+    if (turn.role === 'user') retainIfItFits({ ...turn, index });
   }
-  state.ledger = compacted;
-  state.compactedPrefixEnd = compactedPrefixEnd;
+  for (let index = state.ledger.length - 1; index >= 0; index -= 1) {
+    const turn = state.ledger[index];
+    if (turn.role === 'assistant') retainIfItFits({ ...turn, text: firstSentence(turn.text), index });
+  }
+  state.ledger = retained
+    .sort((left, right) => left.index - right.index)
+    .map(({ index: _index, ...turn }) => turn);
+  state.compactedPrefixEnd = state.ledger.length;
   state.generation += 1;
 };
 

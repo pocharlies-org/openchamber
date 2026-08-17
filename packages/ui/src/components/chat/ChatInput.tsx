@@ -856,14 +856,21 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     // composer controls the temporary fork, so the stop button and send-button
     // state follow the FORK's activity; the queue affordance stays tied to the
     // main session (queued messages always belong to the main chat).
-    const { phase: currentSessionPhase } = useCurrentSessionActivity();
+    const {
+        phase: currentSessionPhase,
+        authoritativePhase: sessionAuthoritativePhase,
+        hasAuthoritativeStatus: hasAuthoritativeSessionStatus,
+    } = useCurrentSessionActivity();
     const { phase: btwSessionPhase } = useSessionActivity(btwSessionId, btwDirectory ?? undefined);
     const sessionPhase = isBtwActive ? btwSessionPhase : currentSessionPhase;
+
     const ghost = useComposerGhost({
         sessionId: currentSessionId,
         directory: currentSessionDirectoryForSync ?? currentDirectory,
         draft: message,
         phase: sessionPhase,
+        authoritativePhase: sessionAuthoritativePhase,
+        hasAuthoritativeStatus: hasAuthoritativeSessionStatus,
         enabled: inputMode === 'normal',
     });
 

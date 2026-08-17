@@ -86,7 +86,7 @@ describe('ghost context', () => {
     expect(Buffer.byteLength(state.firstUser)).toBe(GHOST_FIRST_USER_MAX_BYTES);
   });
 
-  it('compacts below 8 KB on turn boundaries and preserves base', () => {
+  it('compacts below 8 KB while prioritizing base and recent user messages', () => {
     const turns = [turn('u1', 'user', 'Original objective')];
     for (let index = 0; index < 32; index += 1) {
       turns.push(turn(`a${index}`, 'assistant', `Sentence ${index}. ${'detail '.repeat(80)}`));
@@ -97,17 +97,39 @@ describe('ghost context', () => {
     expect(prompt.generation).toBeGreaterThan(GHOST_PROMPT_VERSION);
     expect(prompt.prefixBytes).toBeLessThanOrEqual(GHOST_COMPACT_TARGET_BYTES);
     expect(prompt.messages[1]).toEqual({ role: 'user', content: 'Original objective' });
-    expect(state.ledger.filter((entry) => entry.role === 'user').map((entry) => entry.id))
-      .toEqual(turns.slice(1).filter((entry) => entry.role === 'user').map((entry) => entry.id));
+    const retainedUserIds = state.ledger.filter((entry) => entry.role === 'user').map((entry) => entry.id);
+    expect(retainedUserIds).toContain('u33');
     expect(state.ledger.at(-1).text).toBe(turns.at(-1).text);
     expect(state.ledger.every((entry) => entry.text.length > 0)).toBe(true);
   });
 
-  it('fails explicitly when user messages alone cannot fit the 8 KB target', () => {
+  it('degrades oversized user-only history without rewriting retained messages', () => {
     const turns = [turn('u1', 'user', 'Objective')];
     for (let index = 0; index < 40; index += 1) turns.push(turn(`u${index + 2}`, 'user', 'x'.repeat(600)));
-    expect(() => reconcileGhostContext(null, { sessionId: 'ses_1', directory: '/repo', turns }))
-      .toThrow('Ghost user context exceeds the deterministic compaction budget');
+    const state = reconcileGhostContext(null, { sessionId: 'ses_1', directory: '/repo', turns });
+    const prompt = buildGhostPrompt(state, '');
+    const retainedUsers = state.ledger.filter((entry) => entry.role === 'user');
+
+    expect(prompt.prefixBytes).toBeLessThanOrEqual(GHOST_COMPACT_TARGET_BYTES);
+    expect(retainedUsers.length).toBeGreaterThan(0);
+    expect(retainedUsers.length).toBeLessThan(40);
+    expect(retainedUsers.map((entry) => Number(entry.id.slice(1))))
+      .toEqual(Array.from({ length: retainedUsers.length }, (_, index) => 42 - retainedUsers.length + index));
+    expect(retainedUsers.at(-1)).toEqual(turns.at(-1));
+    expect(retainedUsers.every((entry) => entry.text === 'x'.repeat(600))).toBe(true);
+  });
+
+  it('considers older user messages before assistant sentences when a newer user message does not fit', () => {
+    const turns = [
+      turn('u1', 'user', 'Objective'),
+      turn('u2', 'user', 'older user intent'),
+      turn('a1', 'assistant', 'Assistant sentence. Extra detail.'),
+      turn('u3', 'user', 'x'.repeat(20_000)),
+    ];
+    const state = reconcileGhostContext(null, { sessionId: 'ses_1', directory: '/repo', turns });
+
+    expect(state.ledger.map((entry) => entry.id)).toContain('u2');
+    expect(state.ledger.map((entry) => entry.id)).not.toContain('u3');
   });
 
   it('evicts server entries by LRU capacity and TTL', () => {
