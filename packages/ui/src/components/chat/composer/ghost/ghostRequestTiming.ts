@@ -5,6 +5,34 @@ export function ghostIdlePollMs(): number {
     return GHOST_IDLE_POLL_MS;
 }
 
+export function shouldScheduleGhostIdle({
+    enabled,
+    sessionId,
+    draft,
+}: {
+    enabled: boolean;
+    sessionId: string | null;
+    draft: string;
+}): boolean {
+    return enabled && Boolean(sessionId) && !draft.trim();
+}
+
+export function shouldRunGhostIdle(
+    phase: 'idle' | 'busy' | 'retry',
+    hasAuthoritativeStatus: boolean,
+    hasServerRevision: boolean,
+): boolean {
+    return phase === 'idle' || (!hasAuthoritativeStatus && !hasServerRevision);
+}
+
+export function isAuthoritativeGhostSettle(
+    previousPhase: 'idle' | 'busy' | 'retry',
+    previousWasAuthoritative: boolean,
+    phase: 'idle' | 'busy' | 'retry',
+): boolean {
+    return previousWasAuthoritative && previousPhase !== 'idle' && phase === 'idle';
+}
+
 export interface GhostRequestGate {
     delay(now: number, debounceMs: number): number;
     markStarted(now: number): void;

@@ -15,7 +15,13 @@ import {
     ghostFingerprint,
     sanitizeGhostTextForCurrentDraft,
 } from './ghostCompletion';
-import { createGhostRequestGate, ghostIdlePollMs } from './ghostRequestTiming';
+import {
+    createGhostRequestGate,
+    ghostIdlePollMs,
+    isAuthoritativeGhostSettle,
+    shouldRunGhostIdle,
+    shouldScheduleGhostIdle,
+} from './ghostRequestTiming';
 
 export interface UseComposerGhostOptions {
     sessionId: string | null;
@@ -23,6 +29,8 @@ export interface UseComposerGhostOptions {
     draft: string;
     /** Session activity; a busy → idle edge means a turn just finished. */
     phase: 'idle' | 'busy' | 'retry';
+    authoritativePhase: 'idle' | 'busy' | 'retry' | null;
+    hasAuthoritativeStatus: boolean;
     enabled?: boolean;
 }
 
@@ -44,6 +52,8 @@ export function useComposerGhost({
     directory,
     draft,
     phase,
+    authoritativePhase,
+    hasAuthoritativeStatus,
     enabled = true,
 }: UseComposerGhostOptions): ComposerGhost {
     const [suggestion, setSuggestion] = React.useState<string | null>(null);
@@ -141,7 +151,7 @@ export function useComposerGhost({
     }, [directory, enabled, sessionId]);
 
     React.useEffect(() => {
-        if (!enabled || !sessionId || phase !== 'idle' || draft.trim()) return;
+        if (!shouldScheduleGhostIdle({ enabled, sessionId, draft })) return;
         let timer: ReturnType<typeof setInterval> | undefined;
         const stop = () => {
             if (timer) clearInterval(timer);
@@ -152,8 +162,11 @@ export function useComposerGhost({
         };
         const start = () => {
             stop();
-            if (!isWindowInFront()) return;
-            timer = setInterval(() => { void request(''); }, ghostIdlePollMs());
+            if (!isWindowInFront() || !shouldRunGhostIdle(authoritativePhase ?? phase, hasAuthoritativeStatus, false)) return;
+            timer = setInterval(() => {
+                if (!shouldRunGhostIdle(authoritativePhase ?? phase, hasAuthoritativeStatus, serverRevisionRef.current.generation > 0)) return;
+                void request('');
+            }, ghostIdlePollMs());
         };
         const handleActivity = () => start();
         window.addEventListener('focus', handleActivity);
@@ -166,14 +179,27 @@ export function useComposerGhost({
             window.removeEventListener('blur', stop);
             document.removeEventListener('visibilitychange', handleActivity);
         };
-    }, [clear, draft, enabled, phase, request, sessionId]);
+    }, [authoritativePhase, clear, draft, enabled, hasAuthoritativeStatus, phase, request, sessionId]);
 
     // A turn settling is the moment the next prompt is worth guessing.
-    const previousPhaseRef = React.useRef(phase);
+    const effectivePhase = authoritativePhase ?? phase;
+    const previousPhaseRef = React.useRef(effectivePhase);
+    const observedAuthoritativeActiveRef = React.useRef(
+        hasAuthoritativeStatus && effectivePhase !== 'idle',
+    );
+    const settleSessionRef = React.useRef(sessionId);
     React.useEffect(() => {
+        if (settleSessionRef.current !== sessionId) {
+            settleSessionRef.current = sessionId;
+            previousPhaseRef.current = effectivePhase;
+            observedAuthoritativeActiveRef.current = hasAuthoritativeStatus && effectivePhase !== 'idle';
+            return;
+        }
         const previous = previousPhaseRef.current;
-        previousPhaseRef.current = phase;
-        if (previous === 'idle' || phase !== 'idle') return;
+        const previousWasAuthoritative = observedAuthoritativeActiveRef.current;
+        previousPhaseRef.current = effectivePhase;
+        observedAuthoritativeActiveRef.current = hasAuthoritativeStatus && effectivePhase !== 'idle';
+        if (!isAuthoritativeGhostSettle(previous, previousWasAuthoritative, effectivePhase)) return;
         const settledDraft = draftRef.current;
         let remainingReconciliations = 1;
         let timer: ReturnType<typeof setTimeout>;
@@ -191,7 +217,7 @@ export function useComposerGhost({
         };
         attempt();
         return () => clearTimeout(timer);
-    }, [phase, request]);
+    }, [effectivePhase, hasAuthoritativeStatus, request, sessionId]);
 
     const accept = React.useCallback(() => {
         const text = suggestionRef.current;

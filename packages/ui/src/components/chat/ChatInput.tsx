@@ -1187,14 +1187,21 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     // main session (queued messages always belong to the main chat).
     // The column's session: a chat pinned in the side panel shows its own
     // send/stop state, not the main chat's.
-    const { phase: currentSessionPhase } = useSessionActivity(currentSessionId, currentSessionDirectoryForSync ?? currentDirectory ?? undefined);
+    const {
+        phase: currentSessionPhase,
+        authoritativePhase: sessionAuthoritativePhase,
+        hasAuthoritativeStatus: hasAuthoritativeSessionStatus,
+    } = useSessionActivity(currentSessionId, currentSessionDirectoryForSync ?? currentDirectory ?? undefined);
     const { phase: btwSessionPhase } = useSessionActivity(btwSessionId, btwDirectory ?? undefined);
     const sessionPhase = isBtwActive ? btwSessionPhase : currentSessionPhase;
+
     const ghost = useComposerGhost({
         sessionId: currentSessionId,
         directory: currentSessionDirectoryForSync ?? currentDirectory,
         draft: message,
         phase: sessionPhase,
+        authoritativePhase: sessionAuthoritativePhase,
+        hasAuthoritativeStatus: hasAuthoritativeSessionStatus,
         enabled: inputMode === 'normal',
     });
 
