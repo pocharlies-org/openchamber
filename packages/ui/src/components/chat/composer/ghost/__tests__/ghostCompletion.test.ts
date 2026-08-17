@@ -6,6 +6,7 @@ import {
     buildGhostMessages,
     ghostFingerprint,
     sanitizeGhostText,
+    sanitizeGhostTextForCurrentDraft,
     turnsFromMessages,
 } from '../ghostCompletion';
 
@@ -148,5 +149,31 @@ describe('sanitizeGhostText', () => {
 
     test('returns null when the draft was the whole answer', () => {
         expect(sanitizeGhostText('vale, ahora', 'vale, ahora')).toBeNull();
+    });
+});
+
+describe('sanitizeGhostTextForCurrentDraft', () => {
+    test('keeps a late answer when the user only extended the requested draft', () => {
+        expect(sanitizeGhostTextForCurrentDraft(
+            'vale, ahora reviso el stock',
+            'vale',
+            'vale, ahora',
+        )).toBe(' reviso el stock');
+    });
+
+    test('removes overlap from a continuation-only answer', () => {
+        expect(sanitizeGhostTextForCurrentDraft(
+            ', ahora reviso el stock',
+            'vale',
+            'vale, ahora',
+        )).toBe(' reviso el stock');
+    });
+
+    test('drops a late answer after a non-append edit', () => {
+        expect(sanitizeGhostTextForCurrentDraft(
+            'vale, ahora reviso el stock',
+            'vale',
+            'de acuerdo',
+        )).toBeNull();
     });
 });
