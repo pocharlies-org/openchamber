@@ -146,30 +146,38 @@ caret. `Tab` takes it; anything else dismisses it. The suggestion is a
 CodeMirror widget past the last character, never document text — `getValue()`
 cannot return it, so an unaccepted suggestion can never be sent.
 
-Three things about it are load-bearing:
+The following behavior is load-bearing:
 
-- **It is asked for 1.5 seconds after typing stops and when a turn settles.**
-  All requests have a 30-second minimum start-to-start interval. The
-  turn-settled trigger remains, without the typing debounce, because it predicts
-  a different, empty-draft message. Editing aborts obsolete work. A late
-  completion is kept only when the current draft strictly extends the requested
-  draft, with any already-typed overlap removed.
-- **Nothing is requested unless the window is visible and focused.** There is
-  no idle poll, so a workspace left open without typing costs nothing.
-- **The request is a stable prefix followed by the varying tail**: fixed system
-  message, conversation, then the draft with a fixed instruction appended after
-  it. Between polls the only bytes that move are the ones the user typed, which
-  is what lets the endpoint reuse a cached prefix. Adding anything that varies
-  ahead of the draft — a timestamp, a request id — defeats that silently, with
-  no failure to notice.
+- **The empty composer is the primary case.** While the window is visible and
+  focused, 15 seconds of inactivity asks for the whole message the user would
+  send next. A busy-to-idle turn edge remains an immediate trigger. Identical
+  history-generation/turn-count/draft fingerprints are requested only once,
+  including model misses, and requests retain a 30-second start-to-start floor.
+- **Nothing is requested unless the window is visible and focused.** The idle
+  interval is stopped while hidden or blurred and restarts its full 15-second
+  wait when the workspace returns to the foreground.
+- **The server owns the cacheable context per session.** Clients send only the
+  session identity, directory, and draft. The server reconciles authoritative
+  history and suppresses duplicate prefix-and-draft model calls across clients.
+  The server rebuilds deterministically from OpenCode history after restart and
+  retains entries under a one-hour TTL and 100-session LRU bound, so browser and
+  mobile share byte-identical prefixes.
+- **The prompt is BASE + append-only LEDGER + DRAFT + fixed SUFFIX.** BASE is
+  the versioned system prompt plus the first user message (2 KB maximum). BASE
+  plus LEDGER has a 16 KB budget; crossing it deterministically rebases below
+  8 KB on turn boundaries, preserving BASE, every retained user message, the
+  first sentence of older assistant messages, and the newest turns verbatim.
+  Tool output and synthetic text never enter the ledger.
+- Every request reports `prefixHash`, `prefixBytes`, `generation`, and
+  `turnCount`. The hash can prove byte stability; `cachedTokens` cannot prove
+  cache reuse because the deployed provider commonly reports it as null/zero.
 
 An empty draft is a first-class case, not a skip: right after a turn settles
 there is no draft, and a whole suggested next message is the most useful thing
 the feature does.
 
-The server side is `packages/web/server/lib/composer-ghost/`. It is not
-`small-model`: that module sends `max_tokens`, which a reasoning model spends
-entirely on reasoning before answering with `content: null`.
+The server side is `packages/web/server/lib/composer-ghost/`. It defaults to
+`gpt-5.4-mini` and still sends `max_completion_tokens`, never `max_tokens`.
 
 ## Mobile
 

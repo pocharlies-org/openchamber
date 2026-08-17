@@ -8,18 +8,14 @@ import { readConfig } from '../opencode/shared.js';
  * completion against the OpenAI-compatible endpoint the user already
  * configured for OpenCode.
  *
- * This does not go through `small-model`. That module resolves a dozen
- * providers out of `auth.json` and sends `max_tokens`; against a reasoning
- * model `max_tokens` is spent entirely on reasoning and the response comes
- * back with `content: null`. Measured three times. This module sends
- * `max_completion_tokens` + `reasoning_effort` instead, which is what makes
- * the model emit text — do not "simplify" those two params away.
+ * This does not go through `small-model`, which sends `max_tokens`. Reasoning
+ * models can spend that budget without emitting content, so this module must
+ * use `max_completion_tokens` with `reasoning_effort`.
  */
 
-const DEFAULT_MODEL = 'agent';
+const DEFAULT_MODEL = 'gpt-5.4-mini';
 const DEFAULT_MAX_COMPLETION_TOKENS = 256;
 const DEFAULT_TIMEOUT_MS = 30000;
-const MAX_MESSAGES = 40;
 const MAX_TOTAL_CHARS = 120000;
 
 const trimTrailingSlash = (value) => value.replace(/\/+$/, '');
@@ -97,13 +93,11 @@ const sanitizeMessages = (messages) => {
 
   const sanitized = [];
   let total = 0;
-  // Keep the tail: the draft and the turns nearest to it are the ones the
-  // continuation depends on.
-  for (const message of messages.slice(-MAX_MESSAGES)) {
+  for (const message of messages) {
     const role = message?.role;
     const content = message?.content;
     if (role !== 'system' && role !== 'user' && role !== 'assistant') continue;
-    if (typeof content !== 'string' || !content) continue;
+    if (typeof content !== 'string') continue;
     total += content.length;
     if (total > MAX_TOTAL_CHARS) break;
     sanitized.push({ role, content });

@@ -1,14 +1,4 @@
-/**
- * Ghost autocomplete: the prompt, the context it is built from, and the
- * cleanup of what comes back.
- *
- * The request is deliberately shaped as a stable prefix followed by the
- * varying tail: a fixed system message, then the conversation, then the
- * draft with a fixed instruction appended. Everything the model needs to
- * know about the job lives in those two fixed strings, so between polls the
- * only bytes that move are the ones the user typed — which is the
- * precondition for the endpoint reusing a cached prefix.
- */
+/** Ghost completion message formatting, fingerprints, and response cleanup. */
 
 import type { Part } from '@opencode-ai/sdk/v2';
 import { extractTextContent } from '@/components/chat/message/partUtils';
@@ -102,8 +92,8 @@ export function buildGhostMessages(turns: readonly GhostTurn[], draft: string): 
  * the user kept typing is dropped instead of appearing under a caret it no
  * longer fits.
  */
-export function ghostFingerprint(turns: readonly GhostTurn[], draft: string): string {
-    return `${turns.length}:${turns.reduce((total, turn) => total + turn.text.length, 0)}:${draft}`;
+export function ghostFingerprint(generation: number, turnCount: number, draft: string): string {
+    return `${generation}:${turnCount}:${draft}`;
 }
 
 const stripWrappingQuotes = (value: string): string => {

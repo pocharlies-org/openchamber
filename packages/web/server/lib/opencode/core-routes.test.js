@@ -171,25 +171,31 @@ describe('core-routes', () => {
     registerComposerGhostRoutes(app, {
       getComposerGhostService: async () => ({ generateComposerGhost }),
       validateDirectoryPath,
+      buildOpenCodeUrl: () => 'http://opencode.test/session/ses_1/message',
+      getOpenCodeAuthHeaders: () => ({}),
     });
 
-    const messages = [
-      { role: 'system', content: 'Complete the prompt.' },
-      { role: 'user', content: 'vale, ahora' },
-    ];
-    await request(app)
-      .post('/api/composer/ghost')
-      .send({ messages, directory: '/repo' })
-      .expect(200, { text: 'continua con las pruebas' });
+    const originalFetch = globalThis.fetch;
+    try {
+      globalThis.fetch = vi.fn(async () => ({
+        ok: true,
+        json: async () => [{ info: { id: 'u1', role: 'user' }, parts: [{ type: 'text', text: 'vale, ahora' }] }],
+      }));
+      await request(app)
+        .post('/api/composer/ghost')
+        .send({ sessionId: 'ses_1', draft: '', directory: '/repo' })
+        .expect(200);
+      await request(app)
+        .post('/api/composer/ghost')
+        .send({ sessionId: 'ses_1', draft: '', directory: '/repo' })
+        .expect(200);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
 
     expect(validateDirectoryPath).toHaveBeenCalledWith('/repo');
-    expect(generateComposerGhost).toHaveBeenCalledWith({
-      directory: '/repo',
-      messages,
-      model: undefined,
-      maxCompletionTokens: undefined,
-      promptCacheKey: undefined,
-    });
+    expect(generateComposerGhost).toHaveBeenCalledTimes(1);
+    expect(generateComposerGhost).toHaveBeenCalledWith(expect.objectContaining({ directory: '/repo' }));
   });
 
   it('should require API auth before probing loopback preview URLs', async () => {
