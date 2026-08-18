@@ -117,6 +117,7 @@ OPENCODE_HOST=https://myhost:4096 OPENCODE_SKIP_START=true openchamber
 | `OPENCHAMBER_COMPRESS_API` | Set to `true` to force `/api/*` compression, or `false` to disable it. Desktop runtime disables API compression by default to reduce local sidecar CPU use |
 | `OPENCHAMBER_FS_UPLOAD_MAX_BYTES` | Maximum file upload size in bytes (default: 100 MiB) |
 | `OPENCHAMBER_TERMINAL_SHELL` | Preferred terminal shell executable used by the `Auto` setting before platform defaults |
+| `OPENCHAMBER_COMPANY_OFFICE_CONFIG` | Absolute path to a Company Office JSON configuration. The JSON contains roster/runtime paths and a reference to a separate server-only Jira token file; the token itself does not belong in the JSON. The browser receives only the normalized read-only snapshot. See `company-office.config.example.json`. |
 
 </details>
 

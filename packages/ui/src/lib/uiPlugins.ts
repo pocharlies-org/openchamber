@@ -27,6 +27,20 @@ export type ComposerMetricsContribution = {
   };
 };
 
+export type WorkspaceViewContribution = {
+  id: 'company-office';
+  icon: 'home-office';
+  label: LocalizedText;
+  endpoint: '/api/company-office/snapshot';
+  support: {
+    web: UIPluginSupportStatus;
+    desktop: UIPluginSupportStatus;
+    vscode: UIPluginSupportStatus;
+    hostedMobile: UIPluginSupportStatus;
+    capacitorMobile: UIPluginSupportStatus;
+  };
+};
+
 export type OpenChamberUIPluginManifestV1 = {
   schemaVersion: 1;
   id: string;
@@ -37,6 +51,7 @@ export type OpenChamberUIPluginManifestV1 = {
   contributes: {
     sideConversations?: SideConversationContribution[];
     composerMetrics?: ComposerMetricsContribution[];
+    workspaceViews?: WorkspaceViewContribution[];
   };
 };
 
@@ -151,6 +166,27 @@ export const parseUIPluginManifest = (value: unknown): OpenChamberUIPluginManife
       throw new Error(`Invalid composer-metrics contribution: ${value.id}`);
     }
   }
+  const workspaceViews = value.contributes.workspaceViews;
+  if (workspaceViews !== undefined && !Array.isArray(workspaceViews)) {
+    throw new Error(`Invalid workspace-view contributions: ${value.id}`);
+  }
+  for (const contribution of workspaceViews ?? []) {
+    const support = isRecord(contribution) ? contribution.support : null;
+    const supportKeys = support ? Object.keys(support) : [];
+    const supportValues = support ? Object.values(support) : [];
+    if (!isRecord(contribution)
+      || contribution.id !== 'company-office'
+      || contribution.icon !== 'home-office'
+      || !isRecord(contribution.label)
+      || typeof contribution.label.default !== 'string'
+      || contribution.endpoint !== '/api/company-office/snapshot'
+      || !support
+      || supportKeys.length !== 5
+      || !['web', 'desktop', 'vscode', 'hostedMobile', 'capacitorMobile'].every((key) => supportKeys.includes(key))
+      || !supportValues.every((status) => status === 'supported' || status === 'unsupported')) {
+      throw new Error(`Invalid workspace-view contribution: ${value.id}`);
+    }
+  }
   return value as OpenChamberUIPluginManifestV1;
 };
 
@@ -185,5 +221,16 @@ export const getComposerMetricsContributions = (
 
 export const isComposerMetricsContributionSupported = (
   contribution: ComposerMetricsContribution,
+  runtime: UIPluginRuntime,
+): boolean => contribution.support[runtime] === 'supported';
+
+export const getWorkspaceViewContributions = (
+  pluginManifests: readonly OpenChamberUIPluginManifestV1[] = getRegisteredUIPluginManifests(),
+): WorkspaceViewContribution[] => pluginManifests.flatMap(
+  (plugin) => plugin.contributes.workspaceViews ?? [],
+);
+
+export const isWorkspaceViewContributionSupported = (
+  contribution: WorkspaceViewContribution,
   runtime: UIPluginRuntime,
 ): boolean => contribution.support[runtime] === 'supported';

@@ -5,6 +5,7 @@ import {
   getComposerMetricsContributions,
   getRegisteredUIPluginManifests,
   getSideConversationContribution,
+  getWorkspaceViewContributions,
   isComposerMetricsContributionSupported,
   parseUIPluginManifest,
   registerUIPluginManifest,
@@ -80,5 +81,30 @@ describe('declarative UI plugin registry', () => {
     delete (missingContribution.support as Record<string, unknown>).vscode;
     (missingContribution.support as Record<string, unknown>).futureRuntime = 'unsupported';
     expect(() => parseUIPluginManifest(missing)).toThrow('Invalid composer-metrics contribution');
+  });
+
+  test('accepts only the host-owned Company Office workspace route', () => {
+    const manifest = {
+      schemaVersion: 1,
+      id: '@example/company-office',
+      version: '0.1.0',
+      displayName: { default: 'Company Office' },
+      description: { default: 'Company projection' },
+      engines: { openchamber: '>=1.18.2' },
+      contributes: {
+        workspaceViews: [{
+          id: 'company-office',
+          icon: 'home-office',
+          label: { default: 'Company Office' },
+          endpoint: '/api/company-office/snapshot',
+          support: {
+            web: 'supported', desktop: 'supported', vscode: 'unsupported', hostedMobile: 'supported', capacitorMobile: 'supported',
+          },
+        }],
+      },
+    };
+    expect(getWorkspaceViewContributions([parseUIPluginManifest(manifest)])).toHaveLength(1);
+    manifest.contributes.workspaceViews[0]!.endpoint = 'https://example.test/plugin.js';
+    expect(() => parseUIPluginManifest(manifest)).toThrow('Invalid workspace-view contribution');
   });
 });

@@ -72,7 +72,7 @@ bun run electron:build
 
 That runs, in order:
 
-1. `build:web-assets` to build the web UI, copy it into `packages/electron/resources/web-dist`, and stage both built-in declarative UI-plugin manifests in `packages/electron/resources/ui-plugins`.
+1. `build:web-assets` to build the web UI, copy it into `packages/electron/resources/web-dist`, and stage the built-in declarative UI-plugin manifests in `packages/electron/resources/ui-plugins`.
 2. `prepare:opencode-cli` to download/cache the pinned OpenCode CLI and copy it into `packages/electron/resources/opencode-cli`.
 3. `bundle:main` to create `packages/electron/dist-bundle/main.mjs`.
 4. `rebuild:native` to rebuild native modules for Electron.

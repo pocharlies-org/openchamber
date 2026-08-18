@@ -1866,6 +1866,7 @@ async function main(options = {}) {
     getOpenChamberEventClients: () => uiOpenChamberEventClients,
     writeSseEvent,
     permissionAutoAcceptRuntime,
+    companyOfficeConfigPath: process.env.OPENCHAMBER_COMPANY_OFFICE_CONFIG,
   });
 
   const startupPipelineResult = await startupPipelineRuntime.run({

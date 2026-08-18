@@ -131,6 +131,9 @@ Go deeper with the OpenChamber guides:
 - [Mobile](packages/docs/content/docs/mobile.mdx)
 - [Security](packages/docs/content/docs/security.mdx)
 - [Troubleshooting](packages/docs/content/docs/troubleshooting.mdx)
+- [Company Office installation and operations](docs/COMPANY_OFFICE.md)
+- [Jira connector audit and reusable rollout](docs/COMPANY_OFFICE_JIRA_AUDIT.md)
+- [Jira connector and webhook architecture](plugins/openchamber-jira/README.md)
 
 For self-hosting details, see the [reverse proxy guide](docs/REVERSE_PROXY.md). For custom theme authoring, see the [custom themes guide](docs/CUSTOM_THEMES.md).
 

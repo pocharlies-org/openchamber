@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "company": {
+    "id": "example-company",
+    "displayName": "Example Company"
+  },
+  "roster": {
+    "manifestPath": "/srv/companies/example/company.yaml",
+    "registryPath": "/srv/companies/example/registry.json"
+  },
+  "intake": {
+    "employeeId": "cto",
+    "sessionTitle": "Executive intake - Technical Lead"
+  },
+  "workTracker": {
+    "provider": "jira",
+    "jira": {
+      "baseUrl": "https://example.atlassian.net",
+      "projectKey": "ENG",
+      "email": "automation@example.com",
+      "tokenFile": "/run/secrets/example-jira-token",
+      "initiativeIssueTypes": ["Story"]
+    }
+  }
+}

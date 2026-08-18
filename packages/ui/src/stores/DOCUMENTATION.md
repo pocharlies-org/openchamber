@@ -194,6 +194,11 @@ disabled plugin IDs are persisted. Web, Desktop, hosted mobile, and Capacitor
 load the active runtime's catalog, while VS Code has a stable unsupported
 Stream Metrics policy and performs no metric tracking.
 
+The catalog may also expose a bounded `workspaceViews` contribution. The host
+owns the renderer and accepts only the fixed Company Office snapshot endpoint;
+manifests cannot supply scripts, iframes, arbitrary URLs, or components. The
+server publishes this contribution only when Company Office is configured.
+
 These rules are important. Breaking them tends to reintroduce idle CPU churn, stale UI, or rerender fanout.
 
 1. No broad `directories` or `entries` subscriptions in normal UI components.

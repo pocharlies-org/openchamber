@@ -40,6 +40,7 @@ import { UpdateDialog } from '@/components/ui/UpdateDialog';
 import { SessionGroupSection } from './sidebar/SessionGroupSection';
 import { SidebarHeader } from './sidebar/SidebarHeader';
 import { SidebarNav } from './sidebar/SidebarNav';
+import { findEnabledWorkspaceViewContributions, useUIPluginsStore } from '@/stores/useUIPluginsStore';
 import { SidebarActivitySections } from './sidebar/SidebarActivitySections';
 import { SidebarFooter } from './sidebar/SidebarFooter';
 import { SidebarProjectsList } from './sidebar/SidebarProjectsList';
@@ -401,11 +402,15 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   const setSessionSwitcherOpen = useUIStore((state) => state.setSessionSwitcherOpen);
   const setScheduledTasksDialogOpen = useUIStore((state) => state.setScheduledTasksDialogOpen);
   const setArchivePageOpen = useUIStore((state) => state.setArchivePageOpen);
+  const setCompanyOfficePageOpen = useUIStore((state) => state.setCompanyOfficePageOpen);
   const setWorktreesPageProjectId = useUIStore((state) => state.setWorktreesPageProjectId);
   const openMultiRunLauncher = useUIStore((state) => state.openMultiRunLauncher);
   const notifyOnSubtasks = useUIStore((state) => state.notifyOnSubtasks);
   const showDeletionDialog = useUIStore((state) => state.showDeletionDialog);
   const setShowDeletionDialog = useUIStore((state) => state.setShowDeletionDialog);
+  const companyOfficeAvailable = useUIPluginsStore((state) => (
+    findEnabledWorkspaceViewContributions(state).some((contribution) => contribution.id === 'company-office')
+  ));
 
   const debouncedSessionSearchQuery = useDebouncedValue(sessionSearchQuery, 120);
   const normalizedSessionSearchQuery = React.useMemo(
@@ -1863,7 +1868,13 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         prefetchSession={sync.prefetchSession}
       />
       {!hideDirectoryControls && !isVSCode ? (
-        <SidebarNav onNewSession={handleOpenNewSessionDraftFromHeader} />
+        <SidebarNav
+          onNewSession={handleOpenNewSessionDraftFromHeader}
+          onOpenCompanyOffice={companyOfficeAvailable ? () => {
+            if (mobileVariant) setSessionSwitcherOpen(false);
+            setCompanyOfficePageOpen(true);
+          } : undefined}
+        />
       ) : null}
 
       <SidebarHeader

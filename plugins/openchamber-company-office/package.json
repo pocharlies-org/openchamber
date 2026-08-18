@@ -1,0 +1,8 @@
+{
+  "name": "@pocharlies/openchamber-company-office",
+  "version": "0.1.0",
+  "description": "Declarative Company Office workspace contribution for OpenChamber",
+  "license": "MIT",
+  "files": ["openchamber.ui-plugin.json", "README.md"],
+  "openchamber": "openchamber.ui-plugin.json"
+}
