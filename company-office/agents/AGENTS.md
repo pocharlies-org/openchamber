@@ -66,7 +66,8 @@ Read the **official documentation** of whatever you land on: the project's own d
 spec, its source. Not a blog post, not memory, not a plausible reconstruction of an API. If
 you have not read the doc, you do not know the tool — say so instead of guessing.
 
-Then ask the `cto` before you commit to the approach, and state three things: the standard
+Then ask the `cto` before you commit to the approach — stop and hand the question to the
+operator's `cto` session, do not spawn one — and state three things: the standard
 candidates you found, which official docs you read, and why the standard does not fit if you
 believe it does not. The CTO answers with the option that is most efficient while keeping
 good practice, having audited what our stack already has, **and explains why** — an
