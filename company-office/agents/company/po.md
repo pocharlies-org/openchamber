@@ -1,14 +1,4 @@
 ---
-tools:
-  "picqer_*": false
-  "shopify_*": false
-  "shopify-admin_*": false
-  "skirmshop-plugins_*": false
-  "skirmshop-plugins-admin_*": false
-  "socialmedia_*": false
-  "gsc_*": false
-  "google-workspace_*": false
-  "gmail-send_*": false
 description: Owns acceptance criteria and backlog priority. Does not write code or change infrastructure.
 mode: all
 permission:

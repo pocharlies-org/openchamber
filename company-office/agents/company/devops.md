@@ -1,14 +1,4 @@
 ---
-tools:
-  "picqer_*": false
-  "shopify_*": false
-  "shopify-admin_*": false
-  "skirmshop-plugins_*": false
-  "skirmshop-plugins-admin_*": false
-  "socialmedia_*": false
-  "gsc_*": false
-  "google-workspace_*": false
-  "gmail-send_*": false
 description: GitOps and infrastructure changes through the repository. Never applies by hand against the cluster.
 mode: all
 permission:

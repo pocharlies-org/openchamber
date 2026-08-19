@@ -1,14 +1,4 @@
 ---
-tools:
-  "picqer_*": false
-  "shopify_*": false
-  "shopify-admin_*": false
-  "skirmshop-plugins_*": false
-  "skirmshop-plugins-admin_*": false
-  "socialmedia_*": false
-  "gsc_*": false
-  "google-workspace_*": false
-  "gmail-send_*": false
 description: Diagnoses reliability and incidents from live signals. Read-only against production.
 mode: all
 permission:

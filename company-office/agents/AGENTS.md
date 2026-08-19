@@ -1,10 +1,8 @@
-## Brain memory
+## Memory
 
-At session start, use the bounded context injected by the global Brain plugin. For
-development, debugging, infrastructure, deployment, configuration, prior incidents, or
-"what did we do / how does X work / where is Y", use the `brain-recall` skill and query
-`claude-personal` first. Brain results are discovery, not evidence, until current
-repo/runtime data confirms them.
+When the installation has a memory or retrieval plane, query it before development,
+debugging, deployment, configuration or "what did we do / how does X work" questions. What
+it returns is discovery, not evidence, until current repo or runtime data confirms it.
 
 When you discover a durable, non-obvious fact that a future session should know, include
 exactly one concise `[FINDING: ...]`, `[DECISION: ...]`, or `[GOTCHA: ...]` tag in the
