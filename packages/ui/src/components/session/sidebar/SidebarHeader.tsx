@@ -1,4 +1,3 @@
-import { SESSION_SOURCE_FILTERS, SESSION_SOURCE_LABEL_KEYS, type SessionSourceFilter } from '@/lib/sessionSourceFilter';
 import React from 'react';
 import {
   DropdownMenu,
@@ -36,9 +35,6 @@ type Props = {
   expandAllProjects: () => void;
   selectionModeEnabled: boolean;
   onToggleSelectionMode: () => void;
-  sessionSourceFilter: SessionSourceFilter;
-  setSessionSourceFilter: (filter: SessionSourceFilter) => void;
-  showSessionSourceFilter: boolean;
 };
 
 export function SidebarHeader(props: Props): React.ReactNode {
@@ -64,9 +60,6 @@ export function SidebarHeader(props: Props): React.ReactNode {
     expandAllProjects,
     selectionModeEnabled,
     onToggleSelectionMode,
-    sessionSourceFilter,
-    setSessionSourceFilter,
-    showSessionSourceFilter,
   } = props;
 
   const showRecentSection = useSessionDisplayStore((state) => state.showRecentSection);
@@ -219,22 +212,6 @@ export function SidebarHeader(props: Props): React.ReactNode {
                     {projectSortOrder === order ? <Icon name="check" className="h-4 w-4 text-primary" /> : null}
                   </DropdownMenuItem>
                 ))}
-                {showSessionSourceFilter ? (
-                  <>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuLabel>{t('sessions.sidebar.header.sourceFilter.label')}</DropdownMenuLabel>
-                    {SESSION_SOURCE_FILTERS.map((source) => (
-                      <DropdownMenuItem
-                        key={source}
-                        onClick={() => setSessionSourceFilter(source)}
-                        className="flex items-center justify-between"
-                      >
-                        <span>{t(SESSION_SOURCE_LABEL_KEYS[source])}</span>
-                        {sessionSourceFilter === source ? <Icon name="check" className="h-4 w-4 text-primary" /> : null}
-                      </DropdownMenuItem>
-                    ))}
-                  </>
-                ) : null}
                 <DropdownMenuSeparator />
                 <DropdownMenuLabel>{t('sessions.sidebar.header.grouping.label')}</DropdownMenuLabel>
                 {([

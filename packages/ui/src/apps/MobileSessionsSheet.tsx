@@ -1,4 +1,3 @@
-import { SESSION_SOURCE_FILTERS, SESSION_SOURCE_LABEL_KEYS, filterSessionsBySource, hasMultipleSessionSources, resolveSessionSource, type SessionSourceFilter } from '@/lib/sessionSourceFilter';
 import React from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -189,16 +188,7 @@ const findExactProjectMatch = (projects: ProjectMeta[], directory: string): Proj
   return projects.find((project) => projectMatchesExactDirectory(project, normalizedDirectory)) ?? null;
 };
 
-const sessionMatchesQuery = (
-  session: Session,
-  projectLabel: string,
-  query: string,
-  sourceFilter: SessionSourceFilter = 'all',
-): boolean => {
-  // El filtro por herramienta viaja con la busqueda y no aparte: el arbol de
-  // proyectos se poda con este mismo predicado en tres sitios (grupos, hojas y
-  // recuento), y separarlos dejaria contadores que no cuadran con lo que se ve.
-  if (sourceFilter !== 'all' && resolveSessionSource(session) !== sourceFilter) return false;
+const sessionMatchesQuery = (session: Session, projectLabel: string, query: string): boolean => {
   if (!query) return true;
   const haystack = `${session.title ?? ''} ${session.id} ${getSessionDirectory(session)} ${projectLabel}`.toLowerCase();
   return haystack.includes(query);
@@ -1034,22 +1024,6 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
     return merged.filter((session) => !session.time?.archived);
   }, [globalActiveSessions, liveSessions]);
 
-  const [sourceFilter, setSourceFilter] = React.useState<SessionSourceFilter>('all');
-  // Igual que en el sidebar de escritorio: el control solo aparece cuando de
-  // verdad conviven varias herramientas, y la condicion se mira sobre la lista
-  // SIN filtrar para que no desaparezca justo despues de usarlo.
-  const showSourceFilter = React.useMemo(() => hasMultipleSessionSources(sessions), [sessions]);
-
-  // El filtro se aplica en el ORIGEN del arbol, no solo en el predicado de
-  // busqueda: los grupos, los contadores y la paginacion se construyen a partir
-  // de esta lista, y filtrar solo al buscar dejaba filas de otras herramientas
-  // en la vista sin busqueda (medido: con el chip en Codex seguian saliendo 2 de
-  // Claude).
-  const filteredSessions = React.useMemo(
-    () => filterSessionsBySource(sessions, sourceFilter),
-    [sessions, sourceFilter],
-  );
-
   const normalizedQuery = query.trim().toLowerCase();
 
   // On open, bring the current session (or at least its project) into view —
@@ -1098,7 +1072,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
       for (const worktree of node.project.worktrees) ensureBucket(node, worktree.path, worktree);
     }
 
-    for (const session of filteredSessions) {
+    for (const session of sessions) {
       const directory = getSessionDirectory(session);
       if (!directory) continue;
       const normalizedDirectory = normalizePath(directory);
@@ -1121,7 +1095,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
     }
 
     return nodes;
-  }, [activeProjectId, filteredSessions, pinnedSessionIds, projectsMeta, sessionOrderRanks]);
+  }, [activeProjectId, pinnedSessionIds, projectsMeta, sessionOrderRanks, sessions]);
 
   const normalizedDirectory = normalizePath(currentDirectory);
 
@@ -1383,10 +1357,10 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
     return projectNodes.filter((node) => {
       if (`${node.project.label} ${node.project.path}`.toLowerCase().includes(normalizedQuery)) return true;
       return node.buckets.some((bucket) =>
-        bucket.sessions.some((session) => sessionMatchesQuery(session, node.project.label, normalizedQuery, sourceFilter)),
+        bucket.sessions.some((session) => sessionMatchesQuery(session, node.project.label, normalizedQuery)),
       );
     });
-  }, [normalizedQuery, projectNodes, sourceFilter]);
+  }, [normalizedQuery, projectNodes]);
 
   // Preserve the store's project order. Reorder mode persists changes via
   // useProjectsStore.reorderProjects, which writes back to the same source we render here.
@@ -1402,12 +1376,12 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
         if (getParentId(session)) return false;
         const directory = getSessionDirectory(session);
         const project = findExactProjectMatch(projectsMeta, directory);
-        return sessionMatchesQuery(session, project?.label ?? '', normalizedQuery, sourceFilter);
+        return sessionMatchesQuery(session, project?.label ?? '', normalizedQuery);
       }),
       pinnedSessionIds,
       sessionOrderRanks,
     );
-  }, [normalizedQuery, pinnedSessionIds, projectsMeta, sessionOrderRanks, sessions, sourceFilter]);
+  }, [normalizedQuery, pinnedSessionIds, projectsMeta, sessionOrderRanks, sessions]);
 
   const searchProjectMatches = React.useMemo(() => {
     if (!normalizedQuery) return [] as Array<ProjectMeta & { sessionCount: number }>;
@@ -1509,27 +1483,6 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
                 </button>
               ) : null}
             </div>
-            {showSourceFilter ? (
-              <div className="mt-2 flex gap-1.5 overflow-x-auto pb-0.5" role="group" aria-label={t('sessions.sidebar.header.sourceFilter.label')}>
-                {SESSION_SOURCE_FILTERS.map((source) => (
-                  <button
-                    key={source}
-                    type="button"
-                    aria-pressed={sourceFilter === source}
-                    onClick={() => setSourceFilter(source)}
-                    style={{ touchAction: 'manipulation' }}
-                    className={cn(
-                      'shrink-0 rounded-full px-3 py-1.5 typography-ui-label transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
-                      sourceFilter === source
-                        ? 'bg-primary text-primary-foreground'
-                        : 'bg-interactive-hover text-muted-foreground',
-                    )}
-                  >
-                    {t(SESSION_SOURCE_LABEL_KEYS[source])}
-                  </button>
-                ))}
-              </div>
-            ) : null}
           </div>
           {projectsMeta.length === 0 ? (
             <MobileSessionsEmpty
@@ -1656,7 +1609,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
                 const buckets = normalizedQuery
                   ? node.buckets.filter((bucket) =>
                       bucket.sessions.some((session) =>
-                        sessionMatchesQuery(session, node.project.label, normalizedQuery, sourceFilter),
+                        sessionMatchesQuery(session, node.project.label, normalizedQuery),
                       ),
                     )
                   : node.buckets;
