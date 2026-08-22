@@ -1,3 +1,4 @@
+import { filterSessionsBySource, hasMultipleSessionSources, type SessionSourceFilter } from '@/lib/sessionSourceFilter';
 import React from 'react';
 import { getChatsRootForHome, getChatsRootFromDirectory, isChatDirectoryForHome, isChatDirectoryPath } from '@/lib/chatDirectories';
 import { isBtwSession } from '@/lib/sessionBtwMetadata';
@@ -284,6 +285,11 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   const { t } = useI18n();
   const [isSessionSearchOpen, setIsSessionSearchOpen] = React.useState(false);
   const [sessionSearchQuery, setSessionSearchQuery] = React.useState('');
+  // Filtro por herramienta duena de la sesion (opencode / Codex / Claude Code).
+  // Vive aqui, junto a la busqueda, porque se aplica sobre la MISMA lista y en
+  // el mismo sitio: si se aplicara mas abajo, los contadores de cada grupo
+  // contarian sesiones que el filtro ya ha quitado de la vista.
+  const [sessionSourceFilter, setSessionSourceFilter] = React.useState<SessionSourceFilter>('all');
   const sessionSearchContainerRef = React.useRef<HTMLDivElement | null>(null);
   const sessionSearchInputRef = React.useRef<HTMLInputElement | null>(null);
   const [editingId, setEditingId] = React.useState<string | null>(null);
@@ -509,7 +515,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     [availableWorktreesByProject, isVSCode, projects],
   );
 
-  const sessions = React.useMemo(() => {
+  const visibleSessions = React.useMemo(() => {
     const merged = mergeSidebarSessionSources(globalActiveSessions, liveFallbackSessions);
 
     return merged.filter((session) => (
@@ -524,6 +530,22 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
       )
     ));
   }, [globalActiveSessions, isVSCode, knownSessionDirectories, liveFallbackSessions]);
+
+  // El control solo aparece cuando de verdad conviven varias herramientas.
+  // Se mira `visibleSessions`, que es la lista completa que alimenta la barra
+  // (store global + fallback en vivo), y NO la ya filtrada: mirar la filtrada
+  // esconderia el control justo despues de usarlo, porque entonces solo queda
+  // una familia. Tampoco vale `globalActiveSessions` a secas: puede estar vacia
+  // mientras la barra ya pinta sesiones que vienen del fallback.
+  const showSessionSourceFilter = React.useMemo(
+    () => hasMultipleSessionSources(visibleSessions),
+    [visibleSessions],
+  );
+
+  const sessions = React.useMemo(
+    () => filterSessionsBySource(visibleSessions, sessionSourceFilter),
+    [sessionSourceFilter, visibleSessions],
+  );
 
   const persistenceSessions = React.useMemo(
     () => [...globalActiveSessions, ...archivedSessions],
@@ -1929,6 +1951,9 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         searchMatchCount={searchMatchCount}
         collapseAllProjects={collapseAllProjects}
         expandAllProjects={expandAllProjects}
+        sessionSourceFilter={sessionSourceFilter}
+        setSessionSourceFilter={setSessionSourceFilter}
+        showSessionSourceFilter={showSessionSourceFilter}
         selectionModeEnabled={selectionModeEnabled}
         onToggleSelectionMode={handleToggleSelectionMode}
       />
