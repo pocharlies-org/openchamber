@@ -1,3 +1,4 @@
+import { SESSION_SOURCE_FILTERS, SESSION_SOURCE_LABEL_KEYS, type SessionSourceFilter } from '@/lib/sessionSourceFilter';
 import React from 'react';
 import {
   DropdownMenu,
@@ -40,6 +41,9 @@ type Props = {
   searchMatchCount: number;
   collapseAllProjects: () => void;
   expandAllProjects: () => void;
+  sessionSourceFilter: SessionSourceFilter;
+  setSessionSourceFilter: (filter: SessionSourceFilter) => void;
+  showSessionSourceFilter: boolean;
 };
 
 export function SidebarHeader(props: Props): React.ReactNode {
@@ -63,6 +67,9 @@ export function SidebarHeader(props: Props): React.ReactNode {
     searchMatchCount,
     collapseAllProjects,
     expandAllProjects,
+    sessionSourceFilter,
+    setSessionSourceFilter,
+    showSessionSourceFilter,
   } = props;
 
   const selectionModeEnabled = useSessionMultiSelectStore((state) => state.enabled);
@@ -272,6 +279,22 @@ export function SidebarHeader(props: Props): React.ReactNode {
                     {projectSortOrder === order ? <Icon name="check" className="h-4 w-4 text-primary" /> : null}
                   </DropdownMenuItem>
                 ))}
+                {showSessionSourceFilter ? (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuLabel>{t('sessions.sidebar.header.sourceFilter.label')}</DropdownMenuLabel>
+                    {SESSION_SOURCE_FILTERS.map((source) => (
+                      <DropdownMenuItem
+                        key={source}
+                        onClick={() => setSessionSourceFilter(source)}
+                        className="flex items-center justify-between"
+                      >
+                        <span>{t(SESSION_SOURCE_LABEL_KEYS[source])}</span>
+                        {sessionSourceFilter === source ? <Icon name="check" className="h-4 w-4 text-primary" /> : null}
+                      </DropdownMenuItem>
+                    ))}
+                  </>
+                ) : null}
                 <DropdownMenuSeparator />
                 {/* VS Code groups by workspace only; it has no worktree groups to sort. */}
                 {showProjectDisplayControls ? <>
