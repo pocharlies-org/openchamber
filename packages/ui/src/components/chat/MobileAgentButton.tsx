@@ -4,6 +4,8 @@ import { useConfigStore } from '@/stores/useConfigStore';
 import { useChatSessionSelection } from './chatColumnSession';
 import { useSelectionStore } from '@/sync/selection-store';
 import { getAgentDisplayName } from './mobileControlsUtils';
+import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
+import { useAllLiveSessions } from '@/sync/sync-context';
 import { useAgentColors } from '@/hooks/useAgentColors';
 import { isAutoModel } from '@/lib/routing/autoModel';
 
@@ -26,6 +28,29 @@ export const MobileAgentButton: React.FC<MobileAgentButtonProps> = ({ onCycleAge
     const sessionAgentName = useSelectionStore((state) =>
         currentSessionId ? state.getSessionAgentSelection(currentSessionId) : null
     );
+
+    // Nivel de razonamiento de la sesion abierta. Se enseña pegado al agente
+    // porque son la misma pregunta —"con que esta corriendo esto"— y en el movil
+    // no hay sitio para dos controles. `default` no se pinta: no dice nada.
+    //
+    // Se mira PRIMERO el store en vivo y solo despues el global: en la app movil
+    // el store global se llena al abrir el cajon de sesiones, asi que quien
+    // entra directo a una sesion lo tiene vacio y el nivel salia en blanco.
+    const liveSessions = useAllLiveSessions();
+    const liveVariant = React.useMemo(() => {
+        if (!currentSessionId) return null;
+        const session = liveSessions.find((entry) => entry.id === currentSessionId) as
+            { model?: { variant?: string } } | undefined;
+        return session?.model?.variant ?? null;
+    }, [currentSessionId, liveSessions]);
+    const globalVariant = useGlobalSessionsStore((state) => {
+        if (!currentSessionId) return null;
+        const session = state.activeSessions.find((entry) => entry.id === currentSessionId)
+            ?? state.archivedSessions.find((entry) => entry.id === currentSessionId);
+        return (session as { model?: { variant?: string } } | undefined)?.model?.variant ?? null;
+    });
+    const resolvedVariant = liveVariant ?? globalVariant;
+    const sessionVariant = resolvedVariant && resolvedVariant !== 'default' ? resolvedVariant : null;
 
     const agents = getVisibleAgents();
     const uiAgentName = currentSessionId ? (sessionAgentName || currentAgentName) : currentAgentName;
@@ -95,10 +120,13 @@ export const MobileAgentButton: React.FC<MobileAgentButtonProps> = ({ onCycleAge
                 className
             )}
             style={{ color: `var(${agentColor.var})` }}
-            title={agentLabel}
+            title={sessionVariant ? `${agentLabel} · ${sessionVariant}` : agentLabel}
         >
-            <span className="flex h-full w-full min-w-0 items-center">
+            <span className="flex h-full w-full min-w-0 items-center gap-1">
                 <span className="truncate">{agentLabel}</span>
+                {sessionVariant ? (
+                    <span className="shrink-0 rounded px-1 opacity-70">{sessionVariant}</span>
+                ) : null}
             </span>
         </button>
     );
