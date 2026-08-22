@@ -1,3 +1,4 @@
+import { filterSessionsBySource, hasMultipleSessionSources, type SessionSourceFilter } from '@/lib/sessionSourceFilter';
 import React from 'react';
 import { toast } from '@/components/ui';
 import { useI18n } from '@/lib/i18n';
