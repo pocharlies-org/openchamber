@@ -51,11 +51,13 @@ export function hasMultipleSessionSources(sessions: readonly SessionLike[]): boo
 }
 
 export function filterSessionsBySource<T extends SessionLike>(
-  sessions: readonly T[],
+  sessions: T[],
   filter: SessionSourceFilter,
 ): T[] {
+  // Se devuelve la MISMA referencia con `all`, no una copia: esta lista alimenta
+  // memos aguas abajo y copiarla los invalidaria en cada render.
   if (filter === 'all') {
-    return sessions as T[];
+    return sessions;
   }
   return sessions.filter((session) => resolveSessionSource(session) === filter);
 }

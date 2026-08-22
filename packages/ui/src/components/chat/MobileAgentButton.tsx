@@ -35,15 +35,14 @@ export const MobileAgentButton: React.FC<MobileAgentButtonProps> = ({ onCycleAge
     const liveSessions = useAllLiveSessions();
     const liveVariant = React.useMemo(() => {
         if (!currentSessionId) return null;
-        const session = liveSessions.find((entry) => entry.id === currentSessionId) as
-            { model?: { variant?: string } } | undefined;
+        const session = liveSessions.find((entry) => entry.id === currentSessionId);
         return session?.model?.variant ?? null;
     }, [currentSessionId, liveSessions]);
     const globalVariant = useGlobalSessionsStore((state) => {
         if (!currentSessionId) return null;
         const session = state.activeSessions.find((entry) => entry.id === currentSessionId)
             ?? state.archivedSessions.find((entry) => entry.id === currentSessionId);
-        return (session as { model?: { variant?: string } } | undefined)?.model?.variant ?? null;
+        return session?.model?.variant ?? null;
     });
     const resolvedVariant = liveVariant ?? globalVariant;
     const sessionVariant = resolvedVariant && resolvedVariant !== 'default' ? resolvedVariant : null;
