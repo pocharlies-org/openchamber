@@ -36,11 +36,18 @@ type CompanyOfficeTicket = {
   parentKey: string | null;
   updatedAt: string | null;
   url: string;
+  acceptanceCriteria: string | null;
   session: Pick<CompanyOfficeSession, 'id' | 'title' | 'directory'> | null;
   mapping: CompanyOfficeMapping;
+  subtasks: CompanyOfficeSubtask[];
 };
 
-type CompanyOfficeInitiative = Omit<CompanyOfficeTicket, 'session' | 'mapping'> & {
+type CompanyOfficeSubtask = Omit<CompanyOfficeTicket, 'subtasks'>;
+
+// An initiative is itself a workable ticket: it owns a session like any child.
+// An initiative owns tickets; only a ticket owns subtasks. Jira allows exactly
+// three levels, and the type mirrors that instead of nesting without limit.
+type CompanyOfficeInitiative = Omit<CompanyOfficeTicket, 'subtasks'> & {
   tickets: CompanyOfficeTicket[];
   counts: Record<string, number>;
 };
@@ -102,7 +109,8 @@ const parseSessionRef = (value: unknown): Pick<CompanyOfficeSession, 'id' | 'tit
 const parseIssue = (value: unknown, jiraOrigin: string) => {
   if (!isRecord(value) || !isString(value.key) || !isString(value.summary) || !isString(value.status)
     || !isString(value.type) || !isNullableString(value.assignee) || !isNullableString(value.parentKey)
-    || !isNullableString(value.updatedAt) || !isString(value.url)) {
+    || !isNullableString(value.updatedAt) || !isString(value.url)
+    || !isNullableString(value.acceptanceCriteria)) {
     throw new Error('Invalid Company Office issue');
   }
   const url = new URL(value.url);
@@ -119,6 +127,29 @@ const parseIssue = (value: unknown, jiraOrigin: string) => {
     parentKey: value.parentKey,
     updatedAt: value.updatedAt,
     url: url.toString(),
+    acceptanceCriteria: value.acceptanceCriteria,
+  };
+};
+
+const parseSubtask = (value: unknown, jiraOrigin: string): CompanyOfficeSubtask => {
+  const issue = parseIssue(value, jiraOrigin);
+  if (!isRecord(value) || !isMapping(value.mapping)) throw new Error('Invalid Company Office subtask');
+  return { ...issue, mapping: value.mapping, session: parseSessionRef(value.session) };
+};
+
+const parseTicket = (value: unknown, jiraOrigin: string): CompanyOfficeTicket => {
+  const issue = parseIssue(value, jiraOrigin);
+  if (!isRecord(value) || !isMapping(value.mapping)) throw new Error('Invalid Company Office ticket');
+  // Absent is tolerated so an older server keeps working; malformed is not, because
+  // a silently dropped subtask hides work that is already being dispatched.
+  if (value.subtasks !== undefined && !Array.isArray(value.subtasks)) {
+    throw new Error('Invalid Company Office ticket');
+  }
+  return {
+    ...issue,
+    mapping: value.mapping,
+    session: parseSessionRef(value.session),
+    subtasks: (value.subtasks ?? []).map((subtask) => parseSubtask(subtask, jiraOrigin)),
   };
 };
 
@@ -165,17 +196,20 @@ export const parseCompanyOfficeSnapshot = (value: unknown): CompanyOfficeSnapsho
   });
 
   const initiatives = value.initiatives.map((initiative) => {
+    // An initiative owns tickets, not subtasks: parse it as an issue so its shape
+    // stays honest instead of carrying an always-empty field.
     const issue = parseIssue(initiative, jiraProjectUrl.origin);
+    if (!isRecord(initiative) || !isMapping(initiative.mapping)) {
+      throw new Error('Invalid Company Office initiative');
+    }
     if (!isRecord(initiative) || !Array.isArray(initiative.tickets) || !isRecord(initiative.counts)) {
       throw new Error('Invalid Company Office initiative');
     }
     return {
       ...issue,
-      tickets: initiative.tickets.map((ticket) => {
-        const parsed = parseIssue(ticket, jiraProjectUrl.origin);
-        if (!isRecord(ticket) || !isMapping(ticket.mapping)) throw new Error('Invalid Company Office ticket');
-        return { ...parsed, mapping: ticket.mapping, session: parseSessionRef(ticket.session) };
-      }),
+      mapping: initiative.mapping,
+      session: parseSessionRef(initiative.session),
+      tickets: initiative.tickets.map((ticket) => parseTicket(ticket, jiraProjectUrl.origin)),
       counts: Object.fromEntries(Object.entries(initiative.counts).map(([key, count]) => {
         if (typeof count !== 'number' || !Number.isFinite(count)) throw new Error('Invalid Company Office counts');
         return [key, count];

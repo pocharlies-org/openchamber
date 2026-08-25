@@ -121,18 +121,21 @@ export function CompanyOfficeView({ onNavigateToSession }: { onNavigateToSession
                   : t('companyOffice.hero.descriptionLoading')}
               </p>
             </div>
-            <div className="flex shrink-0 flex-wrap gap-2">
-              <Button
-                onClick={() => snapshot?.intakeSession && openSession(snapshot.intakeSession)}
-                disabled={!snapshot?.intakeSession}
-              >
-                <Icon name="chat-3" className="size-4" />
-                {t('companyOffice.actions.talkToCto')}
-              </Button>
-              <Button variant="outline" onClick={() => { load(); }} disabled={loadState.status === 'loading'}>
-                <Icon name="refresh" className={cn('size-4', loadState.status === 'loading' && 'animate-spin')} />
-                {t('companyOffice.actions.refresh')}
-              </Button>
+            <div className="flex shrink-0 flex-col gap-2 sm:items-end">
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  onClick={() => snapshot?.intakeSession && openSession(snapshot.intakeSession)}
+                  disabled={!snapshot?.intakeSession}
+                >
+                  <Icon name="chat-3" className="size-4" />
+                  {t('companyOffice.actions.ctoDesk')}
+                </Button>
+                <Button variant="outline" onClick={() => { load(); }} disabled={loadState.status === 'loading'}>
+                  <Icon name="refresh" className={cn('size-4', loadState.status === 'loading' && 'animate-spin')} />
+                  {t('companyOffice.actions.refresh')}
+                </Button>
+              </div>
+              <p className="max-w-xs typography-micro text-muted-foreground sm:text-right">{t('companyOffice.desk.hint')}</p>
             </div>
           </div>
           {snapshot ? (
@@ -262,8 +265,29 @@ export function CompanyOfficeView({ onNavigateToSession }: { onNavigateToSession
                             {initiative.key}
                           </button>
                           <h3 className="mt-1 font-medium text-foreground">{initiative.summary}</h3>
+                          {initiative.acceptanceCriteria ? (
+                            <div className="mt-3 rounded-lg bg-[var(--surface-muted)] px-3 py-2">
+                              <p className="typography-micro uppercase tracking-[0.12em] text-muted-foreground">
+                                {t('companyOffice.initiatives.acceptanceCriteria')}
+                              </p>
+                              <p className="mt-1 whitespace-pre-line typography-ui-label text-foreground">{initiative.acceptanceCriteria}</p>
+                            </div>
+                          ) : null}
                         </div>
-                        <span className="rounded-full border border-border px-2 py-1 typography-micro text-muted-foreground">{initiative.status}</span>
+                        <div className="flex shrink-0 flex-wrap items-center gap-2">
+                          {initiative.session ? (
+                            <Button variant="outline" size="xs" onClick={() => openSession(initiative.session!)}>
+                              {t('companyOffice.initiatives.openEpicSession')}
+                              <Icon name="arrow-right-s" className="size-3.5" />
+                            </Button>
+                          ) : (
+                            <span className="typography-micro text-muted-foreground">{t('companyOffice.initiatives.noEpicSession')}</span>
+                          )}
+                          {initiative.mapping === 'ambiguous' ? (
+                            <span className="typography-micro text-[var(--status-warning-foreground)]">{t('companyOffice.mapping.ambiguous')}</span>
+                          ) : null}
+                          <span className="rounded-full border border-border px-2 py-1 typography-micro text-muted-foreground">{initiative.status}</span>
+                        </div>
                       </div>
                       <div className="divide-y divide-border border-t border-border">
                         {initiative.tickets.map((ticket) => (

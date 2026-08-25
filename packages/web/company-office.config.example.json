@@ -19,7 +19,10 @@
       "projectKey": "ENG",
       "email": "automation@example.com",
       "tokenFile": "/run/secrets/example-jira-token",
-      "initiativeIssueTypes": ["Story"]
+      "initiativeIssueTypes": ["Epic"],
+      "acceptanceCriteriaField": "customfield_10001",
+      "sessionField": "customfield_10002",
+      "repoField": "customfield_10003"
     }
   }
 }

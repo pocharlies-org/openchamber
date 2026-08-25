@@ -34,6 +34,25 @@ presented as an authoritative empty result.
 Company Office does not create a new messaging protocol. It opens real OpenCode
 sessions through OpenChamber's normal session store.
 
+### The desk routes; epics are the workplace
+
+The intake session is a front desk, not an office. It exists so an operator always has a
+stable place to arrive, state intent, and be routed. It is deliberately thin: keeping
+substantive work there would mix unrelated epics into one unbounded context, so decisions
+could no longer be attributed to the work that produced them.
+
+Substantive work happens in **one session per epic**, titled with that epic's tracker key.
+Every role works there, including the technical lead, whose job in an epic session is to
+validate architecture and coordinate the rest of the team rather than to hold a private
+thread. An epic session carries the epic's acceptance criteria alongside its delegated
+tickets, so the definition of done travels with the work instead of living only in a
+browser tab.
+
+This uses no new mechanism: an epic session is matched by the same ticket-prefix
+convention as any delegated ticket, so an epic is a workable unit rather than a container.
+
+### Resolving the desk session
+
 The primary call-to-action resolves an intake session as follows:
 
 1. Find the configured employee using `intake.employeeId`.
@@ -149,7 +168,8 @@ Start from `packages/web/company-office.config.example.json`:
       "projectKey": "ENG",
       "email": "automation@example.com",
       "tokenFile": "/run/secrets/acme-jira-token",
-      "initiativeIssueTypes": ["Story"]
+      "initiativeIssueTypes": ["Epic"],
+      "acceptanceCriteriaField": "customfield_10001"
     }
   }
 }
@@ -163,26 +183,44 @@ Configuration rules:
 
 - `company.id`, employee IDs, and the Jira project key are stable identifiers.
 - `baseUrl` must use HTTPS; only its origin is retained.
-- `initiativeIssueTypes` contains the Jira issue-type names grouped as initiatives.
+- `initiativeIssueTypes` contains the Jira issue-type names treated as epics. Use the
+  issue type your instance actually uses; `Story` remains the default only for
+  compatibility with existing installations.
+- `acceptanceCriteriaField` is optional and instance-specific. Set it to the Jira field
+  holding acceptance criteria — usually a custom field such as `customfield_10001`, or
+  `description`. Field IDs differ per Jira instance, so this belongs in production
+  configuration and never in a shared template. Omit it and no acceptance criteria are
+  requested or shown. Values arrive as plain text or Atlassian Document Format; both are
+  flattened to plain text and truncated to 2000 characters.
 - `intake.sessionTitle` is an exact match and should name a durable intake session.
 - Paths are server paths. Authenticated Company Office snapshots include employee and
   session directories because OpenChamber needs them to open sessions; do not expose the
   snapshot endpoint outside OpenChamber's authenticated API boundary.
 
-### 5. Create the intake session
+### 5. Create the desk session and the epic sessions
 
-Create one root OpenCode session in the intake employee's registered directory. Give it
-the exact configured title. It may be a permanent executive/technical office because it
-is an intake channel, not an executable work-ticket session.
+Create one root OpenCode session in the intake employee's registered directory with the
+exact configured title. This is the front desk: a durable arrival point, not a place to
+carry out work.
 
-Formal work sessions should instead use one tracker key in the title:
+Then create one session per epic, in the directory of whoever owns that epic, titled with
+the epic's tracker key:
 
 ```text
-[ENG-123] Implement bounded webhook ingestion
+[ENG-100] Bounded webhook ingestion
 ```
 
-Company Office reconstructs tracker links from this prefix. This mapping is useful for
-navigation and audit, but it is not a canonical governance ledger.
+Delegated tickets follow the same convention in their assignee's directory:
+
+```text
+[ENG-123] Implement the dedupe store
+```
+
+Company Office reconstructs tracker links from this prefix for epics and tickets alike.
+Two sessions carrying the same key resolve to `ambiguous` and Company Office deliberately
+offers neither, because guessing between them would fabricate an authority the titles do
+not carry. This mapping is useful for navigation and audit, but it is not a canonical
+governance ledger.
 
 ### 6. Enable the service
 
@@ -226,6 +264,8 @@ erase roster or OpenCode session data.
 
 ## Operational Model
 
+- The desk routes work; epics hold it. An epic owns a session, its acceptance criteria,
+  and its delegated tickets.
 - Snapshot reads are pull-based and uncached by the route.
 - OpenCode sessions are paginated with bounded safety limits.
 - Jira search is bounded; hitting a cap reports `partial`.

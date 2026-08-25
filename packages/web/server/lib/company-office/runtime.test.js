@@ -99,9 +99,45 @@ describe('Company Office service', () => {
       mapping: 'reconstructed',
       session: { id: 'ses-sc21' },
     });
+    expect(snapshot.initiatives[0]).toMatchObject({ key: 'SC-16', mapping: 'none', session: null });
     expect(snapshot.mappingMode).toBe('reconstructed');
     expect(fetchCalls.find((call) => call.url.startsWith('https://jira.example.test/'))?.authorization).toMatch(/^Basic /);
     expect(JSON.stringify(snapshot)).not.toContain('secret-token');
+  });
+
+  test('gives an epic its own session and marks duplicate epic sessions ambiguous', async () => {
+    const buildService = (ctoSessions) => createCompanyOfficeService({
+      fsPromises: createFs(),
+      fetchImpl: async (input) => {
+        const url = String(input);
+        if (url.includes('/session/status?')) return new Response('{}', { status: 200 });
+        if (url.includes('/experimental/session?') && url.includes(encodeURIComponent('/company/cto/office'))) {
+          return new Response(JSON.stringify(ctoSessions), { status: 200 });
+        }
+        if (url.includes('/experimental/session?')) return new Response('[]', { status: 200 });
+        return new Response(JSON.stringify({ issues: [
+          { key: 'SC-16', fields: { summary: 'Governance', status: { name: 'Backlog' }, issuetype: { name: 'Story' } } },
+        ] }), { status: 200 });
+      },
+      buildOpenCodeUrl: (path) => `http://opencode.test${path}`,
+      getOpenCodeAuthHeaders: () => ({}),
+      configPath: '/config/office.json',
+    });
+
+    const owned = await buildService([
+      { id: 'ses-sc16', title: '[SC-16] Governance', directory: '/company/cto/office', time: { updated: 3 } },
+    ]).getSnapshot();
+    expect(owned.initiatives[0]).toMatchObject({
+      key: 'SC-16',
+      mapping: 'reconstructed',
+      session: { id: 'ses-sc16', directory: '/company/cto/office' },
+    });
+
+    const ambiguous = await buildService([
+      { id: 'ses-sc16-a', title: '[SC-16] Governance', directory: '/company/cto/office', time: { updated: 3 } },
+      { id: 'ses-sc16-b', title: '[SC-16] Governance retry', directory: '/company/cto/office', time: { updated: 2 } },
+    ]).getSnapshot();
+    expect(ambiguous.initiatives[0]).toMatchObject({ key: 'SC-16', mapping: 'ambiguous', session: null });
   });
 
   test('reports Jira failure without turning live employee sessions into empty failure', async () => {
@@ -357,5 +393,76 @@ describe('Company Office service', () => {
     });
 
     await expect(service.getSnapshot()).rejects.toThrow(/at least one employee/);
+  });
+});
+
+describe('three levels, because that is what Jira enforces', () => {
+  const fs = (issues) => ({
+    readFile: async (path) => {
+      if (path === '/config/office.json') return config;
+      if (path === '/config/company.yaml') return manifest;
+      if (path === '/state/registry.json') return registry;
+      if (path === '/secrets/jira-token') return 'private-token';
+      return '';
+    },
+  });
+
+  const build = async (jiraIssues) => {
+    const service = createCompanyOfficeService({
+      fsPromises: fs(),
+      fetchImpl: async (input) => {
+        const url = String(input);
+        if (url.startsWith('https://jira.example.test/')) {
+          return new Response(JSON.stringify({ issues: jiraIssues }), { status: 200 });
+        }
+        if (url.includes('/session/status')) return new Response('{}', { status: 200 });
+        return new Response('[]', { status: 200 });
+      },
+      buildOpenCodeUrl: (path) => `http://opencode.test${path}`,
+      getOpenCodeAuthHeaders: () => ({}),
+      configPath: '/config/office.json',
+    });
+    return service.getSnapshot();
+  };
+
+  const jira = (key, type, status, parent) => ({
+    key,
+    fields: {
+      summary: key,
+      status: { name: status },
+      issuetype: { name: type },
+      ...(parent ? { parent: { key: parent } } : {}),
+    },
+  });
+
+  test('nests subtasks under their story instead of dropping them', async () => {
+    const snapshot = await build([
+      jira('SC-1', 'Story', 'In Progress'),
+      jira('SC-10', 'Story', 'In Progress', 'SC-1'),
+      jira('SC-11', 'Subtask', 'Done', 'SC-10'),
+      jira('SC-12', 'Subtask', 'In Progress', 'SC-10'),
+    ]);
+    const initiative = snapshot.initiatives.find((i) => i.key === 'SC-1');
+    expect(initiative.tickets.map((t) => t.key)).toEqual(['SC-10']);
+    expect(initiative.tickets[0].subtasks.map((s) => s.key)).toEqual(['SC-11', 'SC-12']);
+  });
+
+  test('counts subtasks too, so progress is not overstated', async () => {
+    const snapshot = await build([
+      jira('SC-1', 'Story', 'In Progress'),
+      jira('SC-10', 'Story', 'In Progress', 'SC-1'),
+      jira('SC-11', 'Subtask', 'Done', 'SC-10'),
+      jira('SC-12', 'Subtask', 'Done', 'SC-10'),
+    ]);
+    const initiative = snapshot.initiatives.find((i) => i.key === 'SC-1');
+    expect(initiative.counts).toEqual({ 'in-progress': 1, done: 2 });
+  });
+
+  test('a story with no subtasks reports an empty list, never undefined', async () => {
+    const snapshot = await build([
+      jira('SC-1', 'Story', 'In Progress'),
+      jira('SC-10', 'Story', 'Backlog', 'SC-1'),
+    ]);
+    expect(snapshot.initiatives[0].tickets[0].subtasks).toEqual([]);
   });
 });

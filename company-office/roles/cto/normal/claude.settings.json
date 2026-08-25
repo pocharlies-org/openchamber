@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "defaultMode": "acceptEdits",
+    "allow": [
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git status:*)",
+      "Bash(helm get:*)",
+      "Bash(helm list:*)",
+      "Bash(helm template:*)",
+      "Bash(journalctl:*)",
+      "Bash(kubectl describe:*)",
+      "Bash(kubectl events:*)",
+      "Bash(kubectl get:*)",
+      "Bash(kubectl logs:*)",
+      "Bash(kubectl top:*)",
+      "Bash(systemctl status:*)",
+      "WebFetch"
+    ],
+    "deny": [
+      "Bash(git push:*)",
+      "Edit",
+      "NotebookEdit",
+      "Write"
+    ]
+  }
+}

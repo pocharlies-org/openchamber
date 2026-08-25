@@ -207,23 +207,42 @@ const listEmployeeActivity = async ({ employee, fetchImpl, buildOpenCodeUrl, get
 
 const buildInitiatives = ({ issues, sessionsByTicket, initiativeIssueTypes }) => {
   const initiativeTypes = new Set(initiativeIssueTypes.map((type) => type.toLowerCase()));
+  // An epic is a workplace, not just a container: it carries its own session on
+  // the same ticket-prefix convention as its children.
+  const resolveSession = (key) => {
+    const candidates = sessionsByTicket.get(key) ?? [];
+    return {
+      session: candidates.length === 1 ? candidates[0] : null,
+      mapping: candidates.length === 1 ? 'reconstructed' : candidates.length > 1 ? 'ambiguous' : 'none',
+    };
+  };
+  // Jira's own hierarchy is Epic > standard issue > subtask, so the projection
+  // mirrors exactly three levels. Flattening it would hide technical subtasks
+  // that are already being dispatched, which is worse than not showing them.
+  const childrenOf = new Map();
+  for (const issue of issues) {
+    if (!issue.parentKey) continue;
+    if (!childrenOf.has(issue.parentKey)) childrenOf.set(issue.parentKey, []);
+    childrenOf.get(issue.parentKey).push(issue);
+  }
+
   return issues.filter((issue) => initiativeTypes.has(issue.type.toLowerCase())).map((initiative) => {
-    const tickets = issues
-      .filter((issue) => issue.parentKey === initiative.key)
-      .map((issue) => {
-        const candidates = sessionsByTicket.get(issue.key) ?? [];
-        return {
-          ...issue,
-          session: candidates.length === 1 ? candidates[0] : null,
-          mapping: candidates.length === 1 ? 'reconstructed' : candidates.length > 1 ? 'ambiguous' : 'none',
-        };
-      });
+    const tickets = (childrenOf.get(initiative.key) ?? []).map((issue) => ({
+      ...issue,
+      ...resolveSession(issue.key),
+      subtasks: (childrenOf.get(issue.key) ?? []).map((subtask) => ({
+        ...subtask,
+        ...resolveSession(subtask.key),
+      })),
+    }));
     const counts = tickets.reduce((result, issue) => {
-      const key = issue.status.toLowerCase().replace(/\s+/g, '-');
-      result[key] = (result[key] ?? 0) + 1;
+      for (const node of [issue, ...issue.subtasks]) {
+        const key = node.status.toLowerCase().replace(/\s+/g, '-');
+        result[key] = (result[key] ?? 0) + 1;
+      }
       return result;
     }, {});
-    return { ...initiative, tickets, counts };
+    return { ...initiative, ...resolveSession(initiative.key), tickets, counts };
   });
 };
 

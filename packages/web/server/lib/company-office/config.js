@@ -21,6 +21,17 @@ const parseIssueTypes = (value) => {
   return types;
 };
 
+// Jira custom field ids are instance-specific (`customfield_10001`), so every id
+// stays configuration and never a repository constant.
+const parseCustomField = (value, field) => {
+  if (value === undefined || value === null) return null;
+  const id = requiredString(value, field);
+  if (!/^[a-z][a-zA-Z0-9_]*$/.test(id)) {
+    throw new Error(`Invalid Company Office config: ${field}`);
+  }
+  return id;
+};
+
 const parseJira = (value) => {
   if (!isRecord(value)) throw new Error('Invalid Company Office config: workTracker.jira');
   const baseUrl = new URL(requiredString(value.baseUrl, 'workTracker.jira.baseUrl'));
@@ -37,6 +48,11 @@ const parseJira = (value) => {
     email: requiredString(value.email, 'workTracker.jira.email'),
     tokenFile: requiredString(value.tokenFile, 'workTracker.jira.tokenFile'),
     initiativeIssueTypes: parseIssueTypes(value.initiativeIssueTypes),
+    acceptanceCriteriaField: parseCustomField(value.acceptanceCriteriaField, 'workTracker.jira.acceptanceCriteriaField'),
+    // `sessionField` turns the ticket->session link into recorded data instead of a
+    // title heuristic; `repoField` is the only place that says where a ticket is worked.
+    sessionField: parseCustomField(value.sessionField, 'workTracker.jira.sessionField'),
+    repoField: parseCustomField(value.repoField, 'workTracker.jira.repoField'),
   };
 };
 

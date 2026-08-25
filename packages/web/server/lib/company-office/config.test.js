@@ -26,9 +26,29 @@ describe('Company Office config', () => {
           ...jira,
           baseUrl: 'https://jira.example.test',
           initiativeIssueTypes: ['Initiative', 'Story'],
+          acceptanceCriteriaField: null,
+          sessionField: null,
+          repoField: null,
         },
       },
     });
+  });
+
+  test('accepts an instance-specific acceptance criteria field and rejects malformed ids', () => {
+    const base = {
+      schemaVersion: 1,
+      company: { id: 'acme', displayName: 'Acme' },
+      roster: { manifestPath: '/company/manifest.yaml', registryPath: '/company/registry.json' },
+      intake: { employeeId: 'cto', sessionTitle: 'CTO office' },
+    };
+    expect(parseCompanyOfficeConfig({
+      ...base,
+      workTracker: { provider: 'jira', jira: { ...jira, acceptanceCriteriaField: 'customfield_10001' } },
+    }).workTracker.jira.acceptanceCriteriaField).toBe('customfield_10001');
+    expect(() => parseCompanyOfficeConfig({
+      ...base,
+      workTracker: { provider: 'jira', jira: { ...jira, acceptanceCriteriaField: 'custom field; drop' } },
+    })).toThrow(/acceptanceCriteriaField/);
   });
 
   test('keeps legacy schema version 1 configurations installable', () => {
@@ -58,5 +78,30 @@ describe('Company Office config', () => {
       ...base,
       workTracker: { provider: 'jira', jira: { ...jira, baseUrl: 'http://jira.example.test' } },
     })).toThrow(/HTTPS/);
+  });
+
+  test('accepts instance-specific session and repo field ids, and rejects malformed ones', () => {
+    const base = {
+      schemaVersion: 1,
+      company: { id: 'acme', displayName: 'Acme' },
+      roster: { manifestPath: '/company/manifest.yaml', registryPath: '/company/registry.json' },
+      intake: { employeeId: 'cto', sessionTitle: 'CTO office' },
+    };
+    const parsed = parseCompanyOfficeConfig({
+      ...base,
+      workTracker: {
+        provider: 'jira',
+        jira: { ...jira, sessionField: 'customfield_10042', repoField: 'customfield_10043' },
+      },
+    });
+    expect(parsed.workTracker.jira.sessionField).toBe('customfield_10042');
+    expect(parsed.workTracker.jira.repoField).toBe('customfield_10043');
+
+    for (const bad of ['', '  ', 'Custom Field', 'customfield-10042', '10042']) {
+      expect(() => parseCompanyOfficeConfig({
+        ...base,
+        workTracker: { provider: 'jira', jira: { ...jira, sessionField: bad } },
+      })).toThrow(/sessionField/);
+    }
   });
 });
