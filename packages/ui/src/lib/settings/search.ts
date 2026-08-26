@@ -422,6 +422,14 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     keywords: ['input', 'draft', 'spellcheck', 'paste'],
   },
   {
+    id: 'chat.ui-plugins.side-chat',
+    page: 'chat',
+    titleKey: 'settings.chat.uiPlugins.sideChat.label',
+    descriptionKey: 'settings.chat.uiPlugins.sideChat.info',
+    keywords: ['plugin', 'extension', 'btw', 'side chat'],
+    isAvailable: (ctx) => !ctx.isMobile && !ctx.isVSCode,
+  },
+  {
     id: 'chat.spellcheck',
     page: 'chat',
     titleKey: 'settings.openchamber.visual.field.enableSpellcheckInTextInputs',
