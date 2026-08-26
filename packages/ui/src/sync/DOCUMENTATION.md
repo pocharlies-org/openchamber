@@ -180,6 +180,25 @@ Live activity/status indicators must not depend on this cache. They must use the
 
 ## Session message loading
 
+### Side-conversation lifecycle
+
+`session-actions.ts` owns creation of side-conversation children. It forks the
+parent at the last locally materialized assistant message with a finite
+completion timestamp, deliberately excluding an in-progress response. If no
+completed assistant response exists, it creates a fresh child linked to the
+parent. Creation stamps the versioned `openchamber.sideConversation` metadata
+contract, registers directory routing before consumers use the child, and
+upserts both directory and global session state.
+
+Ephemeral children are excluded from the ordinary session sidebar. Closing
+their context-panel tab does not treat an absent local message bucket as proof
+that the session is empty: it fetches one authoritative message from the
+session route first. Empty children are deleted; non-empty children require an
+explicit keep or discard decision. Keep patches only the ephemeral flag while
+preserving unrelated metadata. Discard uses the normal abort and deletion
+actions so routing, loader generations, stores, and persisted session UI state
+receive their existing cleanup.
+
 `SessionMessageLoader` is the shared authority for session message requests. Navigation, reactive chat loading, sidebar prefetch, pagination, reconnect/recovery, and optimistic reconciliation must delegate to it rather than issuing parallel initial requests.
 
 Rules:

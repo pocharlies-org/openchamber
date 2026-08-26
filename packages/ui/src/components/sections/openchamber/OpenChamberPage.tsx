@@ -21,6 +21,7 @@ import { isCapacitorApp } from '@/lib/platform';
 import { useI18n } from '@/lib/i18n';
 import { subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 import type { OpenChamberSection } from './types';
+import { SideConversationPluginSettings } from './SideConversationPluginSettings';
 
 const useRuntimeEndpointEpoch = (): number => {
     const [epoch, setEpoch] = React.useState(0);
@@ -187,8 +188,9 @@ const VisualSectionContent: React.FC = () => {
 const ChatSectionContent: React.FC = () => {
     const isVSCode = isVSCodeRuntime();
     return (
-        <OpenChamberVisualSettings
-            visibleSettings={[
+        <>
+            <OpenChamberVisualSettings
+                visibleSettings={[
                 'sessionGoal',
                 'sessionAssist',
                 'chatRenderMode',
@@ -212,8 +214,10 @@ const ChatSectionContent: React.FC = () => {
                 'followUpBehavior',
                 'persistDraft',
                 'inputSpellcheck',
-            ]}
-        />
+                ]}
+            />
+            <SideConversationPluginSettings />
+        </>
     );
 };
 

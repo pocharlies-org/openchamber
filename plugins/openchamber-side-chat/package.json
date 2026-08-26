@@ -1,0 +1,8 @@
+{
+  "name": "@pocharlies/openchamber-side-chat",
+  "version": "0.1.0",
+  "description": "Declarative side-conversation contribution for OpenChamber Web and Desktop",
+  "license": "MIT",
+  "files": ["openchamber.ui-plugin.json", "README.md"],
+  "openchamber": "openchamber.ui-plugin.json"
+}

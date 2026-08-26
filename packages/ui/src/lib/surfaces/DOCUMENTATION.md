@@ -54,3 +54,11 @@ the `openContext*` actions in `useUIStore`.
   surfaces must restore their state from stores or snapshots.
 - Runtime scope: desktop/web `MainLayout` only. VS Code and the dedicated
   mobile shell have their own layouts and do not consume this registry.
+
+Chat tabs may host a writable side conversation. These tabs are backed by a
+real child session and use the same authenticated embedded-chat bootstrap as
+other context-panel chats; the declarative UI plugin never owns iframe URLs,
+credentials, SDK access, or React rendering. Closing an ephemeral side-chat tab
+first checks the authoritative server message list. An empty child is deleted
+immediately; a non-empty child requires Keep, Discard, or Cancel. Keeping only
+changes its metadata lifecycle flag and does not copy content to the parent.
