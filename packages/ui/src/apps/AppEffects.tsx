@@ -10,6 +10,10 @@ import { markSessionViewed } from '@/sync/notification-store';
 import { setExternallyViewedSession } from '@/sync/sync-context';
 import { useSync } from '@/sync/use-sync';
 import { isServerOwnedMessageQueue } from '@/stores/messageQueueStore';
+import { useUIPluginsStore } from '@/stores/useUIPluginsStore';
+import { useUIStore } from '@/stores/useUIStore';
+import { isVSCodeRuntime } from '@/lib/desktop';
+import { subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 
 const MINI_CHAT_PRESENCE_CHANNEL = 'openchamber:mini-chat-presence';
 
@@ -82,6 +86,14 @@ export function SyncAppEffects({ embeddedBackgroundWorkEnabled }: {
   usePwaManifestSync();
   useWindowControlsOverlayLayout();
   useKeyboardShortcuts();
+  const isMobile = useUIStore((state) => state.isMobile);
+
+  React.useEffect(() => {
+    if (isMobile || isVSCodeRuntime()) return;
+    const loadCatalog = () => { void useUIPluginsStore.getState().loadCatalog(); };
+    loadCatalog();
+    return subscribeRuntimeEndpointChanged(loadCatalog);
+  }, [isMobile]);
 
   return (
     <>

@@ -102,3 +102,11 @@ chat/palette go through the `openContext*` actions in `useUIStore`.
   search and the filters other than status drop to icons; status keeps its label. The card
   shows priority and labels. Changing filters keeps the previous list
   until the next page arrives.
+
+Chat tabs may host a writable side conversation. These tabs are backed by a
+real child session and use the same authenticated embedded-chat bootstrap as
+other context-panel chats; the declarative UI plugin never owns iframe URLs,
+credentials, SDK access, or React rendering. Closing an ephemeral side-chat tab
+first checks the authoritative server message list. An empty child is deleted
+immediately; a non-empty child requires Keep, Discard, or Cancel. Keeping only
+changes its metadata lifecycle flag and does not copy content to the parent.
