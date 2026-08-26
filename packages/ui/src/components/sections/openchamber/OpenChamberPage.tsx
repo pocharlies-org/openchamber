@@ -23,7 +23,7 @@ import { isCapacitorApp } from '@/lib/platform';
 import { useI18n } from '@/lib/i18n';
 import { subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 import type { OpenChamberSection } from './types';
-import { SideConversationPluginSettings } from './SideConversationPluginSettings';
+import { UIPluginSettings } from './UIPluginSettings';
 
 const useRuntimeEndpointEpoch = (): number => {
     const [epoch, setEpoch] = React.useState(0);
@@ -226,7 +226,7 @@ const ChatSectionContent: React.FC = () => {
                 'enterToSend',
                 ]}
             />
-            <SideConversationPluginSettings />
+            <UIPluginSettings />
         </>
     );
 };
