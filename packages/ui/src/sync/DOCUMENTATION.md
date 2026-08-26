@@ -180,41 +180,6 @@ Live activity/status indicators must not depend on this cache. They must use the
 
 ## Session message loading
 
-### Side-conversation lifecycle
-
-`session-actions.ts` owns creation of side-conversation children. It forks the
-parent at the last locally materialized assistant message with a finite
-completion timestamp, deliberately excluding an in-progress response. If no
-completed assistant response exists, it creates a fresh child linked to the
-parent. Creation stamps the versioned `openchamber.sideConversation` metadata
-contract, registers directory routing before consumers use the child, and
-upserts both directory and global session state.
-
-Ephemeral children are excluded from the ordinary session sidebar. Closing
-their context-panel tab does not treat an absent local message bucket as proof
-that the session is empty: it fetches one authoritative message from the
-session route first. Empty children are deleted; non-empty children require an
-explicit keep or discard decision. Keep patches only the ephemeral flag while
-preserving unrelated metadata. Discard uses the normal abort and deletion
-actions so routing, loader generations, stores, and persisted session UI state
-receive their existing cleanup.
-
-`SessionMessageLoader` is the shared authority for session message requests. Navigation, reactive chat loading, sidebar prefetch, pagination, reconnect/recovery, and optimistic reconciliation must delegate to it rather than issuing parallel initial requests.
-
-Rules:
-
-1. Request identity is runtime key + normalized directory + session ID. Session IDs alone are not globally unique across runtimes or directories.
-2. One in-flight request is shared by all callers. Foreground demand may promote the visible load kind of an existing prefetch without starting another request.
-3. Load state is explicit per session: `idle`, `loading`, `ready`, or `error`. Fetch failure preserves prior materialized records and exposes retry; it never becomes authoritative empty success.
-4. Async commits are generation-checked. Runtime switches, forced refreshes, eviction, and disposal must reject stale completion.
-5. Prefetch coverage and persisted directory data are runtime-scoped. Legacy persisted directory entries may seed startup continuity, but they are not live truth.
-6. Message and part materialization preserves references for unchanged records and maintains direct message-to-parts lookup. Consumers subscribe to the selected session's records rather than broad message/part containers.
-7. Pagination demand must carry the selected session's effective directory. It must not fall back to the sync provider directory because the visible session may belong to another worktree.
-8. The ref-stable loader is disposed only after the current task when its provider unmounts. This lets React Strict Mode's development setup → cleanup → setup probe retain a usable loader for child effects, while real disposal still invalidates the preceding lifecycle's work.
-9. Transcript arrays are chronological by `message.time.created`, with message ID used only as a deterministic equal-time tie-breaker. Message IDs are identity and reconciliation keys, not chronology: OpenCode's fixed-width sortable timestamp prefix rolls over, so a newer `msg_000...` can follow an older `msg_fff...`. Fetch, pagination, materialization, optimistic insertion, events, reconnect inspection, rendering, and revert/undo/redo must preserve this contract.
-10. Part arrays preserve authoritative response/event order. Part IDs are identity keys and have the same rollover limitation; identity lookup/removal must not require a part array to be lexically ID-sorted.
-
-Initial loads use smaller pages on constrained VS Code/mobile surfaces. Prefetch resolves only the initial renderable page; it does not eagerly download older history. The mounted chat timeline requests older pages when its viewport is underfilled or the user scrolls toward history, while mobile uses its explicit load-older action. Timeline caches, pending work, prepend snapshots, and stale checks use runtime + directory + session identity so equal session IDs in different worktrees cannot share lifecycle state. Older pages are fetched through the same loader and merged with optimistic records before publication. The same chronology contract applies in the VS Code webview because it consumes this shared loader and sync store; the extension bridge must transport OpenCode records without introducing its own ID-based ordering.
 
 ## Loading diagnostics
 

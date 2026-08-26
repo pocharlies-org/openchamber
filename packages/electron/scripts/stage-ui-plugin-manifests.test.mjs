@@ -34,11 +34,9 @@ test('stages both declarative UI plugin manifests for packaged Desktop', async (
   }));
 
   assert.deepEqual(manifests.map((manifest) => manifest.id), [
-    '@pocharlies/openchamber-side-chat',
     '@pocharlies/openchamber-stream-metrics',
   ]);
-  assert.equal(manifests[0].contributes.sideConversations.length, 1);
-  assert.equal(manifests[1].contributes.composerMetrics.length, 1);
+  assert.equal(manifests[0].contributes.composerMetrics.length, 1);
 
   const packageManifest = JSON.parse(await fs.readFile(path.join(repoRoot, 'packages', 'electron', 'package.json'), 'utf8'));
   assert.ok(packageManifest.build.extraResources.some((resource) => (

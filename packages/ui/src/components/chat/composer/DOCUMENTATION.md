@@ -203,15 +203,7 @@ frame where nothing is open.
 none of them is verifiable outside a real device.** Change them only against
 hardware.
 
-## Side conversations
-
-Desktop and web composers expose side conversations through the built-in
-`@pocharlies/openchamber-side-chat` UI-plugin contribution. The contribution is
-declarative: it supplies the `/btw` and `/side` aliases, the composer-button
-placement, and lifecycle policy. `ChatInput.tsx` remains the trusted host that
-creates the child session, opens its writable context-panel chat tab, and sends
-an optional command argument. Plugin manifests cannot execute renderer code or
-call the SDK directly.
+## Declarative UI plugins
 
 `lib/uiPlugins.ts` is the minimal host extension API. It validates versioned
 JSON-shaped manifests before registration, rejects unsupported lifecycle policy
@@ -233,11 +225,6 @@ reads only that session's message bucket when the bucket changes so opening or
 reloading Web can hydrate the latest completed assistant's authoritative token
 counters; streaming part deltas remain isolated in the tracker and do not
 rerender the footer.
-
-Side conversations are unavailable in the mobile and VS Code surfaces and
-cannot be started from an embedded side-chat composer. They inherit the parent
-composer's provider, model, agent, and variant, but their result is never
-automatically inserted into the parent conversation.
 
 ## Testing
 
