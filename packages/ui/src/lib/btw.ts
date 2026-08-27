@@ -55,6 +55,25 @@ export const BTW_BOUNDARY_INSTRUCTION = [
   'Do not modify files, source, git state, permissions, configuration, or any other workspace state unless the user explicitly asks for that mutation inside this btw session. If they do, keep it minimal, local to the request, and avoid disrupting the main thread.',
 ].join('\n');
 
+/**
+ * Sent with every message in a session that was promoted out of `/btw`.
+ *
+ * `BTW_BOUNDARY_INSTRUCTION` is persisted on each message the session sent
+ * while it was a side conversation, and there is no API to remove a message
+ * part after the fact — so promotion cannot delete those lines, only answer
+ * them. Without this, a promoted session keeps reading "no sub-agents, do not
+ * touch the workspace" out of its own history, in a session that is no longer
+ * a side conversation.
+ *
+ * It rides along with every send for the same reason the boundary does: the
+ * instructions it revokes are re-read on every turn, so a one-shot notice
+ * would lose its position relative to them as the conversation grows.
+ */
+export const BTW_PROMOTION_NOTICE =
+  'This session started as a btw side conversation and has since been promoted to a normal session. '
+  + 'The btw constraints in the history above no longer apply: this is now the main thread, and the '
+  + 'usual tool, sub-agent and workspace permissions are in force.';
+
 /** The boundary as an `additionalParts` entry for `sendMessage`. */
 const btwBoundaryParts = (): Array<{ text: string; synthetic: true }> =>
   [{ text: BTW_BOUNDARY_INSTRUCTION, synthetic: true }];

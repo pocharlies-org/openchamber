@@ -18,7 +18,7 @@ import {
 import type { AttachedFile } from '@/stores/types/sessionTypes';
 import * as sessionActions from '@/sync/session-actions';
 import { buildLinkedIssue } from '@/lib/linkedIssues';
-import { useUserMessageHistory } from "@/sync/sync-context";
+import { useSession, useUserMessageHistory } from "@/sync/sync-context";
 import { getInlineCommentDraftKey, useInlineCommentDraftStore, type InlineCommentDraft, type InlineCommentDraftTarget } from '@/stores/useInlineCommentDraftStore';
 import { useSnippetsStore } from '@/stores/useSnippetsStore';
 import { appendInlineComments } from '@/lib/messages/inlineComments';
@@ -36,7 +36,8 @@ import {
 import { ReviewFlowDialog, type ReviewFlowExecution } from '@/components/session/ReviewFlowDialog';
 import { BtwPanel } from './btw/BtwPanel';
 import { useBtwPanelState } from './btw/useBtwPanelState';
-import { BTW_BOUNDARY_INSTRUCTION, destroyBtwSession, startBtwSession, type BtwSessionRef } from '@/lib/btw';
+import { wasPromotedBtwSession } from '@/lib/sessionBtwMetadata';
+import { BTW_BOUNDARY_INSTRUCTION, BTW_PROMOTION_NOTICE, destroyBtwSession, startBtwSession, type BtwSessionRef } from '@/lib/btw';
 import { AttachedFilesList, AttachedVSCodeFileChips, ActiveEditorFileSuggestion } from './FileAttachment';
 import { lazyWithChunkRecovery } from '@/lib/chunkLoadRecovery';
 import type { ToolPopupContent } from './message/types';
@@ -334,6 +335,14 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         [btwDirectory, btwSessionId, currentSessionId],
     );
     const isBtwActive = Boolean(btwSessionRef) && !btwPanel.collapsed;
+    // A session promoted out of `/btw` keeps the boundary instructions in its
+    // transcript — there is no way to delete a message part — so it has to say
+    // they no longer apply.
+    const currentSessionRecord = useSession(
+        currentSessionId,
+        currentSessionDirectoryForSync ?? currentDirectory ?? undefined,
+    );
+    const isPromotedBtwSession = wasPromotedBtwSession(currentSessionRecord);
     const activeRuntimeKey = getRuntimeKey();
     const chatDraftIdentity = React.useMemo(
         () => createChatDraftIdentity(
@@ -1194,6 +1203,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             // for the whole side conversation.
             syntheticTexts: [
                 ...(isBtwActive ? [BTW_BOUNDARY_INSTRUCTION] : []),
+                ...(isPromotedBtwSession ? [BTW_PROMOTION_NOTICE] : []),
                 ...(syntheticParts?.map((part) => part.text) ?? []),
             ],
             linkedIssueContext: linkedIssue?.contextText ?? null,

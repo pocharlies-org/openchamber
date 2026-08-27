@@ -291,7 +291,9 @@ describe('promoteBtwSession', () => {
 
     expect(metadataPatches).toEqual([
       { sessionId: 'parent-1', result: {} },
-      { sessionId: 'fork-1', result: {} },
+      // The fork stops being a btw session but stays marked as promoted: its
+      // transcript still carries the boundary instructions.
+      { sessionId: 'fork-1', result: { openchamber: { btwPromoted: true } } },
     ]);
     expect(currentSessionSwitches).toEqual(['fork-1']);
   });
