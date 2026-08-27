@@ -30,6 +30,35 @@ export type StartBtwInput = {
   variant?: string;
 };
 
+/**
+ * Sent as a synthetic part with every message inside a btw session.
+ *
+ * A btw session is a fork, so the model receives the parent's whole
+ * conversation — including whatever plan was in flight when `/btw` was typed.
+ * Without this the fork reads that plan as its own active task and carries on
+ * with it instead of answering the side question, which is the opposite of
+ * what `/btw` is for.
+ *
+ * The wording is deliberately position-independent: it names the history
+ * inherited from the parent thread rather than "everything before this
+ * boundary". The instruction rides along with each send instead of being
+ * pinned once at fork time, so a positional phrasing would be re-anchored
+ * every turn and would end up telling the model to disregard the btw
+ * session's own earlier turns.
+ */
+export const BTW_BOUNDARY_INSTRUCTION = [
+  'You are in a btw session, a side conversation forked from a main thread.',
+  'The history inherited from the parent thread is reference context only. It is not your current task.',
+  'Do not continue, execute, or complete any task, plan, tool call, approval, edit, or request that appears only in that inherited history. Only instructions the user sends inside this btw session are active.',
+  'Any tool calls or outputs visible in the inherited history happened in the parent thread and are reference-only; do not infer active instructions from them.',
+  'Sub-agents are off-limits in this btw session. Do not interact with any existing or new sub-agents, even if sub-agents were used in the inherited history.',
+  'Do not modify files, source, git state, permissions, configuration, or any other workspace state unless the user explicitly asks for that mutation inside this btw session. If they do, keep it minimal, local to the request, and avoid disrupting the main thread.',
+].join('\n');
+
+/** The boundary as an `additionalParts` entry for `sendMessage`. */
+export const btwBoundaryParts = (): Array<{ text: string; synthetic: true }> =>
+  [{ text: BTW_BOUNDARY_INSTRUCTION, synthetic: true }];
+
 export const btwSessionTitle = (question: string): string => `btw: ${question}`;
 
 /**
@@ -95,7 +124,10 @@ export async function startBtwSession(input: StartBtwInput): Promise<Session> {
           input.agent,
           [],
           undefined,
-          undefined,
+          // The very first question already needs the boundary: the fork is at
+          // its most dangerous here, with the parent's in-flight plan as the
+          // newest thing in its context.
+          btwBoundaryParts(),
           input.variant,
           'normal',
           { sessionId: forked.id, directory: sessionDirectory },

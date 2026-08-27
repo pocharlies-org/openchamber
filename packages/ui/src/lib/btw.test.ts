@@ -56,7 +56,7 @@ mock.module('@/sync/sync-refs', () => ({
   }),
 }));
 
-const { btwSessionTitle, startBtwSession, destroyBtwSession, promoteBtwSession, filterBtwTailMessages } =
+const { btwSessionTitle, startBtwSession, destroyBtwSession, promoteBtwSession, filterBtwTailMessages, BTW_BOUNDARY_INSTRUCTION } =
   await import('@/lib/btw');
 const { useBtwStore } = await import('@/stores/useBtwStore');
 
@@ -149,6 +149,19 @@ describe('startBtwSession', () => {
     ]);
     // Transient creating flag is cleared once the flow settles.
     expect(useBtwStore.getState().byParent).toEqual({});
+  });
+
+  test('the first question carries the boundary instruction as a synthetic part', async () => {
+    forkSessionImpl = () => Promise.resolve(makeSession('fork-1', '/project'));
+    const sentParts: unknown[] = [];
+    sendMessageImpl = (...args) => {
+      sentParts.push(args[6]);
+      return Promise.resolve();
+    };
+
+    await startBtwSession(startInput);
+
+    expect(sentParts).toEqual([[{ text: BTW_BOUNDARY_INSTRUCTION, synthetic: true }]]);
   });
 
   test('an empty parent produces a marker without a boundary', async () => {
