@@ -18,7 +18,7 @@ import {
 import type { AttachedFile } from '@/stores/types/sessionTypes';
 import * as sessionActions from '@/sync/session-actions';
 import { buildLinkedIssue } from '@/lib/linkedIssues';
-import { useSession, useUserMessageHistory } from "@/sync/sync-context";
+import { useUserMessageHistory } from "@/sync/sync-context";
 import { getInlineCommentDraftKey, useInlineCommentDraftStore, type InlineCommentDraft, type InlineCommentDraftTarget } from '@/stores/useInlineCommentDraftStore';
 import { useSnippetsStore } from '@/stores/useSnippetsStore';
 import { appendInlineComments } from '@/lib/messages/inlineComments';
@@ -338,11 +338,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     // A session promoted out of `/btw` keeps the boundary instructions in its
     // transcript — there is no way to delete a message part — so it has to say
     // they no longer apply.
-    const currentSessionRecord = useSession(
-        currentSessionId,
-        currentSessionDirectoryForSync ?? currentDirectory ?? undefined,
-    );
-    const isPromotedBtwSession = wasPromotedBtwSession(currentSessionRecord);
+    const isPromotedBtwSession = wasPromotedBtwSession(btwPanel.parentSession);
     const activeRuntimeKey = getRuntimeKey();
     const chatDraftIdentity = React.useMemo(
         () => createChatDraftIdentity(
