@@ -424,7 +424,7 @@ export const MobileSessionMetadataButton = React.memo(function MobileSessionMeta
     ? { percentage: contextPercentage, tokens: contextTokens, colorClass: contextColorClass }
     : null;
 
-  const usageGroups = useUsageProviderGroups();
+  const usageGroups = useUsageProviderGroups(modelRef);
 
   React.useEffect(() => {
     if (!open || usageGroups.length === 0) return;
