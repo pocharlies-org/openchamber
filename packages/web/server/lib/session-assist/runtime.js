@@ -71,7 +71,10 @@ const buildAssistSystemPrompt = ({ recap, suggestion }) => [
   suggestion ? '- Return an EMPTY STRING when there is no honest next step: the request the user made is already satisfied, or the conversation is waiting on a decision only the user can make. An empty suggestion is a correct and expected answer, not a failure.' : '',
   suggestion ? '- Never invent follow-up work to fill the field. Finishing a task is a valid end state.' : '',
   suggestion ? '- Work you flagged as unverified, out of scope, or "not tested" in your own reply is NOT automatically the next step. It is only the next step if it is part of what the user asked for.' : '',
-  suggestion ? '- Do not phrase it as an instruction to yourself or as an order from the user ("Implement X", "Test Y"). Write what YOU would do: "I would…", and stop.' : '',
+  // Deliberately describes the grammar instead of quoting an opener: an English
+  // template here is copied verbatim, and the suggestion came back in English
+  // against a Spanish conversation in 2 of 3 measured runs.
+  suggestion ? '- Do not phrase it as an order (neither "do X" addressed to yourself, nor a request from the user). Use the first person singular and the conditional mood, as in "I would do X" — but expressed in the language of the conversation, never in English unless the conversation is in English.' : '',
   suggestion ? '- Do not include alternatives, choices, slash-separated options, or "or".' : '',
   suggestion ? '- Do not restate information you already gave in the reply.' : '',
   suggestion ? 'Example 1 — the request is finished:' : '',
@@ -79,8 +82,13 @@ const buildAssistSystemPrompt = ({ recap, suggestion }) => [
   suggestion ? 'Correct suggestion: "" (empty). The user asked for a ticket and the ticket exists. The unverified mobile panel is work described IN the ticket, not work the user asked you to do now.' : '',
   suggestion ? 'Example 2 — the request is not finished:' : '',
   suggestion ? 'The user asked you to make the tests pass. Two of them still fail and you have just located the cause.' : '',
-  suggestion ? 'Correct suggestion: "I would fix the mock in session-actions.test.ts so the module loads, then re-run the suite."' : '',
+  suggestion ? 'A correct suggestion here names, in one conditional first-person sentence and in the conversation\'s language, the specific fix you would apply and the check you would re-run.' : '',
+  // These examples describe the answers rather than quoting them. Quoting an
+  // English sentence primes the field: measured against a Spanish session, the
+  // recap came back in Spanish and the suggestion in English, 2 runs out of 3.
+  suggestion ? 'The examples above are described in English only because these instructions are in English. They say nothing about the language of your answer.' : '',
   'All requested values MUST be written in the same language as the conversation text itself. Ignore any other language preferences or personalization you may have — only the conversation text decides the language.',
+  'This applies to every field independently: it is never correct for one field to be in the language of the conversation and another in English.',
   'Use double quotes for JSON strings, no trailing commas.',
 ].filter(Boolean).join('\n');
 
