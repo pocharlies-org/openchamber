@@ -26,7 +26,6 @@ import { isDictationCaptureSupported } from '@/lib/dictation/use-dictation-audio
 import { ModelControls } from '../../ModelControls';
 import { ComposerActionButtons } from './ComposerActionButtons';
 import { ComposerAttachmentControls } from './ComposerAttachmentControls';
-import { ComposerGhostAcceptButton } from './ComposerGhostAcceptButton';
 import { FocusModeButton } from './FocusModeButton';
 import { PermissionAutoAcceptButton } from './PermissionAutoAcceptButton';
 import type { PermissionMode } from '@/stores/utils/permissionAutoAccept';
@@ -56,8 +55,6 @@ export interface ComposerFooterProps {
     canSend: boolean;
     canAbort: boolean;
     hasContent: boolean;
-    /** True only while a ghost suggestion is waiting behind the caret. */
-    canAcceptGhost: boolean;
     isExpandedInput: boolean;
     permissionMode: PermissionMode;
     isPermissionAutoAcceptInteractive: boolean;
@@ -75,8 +72,6 @@ export interface ComposerFooterProps {
     onOpenAttachSheet: () => void;
     onToggleExpandedInput: () => void;
     onCyclePermissionMode: () => void;
-    /** Takes the ghost suggestion — the same path `Tab` uses. */
-    onAcceptGhost: () => void;
     onPrimaryAction: () => void;
     onQueueMessage: () => void;
     onAbort: () => void;
@@ -117,7 +112,6 @@ export function ComposerFooter(props: ComposerFooterProps) {
         canSend,
         canAbort,
         hasContent,
-        canAcceptGhost,
         isExpandedInput,
         permissionMode,
         isPermissionAutoAcceptInteractive,
@@ -133,7 +127,6 @@ export function ComposerFooter(props: ComposerFooterProps) {
         onOpenAttachSheet,
         onToggleExpandedInput,
         onCyclePermissionMode,
-        onAcceptGhost,
         onPrimaryAction,
         onQueueMessage,
         onAbort,
@@ -213,16 +206,7 @@ export function ComposerFooter(props: ComposerFooterProps) {
                                 className="max-w-[9rem] flex-1 justify-end"
                             />
                             <div className="flex items-center gap-x-1 flex-shrink-0">
-                                {/* This is the whole reason the button exists: no
-                                    Tab key on a phone. It sits next to send
-                                    because that is where the thumb already is. */}
-                                <ComposerGhostAcceptButton
-                                    footerIconButtonClass={footerIconButtonClass}
-                                    iconSizeClass={iconSizeClass}
-                                    canAccept={canAcceptGhost}
-                                    onAccept={onAcceptGhost}
-                                />
-                                                                {!isBtw && showDictation ? <button
+                                {!isBtw && showDictation ? <button
                                     type="button"
                                     className={footerIconButtonClass}
                                     // Keep the soft keyboard open (same guard as
@@ -289,13 +273,6 @@ export function ComposerFooter(props: ComposerFooterProps) {
                             isInteractive={isPermissionAutoAcceptInteractive}
                             permissionMode={permissionMode}
                             handlePermissionModeCycle={onCyclePermissionMode}
-                            withTooltip
-                        />
-                        <ComposerGhostAcceptButton
-                            footerIconButtonClass={footerIconButtonClass}
-                            iconSizeClass={iconSizeClass}
-                            canAccept={canAcceptGhost}
-                            onAccept={onAcceptGhost}
                             withTooltip
                         />
                         {!isBtw ? <SessionGoalButton

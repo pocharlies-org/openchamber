@@ -1380,7 +1380,6 @@ export const dict: Record<I18nKey, string> = {
   'chat.chatInput.linked.pr.number': 'PR #{number}',
   'chat.chatInput.linked.pr.removeAria': 'Usuń powiązany pull request',
   'chat.chatInput.linked.mr.removeAria': 'Usuń powiązany merge request',
-  'chat.chatInput.ghost.accept': 'Zaakceptuj sugestie',
   'chat.chatInput.permissionAutoAccept.disable': 'Disable permission auto-accept',
   'chat.chatInput.permissionAutoAccept.enable': 'Enable permission auto-accept',
   'chat.chatInput.permissionAutoAccept.off': 'Permission auto-accept: off',
