@@ -36,8 +36,19 @@ export interface UsageWindows {
   windows: Record<string, UsageWindow>;
 }
 
+export interface UsageWindowsWithSharers extends UsageWindows {
+  /**
+   * Accounts that draw on this same budget.
+   *
+   * Two Claude logins on one organization, or the same login held twice, are two
+   * names on ONE pool. Without this the panel prints 30% and 30% and reads as
+   * two-thirds of a week left when it is one. Only the Claude provider fills it.
+   */
+  sharedWith?: string[];
+}
+
 interface ProviderUsage extends UsageWindows {
-  models?: Record<string, UsageWindows>;
+  models?: Record<string, UsageWindowsWithSharers>;
 }
 
 export interface ProviderResult {

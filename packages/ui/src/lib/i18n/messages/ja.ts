@@ -1564,6 +1564,7 @@ export const dict: Record<I18nKey, string> = {
   'header.services.used': '使用済み',
   'header.services.remaining': '残り',
   'header.services.modelFamily.other': 'その他',
+  'header.services.modelFamily.sharedBudget': '{accounts} が共有する同一の予算',
   'header.actions.openPlanAria': '計画を開く',
   'header.actions.toggleChangesPanel': '変更パネル',
   'header.actions.toggleChangesPanelAria': '変更パネルの切り替え',

@@ -167,7 +167,7 @@ export const listConfiguredQuotaProviders = () => {
   return configured;
 };
 
-export const fetchQuotaForProvider = async (providerId) => {
+export const fetchQuotaForProvider = async (providerId, options = {}) => {
   const provider = registry[providerId];
 
   if (!provider) {
@@ -181,7 +181,7 @@ export const fetchQuotaForProvider = async (providerId) => {
   }
 
   try {
-    return await provider.fetchQuota();
+    return await provider.fetchQuota(options);
   } catch (error) {
     return buildResult({
       providerId: provider.providerId,

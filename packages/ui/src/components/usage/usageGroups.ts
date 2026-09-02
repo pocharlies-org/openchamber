@@ -2,6 +2,7 @@ import React from 'react';
 import { useI18n } from '@/lib/i18n';
 import { formatWindowLabel, QUOTA_PROVIDERS, resolveQuotaProviderId } from '@/lib/quota';
 import { getDisplayModelName } from '@/lib/quota/model-families';
+import { formatQuotaSharedWith } from '@/lib/quota/accounts';
 import { useQuotaStore } from '@/stores/useQuotaStore';
 import type { ProviderResult, QuotaProviderId, UsageWindow } from '@/types';
 
@@ -90,10 +91,21 @@ export const buildUsageProviderGroups = (
         const entries = Object.entries(modelUsage.windows ?? {});
         if (entries.length === 0) continue;
         const [label, window] = entries[0];
+        // The account, and the other names on the same budget, go in the one
+        // field this row type already has for "what this row is really about".
+        // A separate field would have to be taught to every renderer of these
+        // rows — the work-status panel, the mobile popover, the tray — and the
+        // failure mode of forgetting one is exactly the failure this whole
+        // change exists to remove: two accounts on one pool read as two pools.
+        // The compact surfaces have no room for a second line, but they do have
+        // this one, and a truncated suffix loses nothing that matters.
+        const sharedWith = modelUsage.sharedWith;
         rows.push({
           key: `model-${modelName}-${label}`,
           label: formatWindowLabel(label),
-          subtitle: getDisplayModelName(modelName),
+          subtitle: sharedWith && sharedWith.length > 0
+            ? `${getDisplayModelName(modelName)} · ${formatQuotaSharedWith(sharedWith)}`
+            : getDisplayModelName(modelName),
           window,
         });
       }

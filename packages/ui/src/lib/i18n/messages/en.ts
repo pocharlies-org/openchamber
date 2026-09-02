@@ -1568,6 +1568,7 @@ export const dict = {
   'header.services.used': 'Used',
   'header.services.remaining': 'Remaining',
   'header.services.modelFamily.other': 'Other',
+  'header.services.modelFamily.sharedBudget': 'One budget shared by {accounts}',
   'header.actions.openPlanAria': 'Open plan',
   'header.actions.toggleChangesPanel': 'Changes panel',
   'header.actions.toggleChangesPanelAria': 'Toggle changes panel',

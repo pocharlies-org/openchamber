@@ -250,6 +250,12 @@ export const useQuotaStore = create<QuotaStore>()(
         if ((state.selectedModels[providerId]?.length ?? 0) > 0) return;
 
         const defaults = getDefaultModels(providerId as QuotaProviderId, availableModels);
+        // Nothing matched the provider's default pattern. Leaving the selection
+        // empty means "show everything"; persisting an empty array would mean
+        // "show nothing" to the surfaces that filter by it, and for Claude that
+        // is worse than a cosmetic problem — its `models` entries are accounts,
+        // so an empty selection would hide every subscription the panel exists
+        // to report.
         if (defaults.length === 0) return;
 
         set((s) => ({

@@ -87,7 +87,14 @@ export function registerQuotaRoutes(app, { getQuotaProviders }) {
       const { providerId } = req.params;
       if (!providerId) return res.status(400).json({ error: 'Provider ID is required' });
       const { fetchQuotaForProvider } = await getQuotaProviders();
-      res.json(await fetchQuotaForProvider(providerId));
+      // Which model the caller is asking about, when it knows. Providers that
+      // bill per login (Claude) use it to report that login's pool instead of
+      // whichever token happens to be in auth.json; everyone else ignores it,
+      // so an absent or unknown value is exactly today's behaviour.
+      const modelProviderId = req.query.model;
+      res.json(await fetchQuotaForProvider(providerId, {
+        ...(typeof modelProviderId === 'string' && modelProviderId ? { modelProviderId } : {})
+      }));
     } catch (error) {
       console.error('Failed to fetch quota:', error);
       res.status(500).json({ error: error.message || 'Failed to fetch quota' });
