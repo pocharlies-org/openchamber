@@ -2260,7 +2260,6 @@ export const dict: Record<I18nKey, string> = {
   'chat.chatInput.actions.stopGeneratingAria': '생성 중지',
   'chat.chatInput.focusMode.toggleAria': '집중 모드 전환',
   'chat.chatInput.focusMode.label': '집중 모드',
-  'chat.chatInput.ghost.accept': '제안 수락',
   'chat.chatInput.permissionAutoAccept.disable': '권한 자동 승인 끄기',
   'chat.chatInput.permissionAutoAccept.enable': '권한 자동 승인 켜기',
   'chat.chatInput.permissionAutoAccept.on': '권한 자동 승인: 켜짐',

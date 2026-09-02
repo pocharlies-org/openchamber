@@ -24,7 +24,6 @@ existing mobile fixed-position rules unchanged.
 | `language/` | What the text *means*: `@` references, `/` and `#` tokens, markdown, and which picker a caret asks for |
 | `editor/` | The CodeMirror view that renders the language and owns the caret |
 | `state/` | Composer state with a lifecycle: drafts, mobile shell, history, popup placement, draft targeting |
-| `ghost/` | The suggestion drawn behind the caret: when to ask for it, and what comes back |
 | `submit/` | Turning what the user has into what gets sent |
 | `attachments/` | Files: paths, drop payloads |
 | `ui/` | Presentation |
@@ -138,57 +137,6 @@ and the send path reading the same grammar.
 - `state/useDraftTarget.ts` — the draft can target a directory that does not
   exist yet (a worktree being created). It must survive not appearing in the
   branch list, or the selector snaps back to the project root mid-creation.
-
-## Ghost autocomplete
-
-`ghost/` predicts the text the user would type next and draws it behind the
-caret. `Tab` takes it; anything else dismisses it. The suggestion is a
-CodeMirror widget past the last character, never document text — `getValue()`
-cannot return it, so an unaccepted suggestion can never be sent.
-
-The following behavior is load-bearing:
-
-- **The empty composer is the primary case.** While the window is visible and
-  focused, 15 seconds of inactivity asks for the whole message the user would
-  send next. A stale trailing-assistant activity fallback does not suppress the
-  first request, while an authoritative busy/retry status does. After the first
-  server reconciliation, the fallback cannot keep polling. An authoritative
-  busy-to-idle turn edge remains an immediate trigger; a fallback-busy state
-  resolving to idle does not bypass the 15-second wait. Identical
-  history-generation/turn-count/draft fingerprints are requested only once,
-  including model misses, and requests retain a 30-second start-to-start floor.
-- **An unfinished assistant record is only a temporary activity fallback.** An
-  attached error settles it immediately. Without an error it remains active
-  while its message/part heartbeat is newer than 90 seconds, then expires so a
-  process-crash orphan cannot silence autocomplete forever. Authoritative
-  busy/retry status still wins and is never expired by this fallback timeout.
-- **Nothing is requested unless the window is visible and focused.** The idle
-  interval is stopped while hidden or blurred and restarts its full 15-second
-  wait when the workspace returns to the foreground.
-- **The server owns the cacheable context per session.** Clients send only the
-  session identity, directory, and draft. The server reconciles authoritative
-  history and suppresses duplicate prefix-and-draft model calls across clients.
-  The server rebuilds deterministically from OpenCode history after restart and
-  retains entries under a one-hour TTL and 100-session LRU bound, so browser and
-  mobile share byte-identical prefixes.
-- **The prompt is BASE + append-only LEDGER + DRAFT + fixed SUFFIX.** BASE is
-  the versioned system prompt plus the first user message (2 KB maximum). BASE
-  plus LEDGER has a 16 KB budget; crossing it deterministically rebases below
-  8 KB on turn boundaries. BASE has absolute priority, followed by whole user
-  messages from newest to oldest, then first sentences from assistant messages.
-  Entries that do not fit are dropped rather than summarized, and even an
-  oversized user-only history degrades to a bounded prompt instead of rejecting
-  autocomplete. Tool output and synthetic text never enter the ledger.
-- Every request reports `prefixHash`, `prefixBytes`, `generation`, and
-  `turnCount`. The hash can prove byte stability; `cachedTokens` cannot prove
-  cache reuse because the deployed provider commonly reports it as null/zero.
-
-An empty draft is a first-class case, not a skip: right after a turn settles
-there is no draft, and a whole suggested next message is the most useful thing
-the feature does.
-
-The server side is `packages/web/server/lib/composer-ghost/`. It defaults to
-`gpt-5.4-mini` and still sends `max_completion_tokens`, never `max_tokens`.
 
 ## Mobile
 
