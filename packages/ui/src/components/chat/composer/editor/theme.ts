@@ -66,15 +66,6 @@ export const COMPOSER_EDITOR_THEME_SPEC = {
     // brightness instead. The muted token already supplies secondary text;
     // another opacity reduction makes the hint unreadable in subdued themes.
     '.cm-placeholder': { color: 'var(--surface-muted-foreground)' },
-    // Same muted colour as the placeholder — it reads as text that is not
-    // written yet. `pre-wrap` because a suggestion can carry newlines, which
-    // an inline widget would otherwise collapse into one run-on line.
-    '.cm-composer-ghost': {
-        color: 'var(--surface-muted-foreground)',
-        opacity: '0.75',
-        whiteSpace: 'pre-wrap',
-        pointerEvents: 'none',
-    },
     // `drawSelection()` paints its own selection layer, and CodeMirror styles
     // it for the focused editor through
     // `&light.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground`
