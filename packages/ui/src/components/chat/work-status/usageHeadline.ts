@@ -1,3 +1,4 @@
+import { resolveQuotaProviderId as resolveQuotaProviderIdFromModel } from '@/lib/quota';
 import type { UsageProviderGroup, UsageLimitRow } from '@/components/usage/usageGroups';
 
 /**
@@ -10,24 +11,16 @@ import type { UsageProviderGroup, UsageLimitRow } from '@/components/usage/usage
  * answer "can I keep working right now".
  */
 
-/**
- * Quota provider ids mostly match OpenCode provider ids; these are the ones
- * that do not. Unmatched providers simply produce no headline.
- */
-const QUOTA_PROVIDER_ALIASES = new Map<string, string>([
-  ['openai', 'codex'],
-  ['chatgpt', 'codex'],
-  ['anthropic', 'claude'],
-  ['gemini', 'google'],
-]);
-
 const normalize = (value: string | null | undefined): string => (value ?? '').trim().toLowerCase();
 
-export const resolveQuotaProviderId = (modelProviderId: string | null | undefined): string | null => {
-  const normalized = normalize(modelProviderId);
-  if (!normalized) return null;
-  return QUOTA_PROVIDER_ALIASES.get(normalized) ?? normalized;
-};
+/**
+ * Which quota provider a model bills against. Lives in `@/lib/quota` beside the
+ * provider list it validates against; re-exported because the Usage section's
+ * collapsed headline and the expanded list must resolve the same way — a
+ * headline for one provider above a list of another is the bug this whole file
+ * exists to avoid, so the two are not allowed two resolvers.
+ */
+export const resolveQuotaProviderId = resolveQuotaProviderIdFromModel;
 
 /**
  * Shortest reported window for the provider the composer is pointed at.

@@ -1,9 +1,9 @@
 import React from 'react';
 import { useI18n } from '@/lib/i18n';
-import { formatWindowLabel, QUOTA_PROVIDERS } from '@/lib/quota';
+import { formatWindowLabel, QUOTA_PROVIDERS, resolveQuotaProviderId } from '@/lib/quota';
 import { getDisplayModelName } from '@/lib/quota/model-families';
 import { useQuotaStore } from '@/stores/useQuotaStore';
-import type { QuotaProviderId, UsageWindow } from '@/types';
+import type { ProviderResult, QuotaProviderId, UsageWindow } from '@/types';
 
 export type UsageLimitRow = {
   key: string;
@@ -21,6 +21,99 @@ export type UsageProviderGroup = {
 };
 
 /**
+ * The model this readout should speak for, in the shape its callers already hold
+ * (`{ providerID, modelID }` from a message, a saved selection or the composer).
+ *
+ * Anything that is not a quota provider — a local gateway, an unknown custom
+ * provider, no model picked yet — resolves to null and therefore to no groups.
+ * Collapsing those together is deliberate: a caller must not be able to tell
+ * "unknown" from "no model" and start guessing a provider from it.
+ */
+export type ActiveUsageModel = { providerID?: string | null; modelID?: string | null } | null | undefined;
+
+export const resolveActiveUsageQuotaProviderId = (
+  model: ActiveUsageModel,
+): QuotaProviderId | null => resolveQuotaProviderId(model?.providerID);
+
+/** Everything the grouping needs, as plain data. */
+export type UsageGroupsInput = {
+  results: ProviderResult[];
+  dropdownProviderIds: readonly QuotaProviderId[];
+  selectedModels: Record<string, string[]>;
+  /** The provider the session spends; null yields no groups. */
+  activeQuotaProviderId: QuotaProviderId | null;
+  /** Label for "configured, but reported no windows". */
+  noRateLimitsLabel: string;
+};
+
+/**
+ * The grouping itself, with no store and no React.
+ *
+ * Split out because the hook cannot be exercised in a test: `renderToStaticMarkup`
+ * reads `useSyncExternalStore`'s server snapshot, which is the store as it was at
+ * creation, so a `setState` made by a test is invisible to it — and this repo's
+ * store tests already work through `getState()` for the same reason. The
+ * selection is the part worth pinning down; the subscription around it is zustand's.
+ */
+export const buildUsageProviderGroups = (
+  input: UsageGroupsInput,
+): UsageProviderGroup[] => {
+  const {
+    results,
+    dropdownProviderIds,
+    selectedModels,
+    activeQuotaProviderId,
+    noRateLimitsLabel,
+  } = input;
+
+  if (activeQuotaProviderId === null) return [];
+
+  const resultsByProvider = new Map(results.map((result) => [result.providerId, result]));
+  return QUOTA_PROVIDERS
+    .filter((providerMeta) => providerMeta.id === activeQuotaProviderId)
+    .filter((providerMeta) => dropdownProviderIds.includes(providerMeta.id))
+    .filter((providerMeta) => resultsByProvider.get(providerMeta.id)?.configured === true)
+    .map((providerMeta) => {
+      const result = resultsByProvider.get(providerMeta.id)!;
+      const rows: UsageLimitRow[] = [];
+
+      for (const [label, window] of Object.entries(result?.usage?.windows ?? {})) {
+        rows.push({ key: `window-${label}`, label: formatWindowLabel(label), window });
+      }
+
+      const modelEntries = Object.entries(result?.usage?.models ?? {});
+      const providerSelectedModels = selectedModels[providerMeta.id] ?? [];
+      const visibleModelEntries = providerSelectedModels.length > 0
+        ? modelEntries.filter(([modelName]) => providerSelectedModels.includes(modelName))
+        : modelEntries;
+      for (const [modelName, modelUsage] of visibleModelEntries) {
+        const entries = Object.entries(modelUsage.windows ?? {});
+        if (entries.length === 0) continue;
+        const [label, window] = entries[0];
+        rows.push({
+          key: `model-${modelName}-${label}`,
+          label: formatWindowLabel(label),
+          subtitle: getDisplayModelName(modelName),
+          window,
+        });
+      }
+
+      const status = !result.ok && result.error
+        ? result.error
+        : rows.length === 0
+          ? noRateLimitsLabel
+          : null;
+
+      return {
+        providerId: providerMeta.id,
+        providerName: providerMeta.name,
+        rows,
+        status,
+      };
+    });
+};
+
+/**
  * Quota windows grouped by provider, shaped for the compact usage list.
  *
  * Shared by the mobile session-metadata popover and the work-status panel so
@@ -30,55 +123,36 @@ export type UsageProviderGroup = {
  * Only providers the user put in the dropdown *and* that reported themselves as
  * configured are included — an unconfigured provider has nothing to say, and
  * listing it reads as a fault.
+ *
+ * `activeModel` narrows that to the provider the session actually spends, and
+ * the condition lives here rather than in either caller's JSX precisely because
+ * this hook is shared: filtered in one panel's markup, the other surface keeps
+ * listing every provider the machine holds credentials for. These readouts are
+ * per provider, so a Claude quota shown while a local model runs is not extra
+ * information — it is the remaining balance of a subscription this session is
+ * not spending, which is how an operator ends up rationing the wrong account.
+ * No model, or a model no quota provider answers for, yields no groups at all:
+ * both callers already render nothing on an empty list, and an empty Usage
+ * section would be a heading with no claim behind it.
  */
-export const useUsageProviderGroups = (): UsageProviderGroup[] => {
+export const useUsageProviderGroups = (
+  activeModel?: ActiveUsageModel,
+): UsageProviderGroup[] => {
   const { t } = useI18n();
   const quotaResults = useQuotaStore((state) => state.results);
   const dropdownProviderIds = useQuotaStore((state) => state.dropdownProviderIds);
   const selectedQuotaModels = useQuotaStore((state) => state.selectedModels);
+  const activeQuotaProviderId = resolveActiveUsageQuotaProviderId(activeModel);
+  const noRateLimitsLabel = t('header.services.noRateLimitsReported');
 
-  return React.useMemo<UsageProviderGroup[]>(() => {
-    const resultsByProvider = new Map(quotaResults.map((result) => [result.providerId, result]));
-    return QUOTA_PROVIDERS
-      .filter((providerMeta) => dropdownProviderIds.includes(providerMeta.id))
-      .filter((providerMeta) => resultsByProvider.get(providerMeta.id)?.configured === true)
-      .map((providerMeta) => {
-        const result = resultsByProvider.get(providerMeta.id)!;
-        const rows: UsageLimitRow[] = [];
-
-        for (const [label, window] of Object.entries(result?.usage?.windows ?? {})) {
-          rows.push({ key: `window-${label}`, label: formatWindowLabel(label), window });
-        }
-
-        const modelEntries = Object.entries(result?.usage?.models ?? {});
-        const providerSelectedModels = selectedQuotaModels[providerMeta.id] ?? [];
-        const visibleModelEntries = providerSelectedModels.length > 0
-          ? modelEntries.filter(([modelName]) => providerSelectedModels.includes(modelName))
-          : modelEntries;
-        for (const [modelName, modelUsage] of visibleModelEntries) {
-          const entries = Object.entries(modelUsage.windows ?? {});
-          if (entries.length === 0) continue;
-          const [label, window] = entries[0];
-          rows.push({
-            key: `model-${modelName}-${label}`,
-            label: formatWindowLabel(label),
-            subtitle: getDisplayModelName(modelName),
-            window,
-          });
-        }
-
-        const status = !result.ok && result.error
-          ? result.error
-          : rows.length === 0
-            ? t('header.services.noRateLimitsReported')
-            : null;
-
-        return {
-          providerId: providerMeta.id,
-          providerName: providerMeta.name,
-          rows,
-          status,
-        };
-      });
-  }, [dropdownProviderIds, quotaResults, selectedQuotaModels, t]);
+  return React.useMemo(
+    () => buildUsageProviderGroups({
+      results: quotaResults,
+      dropdownProviderIds,
+      selectedModels: selectedQuotaModels,
+      activeQuotaProviderId,
+      noRateLimitsLabel,
+    }),
+    [activeQuotaProviderId, dropdownProviderIds, noRateLimitsLabel, quotaResults, selectedQuotaModels],
+  );
 };

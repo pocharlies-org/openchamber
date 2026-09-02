@@ -251,7 +251,7 @@ export const WorkStatusPanel: React.FC<Props> = ({ sessionId, directory, visible
           showRepository={sectionVisible('repository')}
           goalRow={<WorkStatusGoalRow sessionId={sessionId} directory={directory} />}
         />
-        {sectionVisible('usage') ? <WorkStatusUsageSection /> : null}
+        {sectionVisible('usage') ? <WorkStatusUsageSection sessionId={sessionId} directory={directory} /> : null}
         {sectionVisible('subagents') ? <WorkStatusSubagentsSection sessionId={sessionId} directory={directory} /> : null}
         {sectionVisible('tasks') ? <WorkStatusTasksSection sessionId={sessionId} directory={directory} /> : null}
         {sectionVisible('mcp') ? <WorkStatusMcpSection directory={directory} /> : null}
