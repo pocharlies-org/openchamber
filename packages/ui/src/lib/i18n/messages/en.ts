@@ -2260,7 +2260,6 @@ export const dict = {
   'chat.chatInput.actions.stopGeneratingAria': 'Stop generating',
   'chat.chatInput.focusMode.toggleAria': 'Toggle focus mode',
   'chat.chatInput.focusMode.label': 'Focus mode',
-  'chat.chatInput.ghost.accept': 'Accept suggestion',
   'chat.chatInput.permissionAutoAccept.disable': 'Disable permission auto-accept',
   'chat.chatInput.permissionAutoAccept.enable': 'Enable permission auto-accept',
   'chat.chatInput.permissionAutoAccept.on': 'Permission auto-accept: on',

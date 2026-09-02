@@ -123,8 +123,6 @@ import {
     toServerFileUrl,
 } from './composer/attachments/filePaths';
 import { buildOutgoingMessage } from './composer/submit/buildOutgoingMessage';
-import { insertGhostSuggestion } from './composer/ghost/acceptGhost';
-import { useComposerGhost } from './composer/ghost/useComposerGhost';
 import {
     buildCommandVariables,
     canRunCommand,
@@ -861,40 +859,10 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     // composer controls the temporary fork, so the stop button and send-button
     // state follow the FORK's activity; the queue affordance stays tied to the
     // main session (queued messages always belong to the main chat).
-    const {
-        phase: currentSessionPhase,
-        authoritativePhase: sessionAuthoritativePhase,
-        hasAuthoritativeStatus: hasAuthoritativeSessionStatus,
-    } = useCurrentSessionActivity();
+    const { phase: currentSessionPhase } = useCurrentSessionActivity();
     const { phase: btwSessionPhase } = useSessionActivity(btwSessionId, btwDirectory ?? undefined);
     const sessionPhase = isBtwActive ? btwSessionPhase : currentSessionPhase;
 
-    const ghost = useComposerGhost({
-        sessionId: currentSessionId,
-        directory: currentSessionDirectoryForSync ?? currentDirectory,
-        draft: message,
-        phase: sessionPhase,
-        authoritativePhase: sessionAuthoritativePhase,
-        hasAuthoritativeStatus: hasAuthoritativeSessionStatus,
-        enabled: inputMode === 'normal',
-    });
-
-    // The one path that takes a suggestion. `Tab` and the footer button — which
-    // exists because phones have no Tab — both go through here, so the insert
-    // cannot drift into two versions. The offset itself lives in
-    // `insertGhostSuggestion`, where it is tested.
-    const acceptGhost = ghost.accept;
-    const acceptGhostSuggestion = React.useCallback(
-        () => insertGhostSuggestion(composerRef.current, acceptGhost()),
-        [acceptGhost],
-    );
-
-    // A picker owns Tab while it is open, so a ghost waiting for the same key
-    // would leave the user with no way to tell which one they are about to take.
-    const clearGhost = ghost.clear;
-    React.useEffect(() => {
-        if (openAutocomplete !== null) clearGhost();
-    }, [openAutocomplete, clearGhost]);
     const autoReviewRunning = useAutoReviewStore(React.useCallback((state) => {
         if (!currentSessionId) return false;
         const run = state.runsByOriginalSessionID[currentSessionId];
@@ -1643,15 +1611,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 mentionRef.current.handleKeyDown(e.key);
                 return;
             }
-        }
-
-        // Past every picker: Tab belongs to the ghost only when none of them
-        // claimed it above.
-        if (e.key === 'Tab' && !e.shiftKey && openAutocomplete === null && ghost.suggestion && composerRef.current) {
-            e.preventDefault();
-            e.stopPropagation();
-            acceptGhostSuggestion();
-            return;
         }
 
         if (isDesktopExpanded && e.key === 'Escape') {
@@ -2949,7 +2908,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                                     cursorPosRef.current = selection.start;
                                     updateAutocompleteOverlayPosition();
                                 }}
-                                ghostText={ghost.suggestion ?? undefined}
                                 onFocus={mobileShell.onEditorFocus}
                                 onBlur={mobileShell.onEditorBlur}
                                 placeholder={isBtwActive
@@ -2997,8 +2955,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                         canSend={canSend}
                         canAbort={canAbort}
                         hasContent={Boolean(hasContent)}
-                        canAcceptGhost={Boolean(ghost.suggestion)}
-                        onAcceptGhost={acceptGhostSuggestion}
                         isExpandedInput={isExpandedInput}
                         permissionAutoAcceptEnabled={permissionAutoAcceptEnabled}
                         isPermissionAutoAcceptInteractive={isPermissionAutoAcceptInteractive}

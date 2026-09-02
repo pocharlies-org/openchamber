@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { registerComposerGhostRoutes } from '../composer-ghost/routes.js';
 import { createTunnelAuth } from './tunnel-auth.js';
 import { registerAuthAndAccessRoutes, registerCommonRequestMiddleware, registerServerStatusRoutes } from './core-routes.js';
 
@@ -157,78 +156,6 @@ describe('core-routes', () => {
         },
       },
     });
-  });
-
-  it('should parse JSON bodies before the composer ghost route', async () => {
-    const app = express();
-    const generateComposerGhost = vi.fn(async () => ({ text: 'continua con las pruebas' }));
-    const validateDirectoryPath = vi.fn(async (directory) => ({
-      ok: true,
-      directory,
-      error: null,
-    }));
-    registerCommonRequestMiddleware(app, { express });
-    registerComposerGhostRoutes(app, {
-      getComposerGhostService: async () => ({ generateComposerGhost }),
-      validateDirectoryPath,
-      buildOpenCodeUrl: () => 'http://opencode.test/session/ses_1/message',
-      getOpenCodeAuthHeaders: () => ({}),
-    });
-
-    const originalFetch = globalThis.fetch;
-    try {
-      globalThis.fetch = vi.fn(async () => ({
-        ok: true,
-        json: async () => [{ info: { id: 'u1', role: 'user' }, parts: [{ type: 'text', text: 'vale, ahora' }] }],
-      }));
-      await request(app)
-        .post('/api/composer/ghost')
-        .send({ sessionId: 'ses_1', draft: '', directory: '/repo' })
-        .expect(200);
-      await request(app)
-        .post('/api/composer/ghost')
-        .send({ sessionId: 'ses_1', draft: '', directory: '/repo' })
-        .expect(200);
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-
-    expect(validateDirectoryPath).toHaveBeenCalledWith('/repo');
-    expect(generateComposerGhost).toHaveBeenCalledTimes(1);
-    expect(generateComposerGhost).toHaveBeenCalledWith(expect.objectContaining({ directory: '/repo' }));
-  });
-
-  it('should generate a composer ghost when user history exceeds the compaction budget', async () => {
-    const app = express();
-    const generateComposerGhost = vi.fn(async () => ({ text: 'continua con la correccion' }));
-    registerCommonRequestMiddleware(app, { express });
-    registerComposerGhostRoutes(app, {
-      getComposerGhostService: async () => ({ generateComposerGhost }),
-      validateDirectoryPath: async (directory) => ({ ok: true, directory, error: null }),
-      buildOpenCodeUrl: () => 'http://opencode.test/session/ses_long/message',
-      getOpenCodeAuthHeaders: () => ({}),
-    });
-
-    const originalFetch = globalThis.fetch;
-    try {
-      globalThis.fetch = vi.fn(async () => ({
-        ok: true,
-        json: async () => Array.from({ length: 40 }, (_, index) => ({
-          info: { id: `u${index}`, role: 'user' },
-          parts: [{ type: 'text', text: `message-${index}-${'x'.repeat(600)}` }],
-        })),
-      }));
-      const response = await request(app)
-        .post('/api/composer/ghost')
-        .send({ sessionId: 'ses_long', draft: '', directory: '/repo' })
-        .expect(200);
-
-      expect(response.body.text).toBe('continua con la correccion');
-      expect(response.body.prefixBytes).toBeLessThanOrEqual(8 * 1024);
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-    expect(generateComposerGhost).toHaveBeenCalledTimes(1);
   });
 
   it('should require API auth before probing loopback preview URLs', async () => {
