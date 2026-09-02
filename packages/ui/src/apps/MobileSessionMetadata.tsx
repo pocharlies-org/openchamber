@@ -7,7 +7,12 @@ import { useTabletLayout } from '@/lib/device';
 import { useI18n } from '@/lib/i18n';
 import { clampPercent, resolveUsageTone } from '@/lib/quota';
 import { UsageProviderCards } from '@/components/usage/UsageProviderCards';
-import { useUsageProviderGroups, type UsageProviderGroup } from '@/components/usage/usageGroups';
+import {
+  resolveActiveUsageQuotaProviderId,
+  useUsageProviderGroups,
+  type UsageProviderGroup,
+} from '@/components/usage/usageGroups';
+import { resolveMobileUsageLimitsPresentation } from './mobileUsageLimits';
 import { cn } from '@/lib/utils';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { useQuotaAutoRefresh, useQuotaStore } from '@/stores/useQuotaStore';
@@ -111,7 +116,20 @@ const SessionMetadataOverlay: React.FC<{
   usageDisplayMode: 'usage' | 'remaining';
   isUsageLoading: boolean;
   timeFormatPreference: TimeFormatPreference;
-}> = ({ open, onClose, anchorRef, contextDisplay, usageGroups, usageDisplayMode, isUsageLoading, timeFormatPreference }) => {
+  activeQuotaProviderId: string | null;
+  requestedProviderSettled: boolean;
+}> = ({
+  open,
+  onClose,
+  anchorRef,
+  contextDisplay,
+  usageGroups,
+  usageDisplayMode,
+  isUsageLoading,
+  timeFormatPreference,
+  activeQuotaProviderId,
+  requestedProviderSettled,
+}) => {
   const { t } = useI18n();
   const panelRef = React.useRef<HTMLDivElement>(null);
   const [shouldRender, setShouldRender] = React.useState(open);
@@ -242,6 +260,8 @@ const SessionMetadataOverlay: React.FC<{
             displayMode={usageDisplayMode}
             isLoading={isUsageLoading}
             timeFormatPreference={timeFormatPreference}
+            activeQuotaProviderId={activeQuotaProviderId}
+            requestedProviderSettled={requestedProviderSettled}
           />
         </div>
       </div>
@@ -264,14 +284,31 @@ const MobileUsageLimits: React.FC<{
   displayMode: 'usage' | 'remaining';
   isLoading: boolean;
   timeFormatPreference: TimeFormatPreference;
-}> = ({ groups, displayMode, isLoading, timeFormatPreference }) => {
+  activeQuotaProviderId: string | null;
+  requestedProviderSettled: boolean;
+}> = ({
+  groups,
+  displayMode,
+  isLoading,
+  timeFormatPreference,
+  activeQuotaProviderId,
+  requestedProviderSettled,
+}) => {
   const { t } = useI18n();
   const modeLabel = displayMode === 'remaining' ? t('header.services.remaining') : t('header.services.used');
+  const presentation = resolveMobileUsageLimitsPresentation({
+    groupCount: groups.length,
+    isLoading,
+    activeQuotaProviderId,
+    hasRequestedProvider: activeQuotaProviderId !== null,
+    requestedProviderSettled,
+  });
+
+  if (presentation === 'none') return null;
 
   // First open often races the quota fetch (~2s) — show an explicit loading
   // row instead of collapsing to an empty overlay.
-  if (groups.length === 0) {
-    if (!isLoading) return null;
+  if (presentation === 'loading') {
     return (
       <div className="flex items-center justify-center gap-2 px-2.5 py-6 text-muted-foreground">
         <Icon name="loader-4" className="size-4 animate-spin" aria-hidden />
@@ -425,6 +462,17 @@ export const MobileSessionMetadataButton = React.memo(function MobileSessionMeta
     : null;
 
   const usageGroups = useUsageProviderGroups(modelRef);
+  const activeQuotaProviderId = resolveActiveUsageQuotaProviderId(modelRef);
+  // The provider this session spends, and whether its fetch has come back.
+  // `isLoading` is global and only true while a fetch is in flight, so on its
+  // own it cannot tell "answer pending" from "answered with nothing" — and the
+  // popover needs that difference, or a filtered-out Usage section spins
+  // forever. See `mobileUsageLimits.ts`.
+  const requestedProviderSettled = useQuotaStore((state) => (
+    activeQuotaProviderId === null
+      ? true
+      : state.results.some((result) => result.providerId === activeQuotaProviderId)
+  ));
 
   React.useEffect(() => {
     if (!open || usageGroups.length === 0) return;
@@ -455,6 +503,8 @@ export const MobileSessionMetadataButton = React.memo(function MobileSessionMeta
         usageDisplayMode={quotaDisplayMode}
         isUsageLoading={isQuotaLoading}
         timeFormatPreference={timeFormatPreference}
+        activeQuotaProviderId={activeQuotaProviderId}
+        requestedProviderSettled={requestedProviderSettled}
       />
     </>
   );
