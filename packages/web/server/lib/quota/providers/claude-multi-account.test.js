@@ -135,25 +135,71 @@ describe('buildMultiAccountResult', () => {
     expect(Object.values(result.usage.models)[0].sharedWith).toEqual(['removed-last-week']);
   });
 
-  it('puts the tightest reading of each window at provider level', () => {
+  it('leaves the provider-level windows out when two budgets report', () => {
+    // The defect this pins down. It used to be asserted the other way round —
+    // "the tightest reading of each window goes at provider level" — and that
+    // assertion was the bug's own justification written as a test. Claude bills
+    // per subscription; there is no provider-level budget for the number to
+    // describe, and six surfaces print whatever lands here under a heading that
+    // says "Claude".
+    //
+    // Measured live: Personal 5h 44% / 7d 11%, Works Shared 5h 5% / 7d 70%. The
+    // field said 5h 44% and 7d 70% — Personal's 5-hour beside Works Shared's
+    // 7-day, under one anonymous name, neither of them attributed.
     const result = buildMultiAccountResult([
-      account('quiet', { quota: windows(0.03, 0) }),
-      account('busy', { quota: windows(0.78, 0.9) }),
+      account('personal', { quota: windows(0.44, 0.11) }),
+      account('works-shared', { quota: windows(0.05, 0.7) }),
     ]);
-    // Per label, not one label: a 7-day reading must never land on the 5-hour
-    // line. And it is only ever a maximum — it answers "can I keep working
-    // right now", not "what is left in total".
-    expect(result.usage.windows['5h'].usedPercent).toBeCloseTo(78);
-    expect(result.usage.windows['7d'].usedPercent).toBeCloseTo(90);
+    expect(result.usage.windows).toEqual({});
+    // The accounts are still there, named — that is where the numbers live now.
+    expect(Object.keys(result.usage.models)).toEqual([
+      'personal · personal@example.com',
+      'works-shared · works-shared@example.com',
+    ]);
+    expect(result.usage.models['personal · personal@example.com'].windows['5h'].usedPercent)
+      .toBeCloseTo(44);
+    expect(result.usage.models['works-shared · works-shared@example.com'].windows['5h'].usedPercent)
+      .toBeCloseTo(5);
+  });
+
+  it('reports the account numbers as the provider-level line for one subscription', () => {
+    // The single-account machine, and the reason the field is not simply gone:
+    // with one subscription, its numbers *are* the provider's. Byte-for-byte the
+    // values the auth.json path would have produced.
+    const result = buildMultiAccountResult([account('personal', { quota: windows(0.44, 0.7) })]);
+    expect(result.usage.windows['5h'].usedPercent).toBeCloseTo(44);
+    expect(result.usage.windows['7d'].usedPercent).toBeCloseTo(70);
+    expect(result.usage.windows['5h'].resetAt).toBe(1788303600000);
+    expect(result.usage.windows['7d'].resetAt).toBe(1788638400000);
+    expect(result.usage.models).toBeDefined();
+  });
+
+  it('keeps the provider-level line when the second login shares the first budget', () => {
+    // Two logins, one subscription: `dedupeSharedAccounts` keeps the seat that
+    // reported windows, and the other is named in `sharedWith`. Counting rows
+    // would call this a multi-account machine and take away the provider-level
+    // number from a machine that has exactly one budget.
+    const result = buildMultiAccountResult([
+      account('tercera', { label: 'Work personal', sharesOrganizationWith: ['works-shared'], quota: windows(0.03, 0.7) }),
+      account('works-shared', { label: 'Works Shared', sharesOrganizationWith: ['tercera'], quota: null }),
+    ]);
+    expect(Object.keys(result.usage.models)).toEqual(['Work personal · tercera@example.com']);
+    expect(result.usage.windows['5h'].usedPercent).toBeCloseTo(3);
+    expect(result.usage.windows['7d'].usedPercent).toBeCloseTo(70);
   });
 
   it('does not mix one account reset time into another window', () => {
+    // The assertion that used to prove the per-label maximum was assembled
+    // correctly. With two budgets there is no provider-level window to assemble,
+    // so the same fixtures now prove the windows stay with the account they
+    // belong to — which is where the reset time was always from.
     const result = buildMultiAccountResult([
       account('a', { quota: { windows: { fiveHour: { utilization: 0.5, resetsAt: 111 } } } }),
       account('b', { quota: { windows: { sevenDay: { utilization: 0.6, resetsAt: 222 } } } }),
     ]);
-    expect(result.usage.windows['5h'].resetAt).toBe(111);
-    expect(result.usage.windows['7d'].resetAt).toBe(222);
+    expect(result.usage.windows).toEqual({});
+    expect(result.usage.models['a · a@example.com'].windows['5h'].resetAt).toBe(111);
+    expect(result.usage.models['b · b@example.com'].windows['7d'].resetAt).toBe(222);
   });
 
   it('leaves the provider-level line out when no account reports a percentage', () => {
@@ -190,6 +236,31 @@ describe('resolveUnattributedQuota', () => {
   it('prefers the roster when the plugin is reachable', () => {
     const result = resolveUnattributedQuota({ accounts: [account('personal')], authJsonQuota });
     expect(result.usage.models).toBeDefined();
+  });
+
+  it('reports one plugin account as the provider, not the auth.json pool', () => {
+    // The single-account guarantee, end to end through the source choice: the
+    // plugin's account numbers land in `usage.windows`, which is what the six
+    // surfaces that never look at `models` read. If the provider-level line were
+    // left empty here, a single-subscription machine would show no number at all
+    // on those surfaces — a regression dressed up as a correctness fix.
+    const result = resolveUnattributedQuota({
+      accounts: [account('personal', { label: 'Personal', quota: windows(0.44, 0.7) })],
+      authJsonQuota,
+    });
+    expect(result.providerName).toBe('Claude');
+    expect(result.usage.windows['5h'].usedPercent).toBeCloseTo(44);
+    expect(result.usage.windows['7d'].usedPercent).toBeCloseTo(70);
+  });
+
+  it('leaves the provider-level line empty once a second budget reports', () => {
+    // Same entry point, two budgets: the accounts are the readout.
+    const result = resolveUnattributedQuota({
+      accounts: [account('personal', { quota: windows(0.44, 0.11) }), account('tercera', { quota: windows(0.05, 0.7) })],
+      authJsonQuota,
+    });
+    expect(result.usage.windows).toEqual({});
+    expect(Object.keys(result.usage.models)).toHaveLength(2);
   });
 
   it('keeps the auth.json answer when the plugin is not running', () => {

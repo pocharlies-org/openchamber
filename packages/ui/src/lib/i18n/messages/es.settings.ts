@@ -1164,6 +1164,7 @@ export const settingsDict = {
   "settings.usage.page.state.providerNotConfiguredTitle": "Proveedor no configurado",
   "settings.usage.page.state.providerNotConfiguredDescription": "Añade credenciales en la pestaña de Proveedores para habilitar el seguimiento de uso.",
   "settings.usage.page.section.modelQuotas": "Cuotas de modelo",
+  "settings.usage.page.section.accountQuotas": "Cuotas de cuenta",
   "settings.usage.page.section.otherModels": "Otros modelos",
   "settings.usage.page.state.noQuotaWindowsTitle": "No se reportaron ventanas de cuota",
   "settings.usage.page.state.noQuotaWindowsDescription": "Este proveedor actualmente no reporta límites de tasa ni cuotas de uso.",

@@ -141,11 +141,12 @@ export const WorkStatusUsageSection: React.FC<{
   // wins over the composer for the same reason the list does: the composer is
   // global, so a panel pinned to one session must not read another's selection.
   //
-  // When that tightest quota is one account's (Claude bills per login, so its
-  // provider-level line is the max across all of them) the summary names the
-  // account beside it: an unattributed 44% under a heading that says "Claude"
-  // is a number belonging to nobody. `resolveUsageHeadlineSummary` decides that,
-  // and drops the number entirely on a surface with no room for the name.
+  // When that quota belongs to one account, the summary names it beside the
+  // number: an unattributed 44% under a heading that says "Claude" is a number
+  // belonging to nobody. For a multi-account machine the server sends no
+  // provider-level windows at all, so this is normally the account branch —
+  // `resolveUsageHeadlineSummary` decides, and drops the number entirely on a
+  // surface with no room for the name.
   const headline = pickUsageHeadline(groups, activeModel?.providerID ?? currentProviderId);
   const headlineMetric = headline
     ? formatQuotaValueLabel(

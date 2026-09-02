@@ -123,9 +123,11 @@ describe('resolveUsageHeadlineSummary', () => {
 
   /**
    * What `GET /api/quota/claude` answers with several subscriptions connected:
-   * provider-level windows that are the max across the accounts, and one entry
-   * per account under `models`. Measured live on the machine this bug was found
-   * on — 5h 44% from Personal, 7d 70% from Works Shared.
+   * one entry per account under `models`, and nothing at provider level. The
+   * windows used to carry the max across the accounts there — measured live, 5h
+   * 44% from Personal beside 7d 70% from Works Shared, under one anonymous
+   * "Claude". The server no longer invents that number, and this fixture is its
+   * shape rather than a guess at it.
    */
   const claudeRoster = (): ProviderResult => ({
     providerId: 'claude' as QuotaProviderId,
@@ -134,7 +136,7 @@ describe('resolveUsageHeadlineSummary', () => {
     configured: true,
     fetchedAt: 0,
     usage: {
-      windows: { '5h': window(44), '7d': window(70) },
+      windows: {},
       models: {
         'Works Shared · d.s@cloudblue.com': { windows: { '5h': window(5), '7d': window(70) }, sharedWith: ['Work personal'] },
         'Personal · me@e-dani.com': { windows: { '5h': window(44), '7d': window(11) }, sharedWith: ['work'] },
@@ -165,14 +167,29 @@ describe('resolveUsageHeadlineSummary', () => {
   };
 
   test('never shows an account number as the provider\'s', () => {
-    // The regression: with the provider-level rows present, the header printed
-    // "5-Hour 44%" under "Claude" — Personal's 5-hour, attributed to nobody,
-    // beside a 7-day that belongs to a different subscription entirely.
+    // The regression, stated as the invariant the panel must hold: with several
+    // subscriptions connected the header may show a provider-level number, or no
+    // number at all — never a number that belongs to one of them.
+    //
+    // This assertion used to read `{ kind: 'provider', label: '5-Hour', metric:
+    // '44%' }`, because the server then put the cross-account maximum in
+    // `usage.windows` and a provider-level row existed to be found. That row was
+    // the bug: 44% was Personal's 5-hour and the 7d beside it was Works Shared's,
+    // printed under a heading that says "Claude". The server stopped inventing
+    // the number, so the header now resolves to an account row instead.
     const summary = summaryFor(claudeRoster());
-    expect(summary.kind).toBe('provider');
-    // The provider-level line is a maximum across the accounts and is allowed
-    // to stand on its own; the moment the number is one account's, it is not.
-    expect(summary).toEqual({ kind: 'provider', label: '5-Hour', metric: '44%' });
+    expect(summary.kind).not.toBe('provider');
+    // Which account, and what for: `pickUsageHeadline` prefers the shortest
+    // window, and both subscriptions report a 5-hour, so the first row wins —
+    // Works Shared at 5%, now printed with the name that owns it. The headline
+    // is no longer the tightest number on the machine; that is the honest cost
+    // of the number having never been a provider statistic.
+    expect(summary).toEqual({
+      kind: 'account',
+      label: '5-Hour',
+      metric: '5%',
+      account: 'Works Shared',
+    });
   });
 
   test('names the account when the number is one account\'s', () => {
@@ -213,11 +230,27 @@ describe('resolveUsageHeadlineSummary', () => {
   });
 
   test('leaves a single account reading exactly as before', () => {
-    // One subscription, plugin present: provider-level windows only, no models.
-    // No spurious account suffix on this surface.
+    // One subscription, plugin present: the server puts that account's numbers in
+    // the provider-level windows, because they *are* the provider's. No spurious
+    // account suffix on this surface, and no number missing either.
     const summary = summaryFor({
       ...claudeRoster(),
       usage: { windows: { '5h': window(44), '7d': window(70) } },
+    });
+    expect(summary).toEqual({ kind: 'provider', label: '5-Hour', metric: '44%' });
+  });
+
+  test('leaves a single account reading as the provider when the roster is reported', () => {
+    // The same machine through the roster path rather than auth.json: one
+    // account, provider-level windows filled, and the `models` entry beside
+    // them. The provider row wins over the account row, so the header does not
+    // start naming an account on a machine that has only one.
+    const summary = summaryFor({
+      ...claudeRoster(),
+      usage: {
+        windows: { '5h': window(44), '7d': window(70) },
+        models: { 'Personal · me@e-dani.com': { windows: { '5h': window(44), '7d': window(70) } } },
+      },
     });
     expect(summary).toEqual({ kind: 'provider', label: '5-Hour', metric: '44%' });
   });
@@ -262,7 +295,10 @@ describe('resolveUsageHeadlineSummary', () => {
       .toEqual({ kind: 'provider', label: headline?.row.label ?? '', metric: '30%' });
   });
 
-  test('falls back to the mode word when there is no number to show', () => {
+  test('drops the number when a provider-level row carries no percentage', () => {
+    // The shape the server produces for an unsampled window on a single-account
+    // machine: a provider-level row with no number. The header must show the
+    // mode word, not a blank where a percentage was.
     const groups = groupsFrom({
       ...claudeRoster(),
       usage: { windows: { '5h': window(null) } },
@@ -272,5 +308,65 @@ describe('resolveUsageHeadlineSummary', () => {
       .toEqual({ kind: 'mode', label: 'Remaining' });
     expect(resolveUsageHeadlineSummary(null, { metric: null, modeLabel: 'Remaining' }))
       .toEqual({ kind: 'mode', label: 'Remaining' });
+  });
+
+  test('shows no number, and no provider claim, when a multi-account machine reports nothing', () => {
+    // Configured, plugin up, no window sampled for anybody. The section says
+    // "nothing reported" and the header shows the display-mode word — it does
+    // not invent a figure and does not claim one for the provider.
+    const groups = groupsFrom({
+      ...claudeRoster(),
+      usage: { windows: {}, models: {} },
+    });
+    expect(groups[0].status).toBe('No rate limits reported.');
+    const headline = pickUsageHeadline(groups, 'anthropic');
+    expect(headline).toBeNull();
+    expect(resolveUsageHeadlineSummary(headline, { metric: null, modeLabel: 'Used' }))
+      .toEqual({ kind: 'mode', label: 'Used' });
+  });
+
+  test('never resolves an unattributed provider row for a multi-account machine', () => {
+    // The invariant, checked over every ordering of the two subscriptions and
+    // both display modes, rather than over one fixture. Any of these producing
+    // `kind: 'provider'` would put one account's percentage under the heading
+    // "Claude", which is the defect the server change removed the source of.
+    const personal = { windows: { '5h': window(44), '7d': window(11) }, sharedWith: ['work'] };
+    const worksShared = { windows: { '5h': window(5), '7d': window(70) }, sharedWith: ['Work personal'] };
+    // A third subscription reporting only a window the others do not — the
+    // ordering case where a per-label maximum used to reach the header.
+    const opus: { windows: Record<string, UsageWindow>; sharedWith?: string[] } =
+      { windows: { opus: window(61) } };
+
+    for (const [a, b] of [[personal, worksShared], [worksShared, personal]]) {
+      for (const extra of [undefined, opus]) {
+        const models: Record<string, { windows: Record<string, UsageWindow>; sharedWith?: string[] }> = {
+          'Personal · me@e-dani.com': a,
+          'Works Shared · d.s@cloudblue.com': b,
+        };
+        if (extra) models['Work personal · d@cloudblue.com'] = extra;
+        const result: ProviderResult = {
+          ...claudeRoster(),
+          usage: { windows: {}, models },
+        };
+        for (const used of [true, false]) {
+          const groups = groupsFrom(result);
+          const headline = pickUsageHeadline(groups, 'anthropic');
+          const percent = used
+            ? headline?.row.window.usedPercent ?? null
+            : headline?.row.window.remainingPercent ?? null;
+          const summary = resolveUsageHeadlineSummary(headline, {
+            metric: headline ? formatQuotaValueLabel(null, percent) : null,
+            modeLabel: 'Used',
+            hasRoomForAccountLabel: true,
+          });
+          expect(summary.kind).not.toBe('provider');
+          if (summary.kind === 'account') {
+            // A named account is the only way a Claude number may appear here.
+            expect(summary.account.length).toBeGreaterThan(0);
+            expect(summary.account).not.toContain('·');
+          }
+        }
+      }
+    }
   });
 });

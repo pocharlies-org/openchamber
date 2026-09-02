@@ -1197,6 +1197,7 @@ export const settingsDict = {
   'settings.usage.page.state.providerNotConfiguredTitle': 'Provider が設定されていません',
   'settings.usage.page.state.providerNotConfiguredDescription': 'Providers タブで認証情報を追加して使用量追跡を有効にしてください。',
   'settings.usage.page.section.modelQuotas': 'モデル割り当て',
+  'settings.usage.page.section.accountQuotas': 'アカウント割り当て',
   'settings.usage.page.section.otherModels': 'その他のモデル',
   'settings.usage.page.state.noQuotaWindowsTitle': '報告された割り当てウィンドウはありません',
   'settings.usage.page.state.noQuotaWindowsDescription': 'この Provider は現在レート制限や使用量割り当てを報告していません。',

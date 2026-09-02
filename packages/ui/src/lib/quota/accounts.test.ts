@@ -4,6 +4,8 @@ import {
   getQuotaAccountEntries,
   getQuotaAccountsOutsideGroups,
   groupQuotaAccountsByBudget,
+  isPerAccountQuotaProvider,
+  shouldReportNoQuotaWindows,
   type QuotaAccountEntry,
 } from './accounts';
 import type { ProviderResult, QuotaProviderId, UsageWindow, UsageWindowsWithSharers } from '@/types';
@@ -162,5 +164,44 @@ describe('getQuotaAccountsOutsideGroups', () => {
     const ids = [...families.flatMap((f) => f.accounts), ...rows].map((entry) => entry.id);
     expect(new Set(ids).size).toBe(ids.length);
     expect(ids).toHaveLength(3);
+  });
+});
+
+describe('isPerAccountQuotaProvider', () => {
+  test('says yes only for the providers that bill per login', () => {
+    // The settings page labels a section from this. Getting it wrong in one
+    // direction prints "Personal · me@e-dani.com" under "Model Quotas"; getting
+    // it wrong the other way calls a Gemini model a subscription.
+    expect(isPerAccountQuotaProvider('claude')).toBe(true);
+    expect(isPerAccountQuotaProvider('google')).toBe(false);
+    expect(isPerAccountQuotaProvider('codex')).toBe(false);
+    expect(isPerAccountQuotaProvider(null)).toBe(false);
+    expect(isPerAccountQuotaProvider(undefined)).toBe(false);
+  });
+});
+
+describe('shouldReportNoQuotaWindows', () => {
+  test('does not claim "no quotas" for a multi-account Claude', () => {
+    // The exact shape the server now sends: configured, `usage.windows` empty by
+    // design, and three named subscriptions in `models`. Announcing "This
+    // provider does not currently report any rate limits or usage quotas" here
+    // would be the opposite of what happened — the data arrived, it belongs to
+    // somebody, and the sentence would read as an unconfigured install.
+    expect(shouldReportNoQuotaWindows(result('claude'), true)).toBe(false);
+  });
+
+  test('says it when there is genuinely nothing', () => {
+    expect(shouldReportNoQuotaWindows(result('claude'), false)).toBe(true);
+    expect(shouldReportNoQuotaWindows(result('google'), false)).toBe(true);
+  });
+
+  test('leaves an unconfigured provider to its own banner', () => {
+    // Doubling the messages would read as two separate faults.
+    const unconfigured: ProviderResult = {
+      ...result('claude'),
+      configured: false,
+    };
+    expect(shouldReportNoQuotaWindows(unconfigured, false)).toBe(false);
+    expect(shouldReportNoQuotaWindows(null, false)).toBe(false);
   });
 });

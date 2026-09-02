@@ -1131,6 +1131,7 @@ export const settingsDict = {
   'settings.usage.page.state.providerNotConfiguredTitle': 'Anbieter nicht konfiguriert',
   'settings.usage.page.state.providerNotConfiguredDescription': 'Fügen Sie Anmeldeinformationen auf der Registerkarte \'Anbieter\' hinzu, um die Nutzungsverfolgung zu aktivieren.',
   'settings.usage.page.section.modelQuotas': 'Modell-Kontingente',
+  'settings.usage.page.section.accountQuotas': 'Kontingente der Konten',
   'settings.usage.page.section.otherModels': 'Andere Modelle',
   'settings.usage.page.state.noQuotaWindowsTitle': 'Keine Kontingentfenster berichtet',
   'settings.usage.page.state.noQuotaWindowsDescription': 'Dieser Anbieter meldet derzeit keine Ratenbegrenzungen oder Nutzungsquoten.',

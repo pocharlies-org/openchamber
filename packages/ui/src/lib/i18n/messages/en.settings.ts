@@ -1196,6 +1196,7 @@ export const settingsDict = {
   'settings.usage.page.state.providerNotConfiguredTitle': 'Provider not configured',
   'settings.usage.page.state.providerNotConfiguredDescription': 'Add credentials in the Providers tab to enable usage tracking.',
   'settings.usage.page.section.modelQuotas': 'Model Quotas',
+  'settings.usage.page.section.accountQuotas': 'Account Quotas',
   'settings.usage.page.section.otherModels': 'Other Models',
   'settings.usage.page.state.noQuotaWindowsTitle': 'No quota windows reported',
   'settings.usage.page.state.noQuotaWindowsDescription': 'This provider does not currently report any rate limits or usage quotas.',

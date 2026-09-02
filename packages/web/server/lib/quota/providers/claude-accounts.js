@@ -188,6 +188,50 @@ export const dedupeSharedAccounts = (accounts) => {
 };
 
 /**
+ * How many separate budgets the account rows draw from.
+ *
+ * `dedupeSharedAccounts` has already collapsed the duplicate logins of one
+ * subscription, so a two-row roster is normally two budgets. It is not always:
+ * a row survives when its sharer reported no windows at all, and that sharer is
+ * still named in `sharedWith`. Counting rows then would call one subscription
+ * two, and the machine would lose the provider-level line it has always had —
+ * the same "two names on one budget read as two budgets" error the dedupe
+ * exists to prevent, arriving from the other side.
+ *
+ * So the rows are unioned by what they declare, and the count is of the
+ * resulting groups. Sharing is treated as symmetric because it is one: the
+ * roster is assembled per account and can state it from one side only.
+ */
+const countBudgets = (models) => {
+  const names = Object.keys(models);
+  // `sharedWith` names the operator's label; the row key is "Label · email".
+  const byLabel = new Map(names.map((name) => [name.split(' · ')[0], name]));
+  const parentOf = new Map(names.map((name) => [name, name]));
+
+  const find = (name) => {
+    if (parentOf.get(name) !== name) parentOf.set(name, find(parentOf.get(name)));
+    return parentOf.get(name);
+  };
+  const union = (a, b) => {
+    const rootA = find(a);
+    const rootB = find(b);
+    if (rootA !== rootB) parentOf.set(rootA, rootB);
+  };
+
+  for (const name of names) {
+    for (const other of models[name].sharedWith ?? []) {
+      const otherName = byLabel.get(other);
+      // A sharer outside these rows says nothing about how many budgets are
+      // reported here — it is a fact about an account this result does not show.
+      if (!otherName || otherName === name) continue;
+      union(name, otherName);
+    }
+  }
+
+  return new Set(names.map(find)).size;
+};
+
+/**
  * Every connected account as ONE `claude` result.
  *
  * The roster is a fact about the machine, not about this session, so it is
@@ -204,15 +248,32 @@ export const dedupeSharedAccounts = (accounts) => {
  * would silently drop the second account. `models` is the mechanism the UI
  * already has for a per-something breakdown (Google fills it per model), so the
  * accounts arrive labelled on the surfaces that render it, and the surfaces
- * that only read `usage.windows` keep showing the provider-level line they
- * already show.
+ * that only read `usage.windows` show no provider-level line at all.
  *
- * `usage.windows` carries, per window label, the tightest reading across the
- * accounts — the 5-hour line is the tightest 5-hour, the 7-day line the tightest
- * 7-day. That is the pair that answers "can I keep working right now". It is a
- * maximum, and only ever a maximum: it does not claim to be a remaining total,
- * and it belongs to whichever account happens to be tightest, which is why the
- * accounts are named individually right beside it.
+ * `usage.windows` is left empty whenever more than one subscription reports.
+ * It used to carry, per window label, the maximum across the accounts, on the
+ * theory that the tightest reading is the pair that answers "can I keep working
+ * right now". That theory assumed a provider-level budget to be an estimate of,
+ * and there is no such thing: Claude bills per subscription, so "Claude's 5-hour
+ * usage" has no referent. Measured on the machine this was found on — Personal's
+ * 5-hour at 44%, Works Shared's 5-hour at 5% — the field said 44% and six
+ * surfaces rendered it under a heading that reads "Claude". That is not a
+ * provider statistic and not an estimate of one; it is a statistic of a provider
+ * that does not exist, and it is the more dangerous for being arithmetically
+ * defensible.
+ *
+ * A maximum is only honest if the reader knows which account it came from, and
+ * the readers do not: `useTraySync.ts:192`, `Header.tsx:893`,
+ * `VSCodeLayout.tsx:794`, `usageGroups.ts:92`, `UsageSidebar.tsx:19` and
+ * `UsagePage.tsx:206` all read `usage.windows` and print the number under the
+ * provider's name. Teaching six call sites to distrust the field they read is
+ * worse than the field not carrying a number that never existed, so the field
+ * stops carrying it. An empty `usage.windows` is the shape a provider with
+ * nothing to report already produces, so all six degrade to "no provider-level
+ * number" rather than to a wrong one.
+ *
+ * With one subscription the provider-level windows stay: that account's numbers
+ * *are* the provider's, and the single-account machine is the common case.
  *
  * Returns null when there is nothing to say — no plugin, an empty roster, or
  * accounts with no quota sampled yet — so the caller keeps the auth.json answer
@@ -231,7 +292,6 @@ export const buildMultiAccountResult = (accounts) => {
   };
 
   const models = {};
-  const windows = {};
   let reported = 0;
 
   for (const account of dedupeSharedAccounts(accounts)) {
@@ -243,15 +303,26 @@ export const buildMultiAccountResult = (accounts) => {
       windows: accountWindows,
       ...(accountResult.sharedWith ? { sharedWith: accountResult.sharedWith } : {}),
     };
-    for (const [label, window] of Object.entries(accountWindows)) {
-      const used = window?.usedPercent;
-      if (typeof used !== 'number' || !Number.isFinite(used)) continue;
-      const current = windows[label];
-      if (!current || used > current.usedPercent) windows[label] = window;
-    }
   }
 
   if (reported === 0) return null;
+
+  // One subscription: its numbers are the provider's, so the provider-level line
+  // stands and every surface reads what it always read. More than one: there is
+  // no provider-level budget to report, so nothing goes there — see the note
+  // above about the maximum that used to live in this field.
+  //
+  // Counted by budget, not by row. `dedupeSharedAccounts` has already collapsed
+  // two logins on one organization into one entry, but a row survives when its
+  // sharer reported no windows, and that one-budget machine must keep the
+  // provider-level line it has always had — see `countBudgets`.
+  const budgetCount = countBudgets(models);
+  const only = budgetCount === 1 ? models[Object.keys(models)[0]].windows : {};
+  // Only real percentages, as the old cross-account maximum used to filter: a
+  // window the plugin sampled as unknown belongs to its account row and must not
+  // become a provider-level line that every surface renders as a blank number.
+  const windows = Object.fromEntries(Object.entries(only)
+    .filter(([, window]) => typeof window?.usedPercent === 'number' && Number.isFinite(window.usedPercent)));
 
   return buildResult({
     providerId,

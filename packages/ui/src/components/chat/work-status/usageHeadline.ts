@@ -73,22 +73,26 @@ export type UsageHeadlineSummary =
  *
  * The row `pickUsageHeadline` returns is the right row to summarise, but the
  * summary is the most-visible line in the panel and it renders `label` plus the
- * metric under the provider's own heading. Claude's provider-level windows are
- * the tightest reading *across every connected account* (see
- * `buildMultiAccountResult` in the web quota provider): a maximum, and only ever
- * a maximum, belonging to whichever account happens to be tightest in that
- * window. So with two subscriptions the header used to print "5h 44%" under
- * "Claude" while 44% was one account's 5-hour and 70% another's 7-day — one
- * anonymous provider whose numbers belong to nobody in particular.
+ * metric under the provider's own heading — so whatever lands here is read as a
+ * statement about the provider.
  *
- * So an account row is only ever shown with its account name beside it, and a
- * provider-level row stays as it was. When the chosen row is an account row but
- * the caller has no room for the name, `hasRoomForAccountLabel: false` yields
- * the mode word instead: an absent number beats a misattributed one.
+ * The server keeps that true for Claude: `buildMultiAccountResult` leaves
+ * `usage.windows` empty when more than one subscription reports, because Claude
+ * bills per login and there is no provider-level budget for that field to
+ * describe. It used to hold the maximum across the accounts, and the header
+ * printed "5h 44%" under "Claude" when 44% was one account's 5-hour and the 7d
+ * beside it another's 7-day. So on a multi-account machine the headline normally
+ * resolves to an `account` row, and this function's job is the other half of the
+ * rule: an account row is never shown without its name.
+ *
+ * When the chosen row is an account row but the caller has no room for the name,
+ * `hasRoomForAccountLabel: false` yields the mode word instead — an absent number
+ * beats a misattributed one.
  *
  * A row that carries a `subtitle` but no `account` is a per-model row of a
  * provider that bills per model (Google). Its number is the provider's, so it
- * reads as it always did.
+ * reads as it always did, and so does a single-account Claude, whose numbers
+ * really are the provider's.
  */
 export const resolveUsageHeadlineSummary = (
   headline: { group: UsageProviderGroup; row: UsageLimitRow } | null,

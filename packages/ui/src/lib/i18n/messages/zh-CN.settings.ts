@@ -1164,6 +1164,7 @@ export const settingsDict = {
   'settings.usage.page.state.providerNotConfiguredTitle': '提供商未配置',
   'settings.usage.page.state.providerNotConfiguredDescription': '请在“提供商”标签页添加凭据以启用用量跟踪。',
   'settings.usage.page.section.modelQuotas': '模型配额',
+  'settings.usage.page.section.accountQuotas': '账户配额',
   'settings.usage.page.section.otherModels': '其他模型',
   'settings.usage.page.state.noQuotaWindowsTitle': '未报告配额窗口',
   'settings.usage.page.state.noQuotaWindowsDescription': '该提供商当前未报告任何速率限制或用量配额。',

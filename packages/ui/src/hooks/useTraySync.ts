@@ -194,11 +194,12 @@ const buildUsage = (): TrayUsage => {
       rows.push({ label: formatWindowLabel(label), value: formatQuotaValueLabel(window.valueLabel, percent) });
     }
 
-    // Claude bills per login, so its provider-level line is the tightest
-    // reading across every subscription and says nothing about which. The tray
-    // is the one surface with room for neither a bar nor a second line, but it
-    // has room for a name, and an unnamed number here is the ambiguity this
-    // whole change is about.
+    // Claude's provider-level line is empty whenever more than one subscription
+    // is connected — there is no provider-level budget for it to carry, so the
+    // server sends none rather than a maximum belonging to nobody. The accounts
+    // below are the whole readout. The tray has room for neither a bar nor a
+    // second line, but it has room for a name, and an unnamed number here is the
+    // ambiguity this whole change is about.
     for (const account of getQuotaAccountEntries(result, formatWindowLabel)) {
       const percent = mode === 'remaining'
         ? account.window.remainingPercent

@@ -183,3 +183,45 @@ export const getQuotaAccountsOutsideGroups = (
   const grouped = new Set(families.flatMap((family) => family.accounts.map((account) => account.id)));
   return accounts.filter((account) => !grouped.has(account.id));
 };
+
+/**
+ * Whether a surface should read this result's accounts as accounts at all.
+ *
+ * `usage.models` is the map the quota UI has for a per-something breakdown, and
+ * what that something is depends on the provider: Google fills it with models,
+ * Claude with subscriptions. A surface that labels the section "Model Quotas"
+ * and shows "Personal · me@e-dani.com" there is not showing a breakdown — it is
+ * calling a subscription a model, and `getDisplayModelName` then hands back the
+ * identity line as if it were a model id.
+ *
+ * The set is the same one `getQuotaAccountEntries` gates on; keeping it here
+ * rather than re-deriving it per surface is what stops the header labelling the
+ * rows as accounts while the settings page labels the same rows as models.
+ */
+export const isPerAccountQuotaProvider = (providerId: string | null | undefined): boolean =>
+  providerId !== null && providerId !== undefined && MULTI_ACCOUNT_PROVIDERS.has(providerId);
+
+/** What the settings page has to say when a configured provider reports nothing. */
+export type QuotaEmptyState = 'not-configured' | 'no-quotas';
+
+/**
+ * Whether "no quota windows" is the truth or an artefact of the surface.
+ *
+ * The page decides from `usage.windows` alone, and for Claude that field is
+ * empty by design whenever more than one subscription is connected — there is no
+ * provider-level budget for it to carry. Printed from that field alone, a
+ * machine reporting three named subscriptions would say "This provider does not
+ * currently report any rate limits or usage quotas", which is the opposite of
+ * what happened: the data arrived, it just belongs to somebody.
+ *
+ * So the sentence is only allowed when there is genuinely nothing, accounts
+ * included. Returns false when the provider is not configured — that case has
+ * its own banner and must not be doubled by this one.
+ */
+export const shouldReportNoQuotaWindows = (
+  result: Pick<ProviderResult, 'providerId' | 'configured'> | null | undefined,
+  providerHasQuotaRows: boolean,
+): boolean => {
+  if (!result || result.configured !== true) return false;
+  return !providerHasQuotaRows;
+};
