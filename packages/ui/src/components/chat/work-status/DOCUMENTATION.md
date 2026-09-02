@@ -252,6 +252,21 @@ Selection rules live in `usageHeadline.ts` and are pinned by
   label, because showing an unmatched provider's quota would read as the active
   one.
 
+### An account's number is never the provider's
+
+The summary renders `label` + percent under the provider's own heading, so
+`resolveUsageHeadlineSummary` decides what may go there:
+
+- a provider-level row reads as it always did;
+- a row belonging to one Claude **account** is shown with that account's name
+  beside the number. Claude bills per login, so its provider-level windows are
+  the tightest reading *across every connected subscription* — a maximum, and
+  only ever a maximum, belonging to whichever account is tightest in that
+  window. Printing it unattributed put one account's 5-hour and another's 7-day
+  under one anonymous "Claude";
+- where the surface has no room for the name, the number is dropped and the
+  display-mode word stands. An absent number beats a misattributed one.
+
 ## Actions
 
 Rows that name something the app can already show are buttons:

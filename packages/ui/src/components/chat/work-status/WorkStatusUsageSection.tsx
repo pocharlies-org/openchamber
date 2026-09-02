@@ -12,7 +12,7 @@ import { useSessionMessages } from '@/sync/sync-context';
 import { useUIStore } from '@/stores/useUIStore';
 import { useUsageProviderGroups } from '@/components/usage/usageGroups';
 import { useConfigStore } from '@/stores/useConfigStore';
-import { pickUsageHeadline } from './usageHeadline';
+import { pickUsageHeadline, resolveUsageHeadlineSummary } from './usageHeadline';
 import { runBackgroundNetworkTask } from '@/lib/background-network';
 import { WorkStatusRow, WorkStatusCollapsibleSection, WorkStatusValue } from './WorkStatusPrimitives';
 import { useReportWorkStatusPresence } from './presenceContext';
@@ -140,6 +140,12 @@ export const WorkStatusUsageSection: React.FC<{
   // other provider's quota as if it were the active one. The session's own model
   // wins over the composer for the same reason the list does: the composer is
   // global, so a panel pinned to one session must not read another's selection.
+  //
+  // When that tightest quota is one account's (Claude bills per login, so its
+  // provider-level line is the max across all of them) the summary names the
+  // account beside it: an unattributed 44% under a heading that says "Claude"
+  // is a number belonging to nobody. `resolveUsageHeadlineSummary` decides that,
+  // and drops the number entirely on a surface with no room for the name.
   const headline = pickUsageHeadline(groups, activeModel?.providerID ?? currentProviderId);
   const headlineMetric = headline
     ? formatQuotaValueLabel(
@@ -147,6 +153,12 @@ export const WorkStatusUsageSection: React.FC<{
       displayMode === 'remaining' ? headline.row.window.remainingPercent : headline.row.window.usedPercent,
     )
     : null;
+  const headlineSummary = resolveUsageHeadlineSummary(headline, {
+    metric: headlineMetric,
+    modeLabel,
+    hasRoomForAccountLabel: true,
+  });
+  const headlineWindow = headline?.row.window;
 
   return (
     <WorkStatusCollapsibleSection
@@ -154,13 +166,23 @@ export const WorkStatusUsageSection: React.FC<{
       title={t('chat.workStatus.section.usage')}
       icon="timer"
       summary={(
-        <span className="inline-flex items-center gap-1.5">
-          {headline && headlineMetric && headlineMetric !== '-' ? (
+        <span className="inline-flex min-w-0 items-center gap-1.5">
+          {headlineSummary.kind === 'account' ? (
             <>
-              <span className="truncate">{headline.row.label}</span>
-              <WorkStatusValue tone={windowTone(headline.row.window)}>{headlineMetric}</WorkStatusValue>
+              {/* The account, not the provider, owns this number — see
+                  `resolveUsageHeadlineSummary`. It truncates first so the
+                  percentage, the part that decides the next turn, is never the
+                  thing that gets cut. */}
+              <span className="min-w-0 truncate">{headlineSummary.account}</span>
+              <span className="shrink-0">{headlineSummary.label}</span>
+              <WorkStatusValue tone={windowTone(headlineWindow!)}>{headlineSummary.metric}</WorkStatusValue>
             </>
-          ) : modeLabel}
+          ) : headlineSummary.kind === 'provider' ? (
+            <>
+              <span className="truncate">{headlineSummary.label}</span>
+              <WorkStatusValue tone={windowTone(headlineWindow!)}>{headlineSummary.metric}</WorkStatusValue>
+            </>
+          ) : headlineSummary.label}
         </span>
       )}
       action={(

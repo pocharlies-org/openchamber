@@ -57,3 +57,56 @@ export const pickUsageHeadline = (
 
   return { group, row: best ?? rows[0] };
 };
+
+/** What the collapsed Usage header can show, and what it has to say it with. */
+export type UsageHeadlineSummary =
+  /** A provider-level row: the number belongs to the provider the header names. */
+  | { kind: 'provider'; label: string; metric: string }
+  /** One account's row, named. Claude bills per login, so this is the only
+   *  honest way a number from it can sit under the provider's heading. */
+  | { kind: 'account'; label: string; metric: string; account: string }
+  /** Nothing attributable: the display-mode word, which claims no number. */
+  | { kind: 'mode'; label: string };
+
+/**
+ * The collapsed Usage header, as text — no React, so the decision is testable.
+ *
+ * The row `pickUsageHeadline` returns is the right row to summarise, but the
+ * summary is the most-visible line in the panel and it renders `label` plus the
+ * metric under the provider's own heading. Claude's provider-level windows are
+ * the tightest reading *across every connected account* (see
+ * `buildMultiAccountResult` in the web quota provider): a maximum, and only ever
+ * a maximum, belonging to whichever account happens to be tightest in that
+ * window. So with two subscriptions the header used to print "5h 44%" under
+ * "Claude" while 44% was one account's 5-hour and 70% another's 7-day — one
+ * anonymous provider whose numbers belong to nobody in particular.
+ *
+ * So an account row is only ever shown with its account name beside it, and a
+ * provider-level row stays as it was. When the chosen row is an account row but
+ * the caller has no room for the name, `hasRoomForAccountLabel: false` yields
+ * the mode word instead: an absent number beats a misattributed one.
+ *
+ * A row that carries a `subtitle` but no `account` is a per-model row of a
+ * provider that bills per model (Google). Its number is the provider's, so it
+ * reads as it always did.
+ */
+export const resolveUsageHeadlineSummary = (
+  headline: { group: UsageProviderGroup; row: UsageLimitRow } | null,
+  options: {
+    /** Metric already run through `formatQuotaValueLabel`. */
+    metric: string | null;
+    /** Word for "used"/"remaining", used when nothing can be shown. */
+    modeLabel: string;
+    /** Whether the surface can render the account name. Defaults to true. */
+    hasRoomForAccountLabel?: boolean;
+  },
+): UsageHeadlineSummary => {
+  const metric = options.metric;
+  if (!headline || !metric || metric === '-') return { kind: 'mode', label: options.modeLabel };
+
+  const { row } = headline;
+  if (!row.account) return { kind: 'provider', label: row.label, metric };
+  if (options.hasRoomForAccountLabel === false) return { kind: 'mode', label: options.modeLabel };
+
+  return { kind: 'account', label: row.label, metric, account: row.account };
+};

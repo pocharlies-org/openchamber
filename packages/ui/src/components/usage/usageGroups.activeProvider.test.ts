@@ -134,6 +134,9 @@ describe('buildUsageProviderGroups', () => {
     const [row] = groups[0].rows;
     expect(row.subtitle).toContain('Work personal');
     expect(row.subtitle).toContain('Works Shared');
+    // The bare name, for the surfaces that have a few characters for it and
+    // cannot carry the note.
+    expect(row.account).toBe('Work personal');
   });
 
   test('leaves an unshared account named alone', () => {
