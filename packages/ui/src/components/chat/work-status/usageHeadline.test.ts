@@ -7,9 +7,9 @@ import type { UsageProviderGroup } from '@/components/usage/usageGroups';
 
 const HOUR = 3600;
 
-const window = (windowSeconds: number | null) => ({
-  usedPercent: 10,
-  remainingPercent: 90,
+const window = (windowSeconds: number | null, usedPercent: number | null = 10) => ({
+  usedPercent,
+  remainingPercent: usedPercent === null ? null : 100 - usedPercent,
   windowSeconds,
   resetAfterSeconds: null,
   resetAt: null,
@@ -17,7 +17,18 @@ const window = (windowSeconds: number | null) => ({
   resetAfterFormatted: null,
 });
 
-const group = (providerId: string, rows: Array<{ key: string; label: string; subtitle?: string; seconds: number | null }>): UsageProviderGroup => ({
+const group = (
+  providerId: string,
+  rows: Array<{
+    key: string;
+    label: string;
+    subtitle?: string;
+    seconds: number | null;
+    used?: number | null;
+    /** Set on a per-subscription row — the `account` the summary prints with it. */
+    account?: string;
+  }>,
+): UsageProviderGroup => ({
   providerId: providerId as UsageProviderGroup['providerId'],
   providerName: providerId,
   status: null,
@@ -25,7 +36,8 @@ const group = (providerId: string, rows: Array<{ key: string; label: string; sub
     key: row.key,
     label: row.label,
     subtitle: row.subtitle,
-    window: window(row.seconds),
+    account: row.account,
+    window: window(row.seconds, row.used),
   })),
 });
 
@@ -94,6 +106,71 @@ describe('pickUsageHeadline', () => {
 
   test('returns null for a matched provider that reported no rows', () => {
     expect(pickUsageHeadline([group('codex', [])], 'codex')).toBeNull();
+  });
+
+  /**
+   * Two subscriptions, one row each, exactly as the server emits them:
+   * `windowSeconds: null` on every row (`claude-accounts.js:51`), no
+   * provider-level row to be found, so the account rows are the only candidates.
+   */
+  const claudePair = (
+    first: { account: string; used: number | null },
+    second: { account: string; used: number | null },
+  ) => [group('claude', [
+    { key: 'a', label: '5-Hour', seconds: null, used: first.used, account: first.account },
+    { key: 'b', label: '5-Hour', seconds: null, used: second.used, account: second.account },
+  ])];
+
+  const tightest = { account: 'Personal', used: 86 };
+  const loose = { account: 'Works Shared', used: 5 };
+
+  test('ranks durationless Claude rows by usage, not by roster order', () => {
+    // The defect: with no window durations anywhere, every Claude row landed in
+    // the same bucket and the old `continue` handed the choice to array order —
+    // a coin flip between an account at 5% and one at 86%. Both orderings must
+    // answer the same question, "can I keep working right now".
+    const rows = [claudePair(tightest, loose), claudePair(loose, tightest)];
+    for (const [i, groups] of rows.entries()) {
+      const picked = pickUsageHeadline(groups, 'anthropic');
+      expect(picked?.row.account).toBe('Personal');
+      expect(picked?.row.window.usedPercent).toBe(86);
+      // Guard against the fixture collapsing: the two orderings are distinct.
+      expect(groups[0].rows[i === 0 ? 0 : 1].account).toBe('Personal');
+    }
+  });
+
+  test('a real window beats a durationless row even at lower usage', () => {
+    // Key 1 is unconditional: the tightest last-resort row does not outrank a
+    // real bucket, or a credit balance at 99% would headline over a 5-hour.
+    const mixed = [group('claude', [
+      { key: 'credits', label: 'Credits Balance', seconds: null, used: 99, account: 'Personal' },
+      { key: 'h', label: '5-Hour', seconds: 5 * HOUR, used: 5 },
+    ])];
+    expect(pickUsageHeadline(mixed, 'claude')?.row.label).toBe('5-Hour');
+    expect(pickUsageHeadline([...mixed].reverse(), 'claude')?.row.label).toBe('5-Hour');
+  });
+
+  test('within one real window, the tightest reading wins', () => {
+    // Two subscriptions reporting the same real bucket: same tie, same rule.
+    const same = [group('claude', [
+      { key: 'loose', label: '5-Hour', seconds: 5 * HOUR, used: 5, account: 'Works Shared' },
+      { key: 'tight', label: '5-Hour', seconds: 5 * HOUR, used: 86, account: 'Personal' },
+    ])];
+    for (const groups of [same, [...same].reverse()]) {
+      expect(pickUsageHeadline(groups, 'claude')?.row.account).toBe('Personal');
+    }
+  });
+
+  test('an unsampled window loses the tie to a numeric one', () => {
+    // `usedPercent` is `number | null`, and a window nobody sampled is not a
+    // free one — it must not headline over an account that is nearly out.
+    const unsampled = [group('claude', [
+      { key: 'unsampled', label: '5-Hour', seconds: null, used: null, account: 'Work personal' },
+      { key: 'tight', label: '5-Hour', seconds: null, used: 86, account: 'Personal' },
+    ])];
+    for (const groups of [unsampled, [...unsampled].reverse()]) {
+      expect(pickUsageHeadline(groups, 'claude')?.row.account).toBe('Personal');
+    }
   });
 });
 
@@ -179,16 +256,17 @@ describe('resolveUsageHeadlineSummary', () => {
     // the number, so the header now resolves to an account row instead.
     const summary = summaryFor(claudeRoster());
     expect(summary.kind).not.toBe('provider');
-    // Which account, and what for: `pickUsageHeadline` prefers the shortest
-    // window, and both subscriptions report a 5-hour, so the first row wins —
-    // Works Shared at 5%, now printed with the name that owns it. The headline
-    // is no longer the tightest number on the machine; that is the honest cost
-    // of the number having never been a provider statistic.
+    // Which account, and what for: every Claude row is durationless, so both
+    // subscriptions land in the same bucket and the tie is decided by usage —
+    // Personal's 5-hour at 44% over Works Shared's 5% at 5%, printed with the
+    // name that owns it. The invariant above is what this test exists for and it
+    // holds either way; only *which* account is named changed, from roster order
+    // to the tightest reading.
     expect(summary).toEqual({
       kind: 'account',
       label: '5-Hour',
-      metric: '5%',
-      account: 'Works Shared',
+      metric: '44%',
+      account: 'Personal',
     });
   });
 
@@ -233,18 +311,25 @@ describe('resolveUsageHeadlineSummary', () => {
     // One subscription, plugin present: the server puts that account's numbers in
     // the provider-level windows, because they *are* the provider's. No spurious
     // account suffix on this surface, and no number missing either.
+    //
+    // The number it shows did change, and only because this fixture's two
+    // provider-level windows are both durationless (`claude.js:121,128`), so
+    // under the two-key rule the tie between them is usage's: the 7-day at 70%
+    // over the 5-hour at 44%. The guarantee this test exists for — a single
+    // account keeps its number and gains no account tag — holds unchanged.
     const summary = summaryFor({
       ...claudeRoster(),
       usage: { windows: { '5h': window(44), '7d': window(70) } },
     });
-    expect(summary).toEqual({ kind: 'provider', label: '5-Hour', metric: '44%' });
+    expect(summary).toEqual({ kind: 'provider', label: '7-Day Limit', metric: '70%' });
   });
 
   test('leaves a single account reading as the provider when the roster is reported', () => {
     // The same machine through the roster path rather than auth.json: one
     // account, provider-level windows filled, and the `models` entry beside
-    // them. The provider row wins over the account row, so the header does not
-    // start naming an account on a machine that has only one.
+    // them (`claude-accounts.js:320` fills both). The provider row wins over the
+    // account row, so the header does not start naming an account on a machine
+    // that has only one. Same durationless tie as the test above.
     const summary = summaryFor({
       ...claudeRoster(),
       usage: {
@@ -252,7 +337,7 @@ describe('resolveUsageHeadlineSummary', () => {
         models: { 'Personal · me@e-dani.com': { windows: { '5h': window(44), '7d': window(70) } } },
       },
     });
-    expect(summary).toEqual({ kind: 'provider', label: '5-Hour', metric: '44%' });
+    expect(summary).toEqual({ kind: 'provider', label: '7-Day Limit', metric: '70%' });
   });
 
   test('leaves the auth.json answer untouched when the plugin is absent', () => {

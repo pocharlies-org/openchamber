@@ -4,11 +4,24 @@ import type { UsageProviderGroup, UsageLimitRow } from '@/components/usage/usage
 /**
  * Picking the one quota worth showing while the Usage section is collapsed.
  *
- * The interesting limit is the one that runs out first, which is the shortest
- * window a provider reports — a 5-hour bucket says more about whether the next
- * turn will land than a monthly one. Rows without a window duration (credit
- * balances, tool counters) are kept only as a last resort, since they never
- * answer "can I keep working right now".
+ * Every row is ranked by the same two keys, so the choice never depends on the
+ * order the rows happen to arrive in:
+ *
+ * 1. Window length. The limit that runs out first is the shortest window a
+ *    provider reports — a 5-hour bucket says more about whether the next turn
+ *    will land than a monthly one. A row with no window duration (credit
+ *    balances, tool counters) ranks in a bucket after every real window, which
+ *    is what "kept only as a last resort" means as a comparison rather than as
+ *    a comment.
+ * 2. Within one bucket, the highest `usedPercent` — the tightest reading.
+ *
+ * Key 2 is the one that had to be written down. Claude reports no window
+ * durations at all (`claude-accounts.js:51`, `claude.js:121,128,135,142`), so
+ * all of Claude lives in the no-duration bucket and, with only key 1, array
+ * order decided which subscription headed the panel — a coin flip between an
+ * account at 5% and one at 86%. The tightest is the one that answers "can I
+ * keep working right now", and a high number cannot read as the whole
+ * provider's: `resolveUsageHeadlineSummary` names the account it belongs to.
  */
 
 const normalize = (value: string | null | undefined): string => (value ?? '').trim().toLowerCase();
@@ -23,11 +36,19 @@ const normalize = (value: string | null | undefined): string => (value ?? '').tr
 export const resolveQuotaProviderId = resolveQuotaProviderIdFromModel;
 
 /**
- * Shortest reported window for the provider the composer is pointed at.
+ * The row to head the panel with: shortest window, then tightest reading.
+ *
+ * Two keys, applied to every row alike (see the file header for why the second
+ * one exists). A row with no window duration is ranked in an infinite bucket
+ * rather than skipped, so it still loses to any real window but is never
+ * chosen by array order — with Claude, where no row has a duration, that
+ * bucket is the only one there is.
  *
  * Returns null when nothing matches — the section then falls back to its
  * display-mode label rather than showing a quota belonging to some other
- * provider, which would read as the active one.
+ * provider, which would read as the active one. When `rows` is non-empty a row
+ * is always returned: `rows[0]` is the last resort for a provider whose rows
+ * all scored nothing, not the normal decider.
  */
 export const pickUsageHeadline = (
   groups: readonly UsageProviderGroup[],
@@ -44,17 +65,52 @@ export const pickUsageHeadline = (
   const providerRows = group.rows.filter((row) => !row.subtitle);
   const rows = providerRows.length > 0 ? providerRows : group.rows;
 
-  let best: UsageLimitRow | null = null;
-  let bestSeconds = Number.POSITIVE_INFINITY;
-  for (const row of rows) {
+  // Key 1: window length, with no duration ranked last rather than skipped.
+  // It cannot be a `continue`: Claude emits `windowSeconds: null` on every row
+  // (`claude-accounts.js:51`, `claude.js:121,128,135,142`), so skipping them
+  // left the loop with nothing and handed the decision to roster order.
+  const bucketOf = (row: UsageLimitRow): number => {
     const seconds = row.window.windowSeconds;
-    if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds <= 0) continue;
-    if (seconds < bestSeconds) {
+    return typeof seconds === 'number' && Number.isFinite(seconds) && seconds > 0
+      ? seconds
+      : Number.POSITIVE_INFINITY;
+  };
+
+  // Key 2: within one bucket, the tightest reading wins. It has to be said in
+  // code because since `6ff6ff28b` the server leaves `usage.windows` empty
+  // whenever more than one Claude subscription reports — so `providerRows` is
+  // empty, `rows` falls back to `group.rows`, and every row is an account row
+  // in the same bucket. A strict bucket comparison there leaves the choice to
+  // roster order, which is a coin flip between an account at 5% and one at 86%.
+  //
+  // A high number cannot be misread as the whole provider's: the row it comes
+  // from carries an `account`, and `resolveUsageHeadlineSummary` prints that
+  // name with it — an unattributed account figure is the bug the server change
+  // removed the source of, not something this tie-break reintroduces.
+  //
+  // A window with no reading loses every tie: `usedPercent` is `number | null`,
+  // and an unsampled window is not a free one.
+  const usedPercentOf = (row: UsageLimitRow): number => {
+    const used = row.window.usedPercent;
+    return typeof used === 'number' && Number.isFinite(used) ? used : Number.NEGATIVE_INFINITY;
+  };
+
+  let best: UsageLimitRow | null = null;
+  let bestBucket = Number.POSITIVE_INFINITY;
+  let bestUsed = Number.NEGATIVE_INFINITY;
+  for (const row of rows) {
+    const bucket = bucketOf(row);
+    const used = usedPercentOf(row);
+    if (bucket < bestBucket || (bucket === bestBucket && used > bestUsed)) {
       best = row;
-      bestSeconds = seconds;
+      bestBucket = bucket;
+      bestUsed = used;
     }
   }
 
+  // `rows.length > 0` above, and the loop scores its first row every time, so
+  // `best` is set whenever there is anything to choose from; `rows[0]` stays
+  // only as the guarantee that a non-empty group never headlines nothing.
   return { group, row: best ?? rows[0] };
 };
 
