@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import { createDispatchLoop } from './dispatch-loop.js';
 import { parseWorkflowConfig } from './workflow.js';
 
@@ -49,6 +49,18 @@ describe('one dispatch cycle', () => {
     expect(report.started.map((w) => w.ticketKey)).toEqual(['SC-1']);
     expect(report.errors).toEqual([]);
     expect(report.sources.dispatch).toBe('ready');
+  });
+
+  test('with create:false the loop reconciles but never creates sessions', async () => {
+    const spawnAll = vi.fn(async () => ({ started: [], failed: [], unrecorded: [], reused: [], state: 'ready' }));
+    const report = await loopWith({
+      issues: [issue('SC-1')],
+      dispatcher: stubDispatcher({ spawnAll }),
+      create: false,
+    }).tick();
+    expect(spawnAll).not.toHaveBeenCalled();
+    expect(report.started).toEqual([]);
+    expect(report.errors).toEqual([]);
   });
 
   test('passes the saved AIOPS space selection to Jira and routes the issue type', async () => {

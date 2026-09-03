@@ -30,6 +30,10 @@ export const createDispatchLoop = ({
   workflow = null,
   dispatchableStatuses = DEFAULT_DISPATCHABLE,
   closedStatuses = ['Done', 'Closed'],
+  // When a webhook owns session creation, the loop keeps reconciling — the
+  // watchdog, retire-on-close, workflow hand-off and heartbeats have no event
+  // that triggers them — but it must not create, or it would race the webhook.
+  create = true,
   now = () => Date.now(),
 }) => {
   const closed = new Set(closedStatuses.map((status) => status.toLowerCase()));
@@ -148,30 +152,32 @@ export const createDispatchLoop = ({
         : workers;
       const runningByTicket = new Set([...busy.map((worker) => worker.ticketKey), ...ambiguous]);
 
-      const { plans, skipped } = planDispatch({
-        issues,
-        employeesById: employees,
-        runningByTicket,
-        dispatchableStatuses,
-        rolesById,
-        defaultModel: roleConfig?.defaultModel ?? null,
-        aiopsRouting,
-      });
-      // concat, never assign: the ambiguous entries recorded above must survive
-      report.skipped = [...report.skipped, ...skipped];
+      if (create) {
+        const { plans, skipped } = planDispatch({
+          issues,
+          employeesById: employees,
+          runningByTicket,
+          dispatchableStatuses,
+          rolesById,
+          defaultModel: roleConfig?.defaultModel ?? null,
+          aiopsRouting,
+        });
+        // concat, never assign: the ambiguous entries recorded above must survive
+        report.skipped = [...report.skipped, ...skipped];
 
-      if (plans.length > 0) {
-        try {
-          const dispatchable = canCreate ? plans : plans.filter((plan) => existing.has(plan.ticketKey));
-        const result = await dispatcher.spawnAll(dispatchable, existing);
-          report.started = result.started;
-          report.reused = result.reused ?? [];
-          report.unrecorded = result.unrecorded ?? [];
-          if (result.state !== 'ready') report.sources.dispatch = 'partial';
-          for (const failure of result.failed ?? []) report.errors.push({ stage: 'dispatch', ...failure });
-        } catch (error) {
-          report.sources.dispatch = 'error';
-          report.errors.push({ stage: 'dispatch', error: String(error?.message ?? error) });
+        if (plans.length > 0) {
+          try {
+            const dispatchable = canCreate ? plans : plans.filter((plan) => existing.has(plan.ticketKey));
+            const result = await dispatcher.spawnAll(dispatchable, existing);
+            report.started = result.started;
+            report.reused = result.reused ?? [];
+            report.unrecorded = result.unrecorded ?? [];
+            if (result.state !== 'ready') report.sources.dispatch = 'partial';
+            for (const failure of result.failed ?? []) report.errors.push({ stage: 'dispatch', ...failure });
+          } catch (error) {
+            report.sources.dispatch = 'error';
+            report.errors.push({ stage: 'dispatch', error: String(error?.message ?? error) });
+          }
         }
       }
 

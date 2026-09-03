@@ -25,6 +25,7 @@ import {
 } from '../lib/company-office/forge-outbound.js';
 import { readAgentInventory } from '../lib/company-office/agent-inventory.js';
 import { buildCompanyState } from '../lib/company-office/company-state.js';
+import { buildEmployeesFromRegistry } from '../lib/company-office/employees.js';
 
 const CONFIG_PATH = process.env.COMPANY_OFFICE_CONFIG
   ?? '/home/dibanez/startupcompany/company-office.json';
@@ -38,6 +39,12 @@ const HEARTBEAT_SECRET_FILE = process.env.COMPANY_OFFICE_HEARTBEAT_SECRET_FILE ?
 const AGENTS_DIRECTORY = process.env.COMPANY_OFFICE_AGENTS_DIRECTORY
   ?? '/home/dibanez/.config/opencode/agents/company';
 const INTERVAL_MS = Number(process.env.COMPANY_OFFICE_INTERVAL_MS ?? 60_000);
+
+// When the Jira webhook owns session creation, this loop drops to watchdog duty:
+// it still supervises, retires on close, advances the workflow and publishes
+// heartbeats, but it stops creating sessions so it cannot race the webhook.
+// Default off: without the flag the loop behaves exactly as it always did.
+const CREATE = process.env.COMPANY_OFFICE_WEBHOOK_ENABLED !== 'true';
 
 /**
  * House default while the company is being evaluated: the local resident, not a
@@ -65,21 +72,7 @@ const tracker = createJiraWorkTracker({
  * the authority for which employee (and therefore which role and directory)
  * each alias is. Keyed by Jira accountId because that is what issues carry.
  */
-const buildEmployeesById = (issues) => {
-  const registry = JSON.parse(readFileSync(config.roster.registryPath, 'utf8'));
-  const byAlias = new Map();
-  for (const [id, entry] of Object.entries(registry)) {
-    const first = entry.persona.split(' ')[0].toLowerCase()
-      .normalize('NFD').replace(/[̀-ͯ]/g, '');
-    byAlias.set(`me+${first}`, { id, role: entry.role, directory: entry.directory });
-  }
-  const employeesById = new Map();
-  for (const issue of issues) {
-    const employee = byAlias.get((issue.assignee ?? '').toLowerCase());
-    if (issue.assigneeAccountId && employee) employeesById.set(issue.assigneeAccountId, employee);
-  }
-  return employeesById;
-};
+const buildEmployeesById = (issues) => buildEmployeesFromRegistry(config.roster.registryPath, issues);
 
 /**
  * Which runtime works the tickets. `opencode` keeps the local resident; `claude`
@@ -164,6 +157,7 @@ const runTick = async () => {
     publishCompanyState,
     employeesById: buildEmployeesById,
     workflow,
+    create: CREATE,
   });
   const report = await loop.tick();
   console.log(JSON.stringify({ at: new Date().toISOString(), ...report }));

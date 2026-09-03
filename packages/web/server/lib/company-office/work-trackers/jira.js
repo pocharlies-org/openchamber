@@ -197,6 +197,33 @@ export const createJiraWorkTracker = ({ config, fsPromises, fetchImpl = globalTh
     return { key, sessionId: id, state: 'ready' };
   },
 
+  /**
+   * Authoritative read of one issue, for the webhook path.
+   *
+   * A webhook payload is a hint, never the truth: it can be a retry, arrive out
+   * of order, or be forged. The event dispatcher GETs the issue back from Jira
+   * and acts on that, so the same normalization as a full snapshot applies and a
+   * stale assignee in the payload cannot dispatch on it.
+   */
+  loadIssue: async (issueKey) => {
+    const key = requireIssueKey(issueKey);
+    const response = await fetchImpl(new URL(`/rest/api/3/issue/${encodeURIComponent(key)}`, config.baseUrl), {
+      method: 'GET',
+      headers: { ...await authHeaders(), Accept: 'application/json' },
+      searchParams: new URLSearchParams({
+        fields: [
+          'summary', 'status', 'issuetype', 'assignee', 'reporter', 'parent', 'updated',
+          ...[config.acceptanceCriteriaField, config.sessionField, config.repoField].filter(Boolean),
+        ].join(','),
+      }),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (response.status === 404) return null;
+    if (!response.ok) throw new Error(`Company Office Jira issue read failed (${response.status})`);
+    const payload = await response.json();
+    return normalizeIssue(payload, config.baseUrl, config);
+  },
+
   loadSnapshot: async ({ projectKeys = null } = {}) => {
     const selectedProjectKeys = projectKeys === null ? [config.projectKey] : projectKeys;
     if (!Array.isArray(selectedProjectKeys) || selectedProjectKeys.some((key) => !PROJECT_KEY.test(key))) {

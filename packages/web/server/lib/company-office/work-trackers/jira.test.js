@@ -50,6 +50,35 @@ describe('Jira work tracker', () => {
     expect(JSON.stringify(snapshot)).not.toContain('private-token');
   });
 
+  test('loadIssue reads one issue authoritatively and returns null on 404', async () => {
+    let requestedUrl = '';
+    let sentFields = '';
+    const tracker = createJiraWorkTracker({
+      config,
+      fsPromises: { readFile: async () => 'private-token' },
+      fetchImpl: async (url, options) => {
+        requestedUrl = String(url);
+        sentFields = options.searchParams?.get('fields') ?? '';
+        if (String(url).includes('/issue/ENG-404')) return new Response('{}', { status: 404 });
+        return new Response(JSON.stringify({
+          key: 'ENG-7',
+          fields: {
+            summary: 'Ship it',
+            status: { name: 'To Do' },
+            issuetype: { name: 'Epic' },
+            assignee: { displayName: 'me+max', accountId: 'acct-max' },
+          },
+        }), { status: 200 });
+      },
+    });
+    const issue = await tracker.loadIssue('ENG-7');
+    expect(requestedUrl).toContain('/rest/api/3/issue/ENG-7');
+    expect(sentFields).toContain('issuetype');
+    expect(sentFields).toContain('assignee');
+    expect(issue).toMatchObject({ key: 'ENG-7', type: 'Epic', status: 'To Do', assignee: 'me+max', assigneeAccountId: 'acct-max' });
+    expect(await tracker.loadIssue('ENG-404')).toBeNull();
+  });
+
   test('flattens acceptance criteria from ADF and plain-text custom fields', async () => {
     let requestedFields = '';
     const tracker = createJiraWorkTracker({

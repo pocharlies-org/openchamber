@@ -273,12 +273,28 @@ key resolve to `ambiguous` with a null session; the projection never picks a win
 
 ## Webhook Boundary
 
-Webhook ingress is not implemented. A future receiver belongs under a separate public
-integration route such as `/integrations/jira/v1/webhook/:installationId`, not the
-ordinary browser `/api` namespace. It must verify raw-body signatures before parsing,
-deduplicate durably, acknowledge quickly, and enqueue authoritative reconciliation.
+Webhook ingress is implemented as a separate process (`bin/company-office-webhook.mjs`)
+that exposes the public receiver `POST /integrations/jira/v1/webhook/:installationId`,
+outside the authenticated `/api` namespace. It is deliberately not run inside the
+OpenChamber server: an unauthenticated public endpoint must not sit beside the
+browser-authenticated API.
 
-Webhook data must never activate sessions or mutate canonical governance directly.
+The receiver (`webhook/receiver.js`) verifies the Jira Automation HMAC over the raw
+body before parsing, deduplicates on `(installationId, X-Atlassian-Webhook-Identifier)`,
+allowlists the project and the `jira:issue_updated` event, acknowledges with 2xx, and
+hands the ticket key to a per-ticket queue. The queue drains through the event
+dispatcher (`dispatch-event.js`), which reads the issue back from Jira
+(`tracker.loadIssue`) before acting — the payload is a hint, never authorization.
+
+Creation ownership is a single hand. With `COMPANY_OFFICE_WEBHOOK_ENABLED=true` the
+polling loop runs with `create:false`: it keeps supervising, retiring on close,
+advancing the workflow and publishing heartbeats, but it no longer creates sessions,
+so it cannot race the webhook. Without the flag the loop behaves exactly as before.
+
+Idempotency does not depend on the dedupe window surviving a restart: the session
+title carries `[KEY]` and is the claim, so a replayed event reuses the session
+(`adopt`) rather than duplicating it. A ticket that owns two live sessions is
+reported `ambiguous_session` and left alone.
 
 ## Validation
 
