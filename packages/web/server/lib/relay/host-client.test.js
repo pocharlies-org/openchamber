@@ -257,6 +257,19 @@ const runScriptedClient = async ({ relayUrl, serverId, hostEncPubJwk }) => {
   return done;
 };
 
+// Polls until the condition holds. The deadline is generous on purpose: it is
+// not a performance budget, it is the point at which "slow" stops being a
+// plausible explanation and the message below is worth reading. A fast machine
+// leaves here in a millisecond or two.
+const waitFor = async (condition, what, { timeoutMs = 10_000, everyMs = 10 } = {}) => {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (condition()) return;
+    await new Promise((r) => setTimeout(r, everyMs));
+  }
+  throw new Error(`timed out after ${timeoutMs}ms waiting for: ${what}`);
+};
+
 describe('relay host-client integration', () => {
   let relay;
   let origin;
