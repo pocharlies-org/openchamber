@@ -41,6 +41,7 @@ import { useI18n } from '@/lib/i18n';
 import { useShiftKeyHeld } from '@/hooks/useShiftKeyHeld';
 import { getSessionGoal } from '@/lib/sessionGoalMetadata';
 import { sessionGoalStatusColor, sessionGoalStatusLabelKey } from '@/lib/sessionGoalPresentation';
+import { resolveSessionModelBadge } from '@/lib/sessionModelBadge';
 import { getRuntimeBearerTokenSync } from '@/lib/runtime-auth';
 import { getRuntimeApiBaseUrl } from '@/lib/runtime-switch';
 import { parseMultiRunSessionTitle } from '@/lib/multirun/title';
@@ -344,6 +345,13 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
 
   const session = node.session;
   const resolvedSession = session;
+  // Small family badge (Codex / Claude / local) shown at the end of the
+  // title line. Keyed on the model record so it is not recomputed on every
+  // row render.
+  const sessionModelBadge = React.useMemo(
+    () => resolveSessionModelBadge(resolvedSession.model),
+    [resolvedSession.model],
+  );
   // Tooltip context: recent rows receive project/branch via secondaryMeta;
   // project rows resolve them from the row's own props/node instead.
   const projectLabelFromStore = useProjectsStore(
@@ -1240,6 +1248,23 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
                           would reflow the truncated title and cause a micro
                           horizontal shift when the status flips. */}
                       <div className={cn('block min-w-0 flex-1 truncate typography-ui-label font-normal', isActive ? 'text-primary' : needsAttention ? 'text-foreground' : 'text-foreground/80')}>{renderHighlightedText(sessionTitle, normalizedSessionSearchQuery)}</div>
+                      {/* Model family badge: fixed-size, never squeezed, same
+                          pattern as the goal glyph / git-branch markers.
+                          React 19 SVG types drop the `title` attribute, so the
+                          tooltip lives on the wrapping span, like the goal
+                          glyph. */}
+                      {sessionModelBadge.icon ? (
+                        <span
+                          className="inline-flex flex-shrink-0 items-center"
+                          title={
+                            sessionModelBadge.label
+                              ? `${sessionModelBadge.label} · ${resolvedSession.model?.providerID} · ${resolvedSession.model?.id}`
+                              : undefined
+                          }
+                        >
+                          <Icon name={sessionModelBadge.icon} className="h-3.5 w-3.5 text-muted-foreground/70" />
+                        </span>
+                      ) : null}
                       {/* While a turn runs (and until its result is read) the
                           elapsed counter takes over this slot from the usual
                           goal/branch/date metadata, which stays one hover or

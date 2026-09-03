@@ -1,0 +1,35 @@
+{
+  "permissions": {
+    "defaultMode": "plan",
+    "allow": [
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git status:*)",
+      "Bash(helm get:*)",
+      "Bash(helm list:*)",
+      "Bash(helm template:*)",
+      "Bash(journalctl:*)",
+      "Bash(kubectl describe:*)",
+      "Bash(kubectl events:*)",
+      "Bash(kubectl get:*)",
+      "Bash(kubectl logs:*)",
+      "Bash(kubectl top:*)",
+      "Bash(systemctl status:*)"
+    ],
+    "deny": [
+      "Bash(argocd:*)",
+      "Bash(docker:*)",
+      "Bash(gh pr merge:*)",
+      "Bash(git merge:*)",
+      "Bash(git push:*)",
+      "Bash(helm:*)",
+      "Bash(kubectl:*)",
+      "Bash(rm:*)",
+      "Bash(systemctl:*)",
+      "Edit",
+      "NotebookEdit",
+      "Write"
+    ]
+  }
+}

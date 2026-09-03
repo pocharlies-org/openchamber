@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "defaultMode": "plan",
+    "allow": [],
+    "deny": [
+      "Bash(argocd:*)",
+      "Bash(docker:*)",
+      "Bash(gh pr merge:*)",
+      "Bash(git merge:*)",
+      "Bash(git push:*)",
+      "Bash(helm:*)",
+      "Bash(kubectl:*)",
+      "Bash(rm:*)",
+      "Bash(systemctl:*)",
+      "Edit",
+      "NotebookEdit",
+      "Write"
+    ]
+  }
+}

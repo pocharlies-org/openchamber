@@ -10,6 +10,7 @@ mock.module('@/lib/runtime-fetch', () => ({
 const {
   findEnabledSideConversationContribution,
   findEnabledComposerMetricsContributions,
+  findEnabledWorkspaceViewContributions,
   isUIPluginEnabled,
   useUIPluginsStore,
 } = await import('./useUIPluginsStore');
@@ -97,5 +98,31 @@ describe('useUIPluginsStore', () => {
   test('malformed persisted enablement fails open instead of breaking contribution lookup', () => {
     const malformed = { ...useUIPluginsStore.getState(), disabledPluginIds: null } as unknown as Parameters<typeof isUIPluginEnabled>[0];
     expect(isUIPluginEnabled(malformed, BUILTIN_SIDE_CHAT_UI_PLUGIN.id)).toBe(true);
+  });
+
+  test('exposes workspace views only from the validated enabled catalog', () => {
+    const companyPlugin = {
+      ...structuredClone(BUILTIN_SIDE_CHAT_UI_PLUGIN),
+      id: '@example/company-office',
+      contributes: {
+        workspaceViews: [{
+          id: 'company-office' as const,
+          icon: 'home-office' as const,
+          label: { default: 'Company Office' },
+          endpoint: '/api/company-office/snapshot' as const,
+          support: {
+            web: 'supported' as const,
+            desktop: 'supported' as const,
+            vscode: 'unsupported' as const,
+            hostedMobile: 'supported' as const,
+            capacitorMobile: 'supported' as const,
+          },
+        }],
+      },
+    };
+    useUIPluginsStore.setState({ catalog: [companyPlugin] });
+    expect(findEnabledWorkspaceViewContributions(useUIPluginsStore.getState())).toHaveLength(1);
+    useUIPluginsStore.getState().setPluginEnabled(companyPlugin.id, false);
+    expect(findEnabledWorkspaceViewContributions(useUIPluginsStore.getState())).toHaveLength(0);
   });
 });

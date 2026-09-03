@@ -6,10 +6,12 @@ import {
   BUILTIN_STREAM_METRICS_UI_PLUGIN,
   getComposerMetricsContributions,
   getSideConversationContribution,
+  getWorkspaceViewContributions,
   parseUIPluginManifest,
   type OpenChamberUIPluginManifestV1,
   type SideConversationContribution,
   type ComposerMetricsContribution,
+  type WorkspaceViewContribution,
 } from '@/lib/uiPlugins';
 import { createDeferredSafeJSONStorage } from './utils/safeStorage';
 
@@ -39,6 +41,12 @@ export const findEnabledSideConversationContribution = (
 export const findEnabledComposerMetricsContributions = (
   state: Pick<UIPluginsStore, 'catalog' | 'disabledPluginIds'>,
 ): ComposerMetricsContribution[] => getComposerMetricsContributions(
+  state.catalog.filter((plugin) => isUIPluginEnabled(state, plugin.id)),
+);
+
+export const findEnabledWorkspaceViewContributions = (
+  state: Pick<UIPluginsStore, 'catalog' | 'disabledPluginIds'>,
+): WorkspaceViewContribution[] => getWorkspaceViewContributions(
   state.catalog.filter((plugin) => isUIPluginEnabled(state, plugin.id)),
 );
 

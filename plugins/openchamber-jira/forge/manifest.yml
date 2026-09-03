@@ -1,0 +1,152 @@
+# AIOPS — Forge app
+#
+# This app is the FACE, never the engine. It provisions its own custom fields,
+# renders live agent state inside the issue, and forwards operator intent. The
+# dispatcher that actually creates sessions stays on the private host, because a
+# Forge function runs in Atlassian's cloud and cannot reach a private address.
+#
+# Deploy with the Forge CLI (`forge deploy`); nothing here is installed by the
+# OpenChamber repository.
+
+app:
+  id: ari:cloud:ecosystem::app/878f1468-1ee3-41ca-b8f6-f02c34b9a76f
+  runtime:
+    name: nodejs22.x
+
+permissions:
+  scopes:
+    - read:jira-work
+    - write:jira-work
+    - storage:app
+modules:
+  # Provisioned by the app, so no operator ever copies a `customfield_NNNNN` id
+  # between installations. This is the reuse win that motivated the app.
+  jira:customField:
+    - key: company-office-session
+      name: Agent session
+      description: OpenCode session currently working this ticket. Written by the
+        dispatcher.
+      type: string
+      readOnly: true
+    - key: company-office-repo
+      name: Repository
+      description: Absolute path of the repository where this ticket is worked.
+      type: string
+
+  # Where the customer configures roles and their permission rulesets. The
+  # config is DATA held per installation, so changing a role never means editing
+  # a file on the OpenCode host or restarting it.
+  jira:adminPage:
+    # The company itself: who the roles are, what model each runs on, what the
+    # host-owned half of each role is, who is working right now and what it cost.
+    - key: company-office-company
+      resource: company-ui
+      render: native
+      resolver:
+        function: company-resolver
+      title: AIOPS
+    # Raw JSON editor for the whole role config, reachable as "Configure".
+    # Jira allows exactly one plain admin page, so the company view is the main
+    # entry and this stays the advanced one.
+    - key: company-office-roles
+      resource: roles-ui
+      render: native
+      useAsConfig: true
+      resolver:
+        function: roles-resolver
+      title: AIOPS configuration
+
+  # The same company view, but inside the project navigation (next to Board and
+  # Timeline) instead of buried in admin settings. Same resource, same resolver:
+  # one view, two doors. Note the audience: a project page is visible to anyone
+  # who can see the project, not only admins.
+  jira:projectPage:
+    - key: company-office-project-view
+      resource: company-ui
+      render: native
+      resolver:
+        function: company-resolver
+      title: AIOPS
+
+  jira:projectSettingsPage:
+    - key: aiops-project-settings
+      resource: roles-ui
+      render: native
+      resolver:
+        function: roles-resolver
+      title: AIOPS
+
+  jira:issuePanel:
+    - key: company-office-panel
+      resource: panel
+      render: native
+      resolver:
+        function: panel-resolver
+      title: AIOPS
+      icon: https://developer.atlassian.com/platform/forge/images/icons/issue-panel-icon.svg
+
+  # Operator intent only. The trigger records what was asked in Jira; it never
+  # spawns an agent, because a change hint must not be an authorization.
+  trigger:
+    - key: company-office-issue-changed
+      function: issue-changed
+      events:
+        - avi:jira:updated:issue
+        - avi:jira:transitioned:issue
+
+  # The only inbound door, and Atlassian hosts its TLS. Authenticated with
+  # HMAC-SHA256 over `timestamp.body`; the secret is set out of band with
+  # `forge variables set --encrypt COMPANY_OFFICE_HEARTBEAT_SECRET`.
+  webtrigger:
+    - key: company-office-heartbeat
+      function: heartbeat
+      security:
+        egress:
+          control: unrestricted
+    # The companion pulls its role configuration through the same signed channel.
+    - key: company-office-roles-pull
+      function: roles-pull
+      security:
+        egress:
+          control: unrestricted
+    # Agent reports land in Jira authored by the app (asApp): role attribution
+    # in the body, no Atlassian seat consumed, same HMAC channel.
+    - key: company-office-comment-relay
+      function: comment-relay
+      security:
+        egress:
+          control: unrestricted
+    # The whole company picture, pushed in each cycle: Forge cannot reach the
+    # private host, so the view is fed, never fetched.
+    - key: company-office-state
+      function: company-state-push
+      security:
+        egress:
+          control: unrestricted
+    # Agents report in Jira as the app (asApp), no Atlassian seat consumed.
+
+  function:
+    - key: heartbeat
+      handler: index.heartbeat
+    - key: panel-resolver
+      handler: index.panel
+    - key: issue-changed
+      handler: index.issueChanged
+    - key: roles-resolver
+      handler: index.rolesConfig
+    - key: roles-pull
+      handler: index.rolesForCompanion
+    - key: comment-relay
+      handler: index.commentRelay
+    - key: company-resolver
+      handler: index.company
+    - key: company-state-push
+      handler: index.companyStatePush
+
+resources:
+  - key: panel
+    path: static/panel/src/index.jsx
+  - key: roles-ui
+    path: static/roles/src/index.jsx
+  - key: company-ui
+    path: static/company/src/index.jsx

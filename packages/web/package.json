@@ -106,6 +106,7 @@
     "dist",
     "server",
     "bin",
+    "company-office.config.example.json",
     "public",
     "package.json",
     "README.md"

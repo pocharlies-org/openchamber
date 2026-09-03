@@ -37,4 +37,26 @@ describe('UI plugin catalog routes', () => {
     ))));
     expect(response.body.plugins).toEqual(packaged);
   });
+
+  test('publishes the Company Office workspace view only when configured', async () => {
+    const app = express();
+    registerUIPluginRoutes(app, { companyOfficeEnabled: true });
+    const response = await request(app).get('/api/ui-plugins/catalog').expect(200);
+    expect(response.body.plugins).toHaveLength(3);
+    expect(response.body.plugins[0]).toMatchObject({
+      id: '@pocharlies/openchamber-company-office',
+      contributes: {
+        workspaceViews: [{
+          id: 'company-office',
+          endpoint: '/api/company-office/snapshot',
+          support: { vscode: 'unsupported', web: 'supported' },
+        }],
+      },
+    });
+    const packaged = JSON.parse(await readFile(
+      new URL('../../../../../plugins/openchamber-company-office/openchamber.ui-plugin.json', import.meta.url),
+      'utf8',
+    ));
+    expect(response.body.plugins[0]).toEqual(packaged);
+  });
 });
