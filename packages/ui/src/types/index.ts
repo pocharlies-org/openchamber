@@ -2,6 +2,7 @@ export type {
   QuotaProviderId,
   UsageWindow,
   UsageWindows,
+  UsageWindowsWithSharers,
   ProviderResult
 } from './quota';
 

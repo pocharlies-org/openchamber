@@ -1415,6 +1415,7 @@ export const dict = {
   'header.services.used': 'Verwendet',
   'header.services.remaining': 'Verbleibend',
   'header.services.modelFamily.other': 'Andere',
+  'header.services.modelFamily.sharedBudget': 'Ein Budget, geteilt von {accounts}',
   'header.actions.openPlanAria': 'Plan öffnen',
   'header.actions.toggleChangesPanel': 'Änderungspanel',
   'header.actions.toggleChangesPanelAria': 'Änderungspanel umschalten',

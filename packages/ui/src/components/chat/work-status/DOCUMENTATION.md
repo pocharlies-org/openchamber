@@ -252,6 +252,30 @@ Selection rules live in `usageHeadline.ts` and are pinned by
   label, because showing an unmatched provider's quota would read as the active
   one.
 
+### An account's number is never the provider's
+
+The summary renders `label` + percent under the provider's own heading, so
+`resolveUsageHeadlineSummary` decides what may go there:
+
+- a provider-level row reads as it always did;
+- a row belonging to one Claude **account** is shown with that account's name
+  beside the number;
+- where the surface has no room for the name, the number is dropped and the
+  display-mode word stands. An absent number beats a misattributed one.
+
+For Claude with more than one subscription connected, the first bullet almost
+never applies, and that is deliberate: `GET /api/quota/claude` leaves
+`usage.windows` empty rather than carrying the maximum across accounts. Claude
+bills per subscription, so there is no provider-level budget for that field to
+describe — measured, Personal's 5-hour at 44% and Works Shared's at 5% produced
+a "Claude — 5-Hour 44%" that belonged to nobody. So the headline resolves to an
+`account` row, named, and the provider-level branch is left to single-account
+machines and to every other provider, where the number really is the provider's.
+
+This is the invariant the panel holds, and it is why `UsageLimitRow.account`
+exists: **a number under a provider heading is either the provider's or is
+named.** The renderer enforces the naming half, the server enforces the other.
+
 ## Actions
 
 Rows that name something the app can already show are buttons:

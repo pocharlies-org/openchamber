@@ -1534,6 +1534,7 @@ export const dict: Record<I18nKey, string> = {
   'header.services.used': '已用',
   'header.services.remaining': '剩余',
   'header.services.modelFamily.other': '其他',
+  'header.services.modelFamily.sharedBudget': '由 {accounts} 共享的同一预算',
   'header.actions.openPlanAria': '打开计划',
   "header.actions.toggleChangesPanel": "更改面板",
   "header.actions.toggleChangesPanelAria": "切换更改面板",

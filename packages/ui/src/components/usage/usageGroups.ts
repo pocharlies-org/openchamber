@@ -2,13 +2,25 @@ import React from 'react';
 import { useI18n } from '@/lib/i18n';
 import { formatWindowLabel, QUOTA_PROVIDERS, resolveQuotaProviderId } from '@/lib/quota';
 import { getDisplayModelName } from '@/lib/quota/model-families';
+import { getQuotaAccountEntries, formatQuotaSharedWith } from '@/lib/quota/accounts';
 import { useQuotaStore } from '@/stores/useQuotaStore';
 import type { ProviderResult, QuotaProviderId, UsageWindow } from '@/types';
 
 export type UsageLimitRow = {
   key: string;
   label: string;
+  /**
+   * What this row is really about, for the renderer to put before `label`.
+   *
+   * For Claude that is one subscription — `accounts.ts` is the owner of that
+   * name and of the "one budget shared by X" note, so this is composed from
+   * `getQuotaAccountEntries`, the same source the header dropdown and the tray
+   * read. Composing it here instead of from the model key would split the rule
+   * across two files, and Google rows are model names, not accounts.
+   */
   subtitle?: string;
+  /** The account this row belongs to, when it belongs to one. */
+  account?: string;
   window: UsageWindow;
 };
 
@@ -86,14 +98,48 @@ export const buildUsageProviderGroups = (
       const visibleModelEntries = providerSelectedModels.length > 0
         ? modelEntries.filter(([modelName]) => providerSelectedModels.includes(modelName))
         : modelEntries;
+      // Claude's `models` are accounts, and `accounts.ts` is what knows that —
+      // which of the three windows answers "can I keep working right now", and
+      // the operator's label rather than the identity line. Reading the map
+      // directly here would give this surface a different account name, and a
+      // different window, than the dropdown and the tray print for the same
+      // subscription.
+      const accountEntries = new Map(
+        getQuotaAccountEntries(result, formatWindowLabel).map((entry) => [entry.id, entry]),
+      );
       for (const [modelName, modelUsage] of visibleModelEntries) {
         const entries = Object.entries(modelUsage.windows ?? {});
         if (entries.length === 0) continue;
-        const [label, window] = entries[0];
+        const account = accountEntries.get(modelName);
+        // A model row keeps the first window it reported, as it always did; an
+        // account row takes the shortest, which is the one that answers the
+        // question the row is there for.
+        const [label, window] = account
+          ? [account.label, account.window]
+          : entries[0];
+        // The account, and the other names on its budget, go in the one field
+        // this row type already has for "what this row is really about".
+        // A separate field would have to be taught to every renderer of these
+        // rows — the work-status panel, the mobile popover, the tray — and the
+        // failure mode of forgetting one is exactly the failure this whole
+        // change exists to remove: two accounts on one pool read as two pools.
+        // The compact surfaces have no room for a second line, but they do have
+        // this one, and a truncated suffix loses nothing that matters.
+        //
+        // `account` is the same name without the shared-budget note: a surface
+        // with a few characters for it (the collapsed Usage header) cannot fit
+        // the note, and the note is what makes the name unreadable there.
+        const sharedWith = modelUsage.sharedWith;
+        const subtitle = account
+          ? (sharedWith && sharedWith.length > 0
+            ? `${account.name} · ${formatQuotaSharedWith(sharedWith)}`
+            : account.name)
+          : getDisplayModelName(modelName);
         rows.push({
           key: `model-${modelName}-${label}`,
-          label: formatWindowLabel(label),
-          subtitle: getDisplayModelName(modelName),
+          label,
+          subtitle,
+          ...(account ? { account: account.name } : {}),
           window,
         });
       }

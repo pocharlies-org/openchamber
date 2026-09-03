@@ -2345,6 +2345,7 @@ export const dict: Record<I18nKey, string> = {
   'header.navigation.mainAria': 'Nawigacja główna',
   'header.services.closeAria': 'Zamknij usługi',
   'header.services.modelFamily.other': 'Inne',
+  'header.services.modelFamily.sharedBudget': 'Jedno budżet współdzielony przez: {accounts}',
   'header.services.noRateLimits': 'Brak dostępnych limitów użycia.',
   'header.services.noRateLimitsReported': 'Nie zgłoszono limitów użycia.',
   'header.services.remoteUpdate.title': 'Aktualizacja zdalnej instancji',

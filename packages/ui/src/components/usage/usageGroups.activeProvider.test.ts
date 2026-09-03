@@ -112,4 +112,40 @@ describe('buildUsageProviderGroups', () => {
     const groups = buildUsageProviderGroups(input({ activeQuotaProviderId: 'claude' }));
     expect(groups[0].rows.map((row) => row.key)).toEqual(['window-5h']);
   });
+
+  test('names the account, and the other names on its budget, on a model row', () => {
+    // Claude reports its accounts through `models`. A row that shows only the
+    // percentage is the bug: two accounts on one pool read as two pools.
+    const groups = buildUsageProviderGroups(input({
+      activeQuotaProviderId: 'claude',
+      results: [result('claude', {
+        usage: {
+          windows: {},
+          models: {
+            'Work personal · d@cloudblue.com': {
+              windows: { '5h': WINDOW },
+              sharedWith: ['Works Shared'],
+            },
+          },
+        },
+      })],
+    }));
+    expect(groups[0].rows).toHaveLength(1);
+    const [row] = groups[0].rows;
+    expect(row.subtitle).toContain('Work personal');
+    expect(row.subtitle).toContain('Works Shared');
+    // The bare name, for the surfaces that have a few characters for it and
+    // cannot carry the note.
+    expect(row.account).toBe('Work personal');
+  });
+
+  test('leaves an unshared account named alone', () => {
+    const groups = buildUsageProviderGroups(input({
+      activeQuotaProviderId: 'claude',
+      results: [result('claude', {
+        usage: { windows: {}, models: { Personal: { windows: { '5h': WINDOW } } } },
+      })],
+    }));
+    expect(groups[0].rows[0].subtitle).toBe('Personal');
+  });
 });

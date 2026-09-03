@@ -1082,6 +1082,7 @@ export const settingsDict = {
   'settings.usage.page.state.providerNotConfiguredTitle': 'Fournisseur non configuré',
   'settings.usage.page.state.providerNotConfiguredDescription': 'Ajoutez des informations d\'identification dans l\'onglet Fournisseurs pour activer le suivi de l\'utilisation.',
   'settings.usage.page.section.modelQuotas': 'Quotas de modèles',
+  'settings.usage.page.section.accountQuotas': 'Quotas de comptes',
   'settings.usage.page.section.otherModels': 'Autres modèles',
   'settings.usage.page.state.noQuotaWindowsTitle': 'Aucune fenêtre de quota signalée',
   'settings.usage.page.state.noQuotaWindowsDescription': 'Ce fournisseur ne signale actuellement aucune limite de débit ni aucun quota d\'utilisation.',

@@ -1546,6 +1546,7 @@ export const dict: Record<I18nKey, string> = {
   "header.services.used": "Usado",
   "header.services.remaining": "Restante",
   "header.services.modelFamily.other": "Otro",
+  "header.services.modelFamily.sharedBudget": "Un presupuesto compartido por {accounts}",
   "header.actions.openPlanAria": "Abrir plan",
   "header.actions.toggleChangesPanel": "Panel de cambios",
   "header.actions.toggleChangesPanelAria": "Alternar panel de cambios",

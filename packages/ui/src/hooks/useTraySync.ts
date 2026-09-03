@@ -18,6 +18,7 @@ import {
 } from '@/stores/useGlobalSessionsStore';
 import { useQuotaStore } from '@/stores/useQuotaStore';
 import { QUOTA_PROVIDERS, formatWindowLabel, formatQuotaValueLabel } from '@/lib/quota';
+import { getQuotaAccountEntries, formatQuotaSharedWith } from '@/lib/quota/accounts';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useGitStore } from '@/stores/useGitStore';
@@ -191,6 +192,23 @@ const buildUsage = (): TrayUsage => {
     for (const [label, window] of Object.entries(result.usage?.windows ?? {})) {
       const percent = mode === 'remaining' ? window.remainingPercent : window.usedPercent;
       rows.push({ label: formatWindowLabel(label), value: formatQuotaValueLabel(window.valueLabel, percent) });
+    }
+
+    // Claude's provider-level line is empty whenever more than one subscription
+    // is connected — there is no provider-level budget for it to carry, so the
+    // server sends none rather than a maximum belonging to nobody. The accounts
+    // below are the whole readout. The tray has room for neither a bar nor a
+    // second line, but it has room for a name, and an unnamed number here is the
+    // ambiguity this whole change is about.
+    for (const account of getQuotaAccountEntries(result, formatWindowLabel)) {
+      const percent = mode === 'remaining'
+        ? account.window.remainingPercent
+        : account.window.usedPercent;
+      const shared = account.sharedWith ? ` (${formatQuotaSharedWith(account.sharedWith)})` : '';
+      rows.push({
+        label: `${account.name} · ${account.label}${shared}`,
+        value: formatQuotaValueLabel(account.window.valueLabel, percent),
+      });
     }
 
     const status = !result.ok && result.error

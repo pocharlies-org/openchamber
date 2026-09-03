@@ -52,6 +52,13 @@ import {
   groupModelsByFamily,
   sortModelFamilies,
 } from '@/lib/quota/model-families';
+import {
+  getQuotaAccountEntries,
+  getQuotaAccountsOutsideGroups,
+  groupQuotaAccountsByBudget,
+  type QuotaAccountEntry,
+  type QuotaAccountFamily,
+} from '@/lib/quota/accounts';
 
 import {
   Collapsible,
@@ -429,6 +436,59 @@ const normalize = (value: string): string => {
   return replaced === '/' ? '/' : replaced.replace(/\/+$/, '');
 };
 
+/**
+ * One quota row: a name, its percentage, and the bar.
+ *
+ * Extracted because the account rows need the same line as the model rows with
+ * one thing added — the names that share the budget — and two copies of this
+ * markup would mean the account rows drift from the model rows on exactly the
+ * detail that matters (a shared pool is only honest if it says it is shared).
+ */
+const QuotaUsageRow: React.FC<{
+  name: string;
+  window: UsageWindow;
+  displayMode: 'usage' | 'remaining';
+  timeFormatPreference: 'auto' | '12h' | '24h';
+  /** Accounts drawing on this same budget, when more than one name does. */
+  sharedWith?: string[];
+}> = ({ name, window, displayMode, timeFormatPreference, sharedWith }) => {
+  const { t } = useI18n();
+  const displayPercent = displayMode === 'remaining' ? window.remainingPercent : window.usedPercent;
+  const metricLabel = formatQuotaValueLabel(window.valueLabel, displayPercent);
+  const resetLabel = formatQuotaResetLabel(
+    window.resetAt,
+    window.resetAfterFormatted ?? window.resetAtFormatted,
+    timeFormatPreference,
+  );
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex min-w-0 items-center justify-between gap-3">
+        <div className="min-w-0 flex flex-col">
+          <span className="truncate typography-micro text-muted-foreground">{name}</span>
+          {sharedWith && sharedWith.length > 0 ? (
+            <span className="truncate typography-micro text-muted-foreground/70">
+              {t('header.services.modelFamily.sharedBudget', { accounts: sharedWith.join(', ') })}
+            </span>
+          ) : null}
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          {resetLabel ? (
+            <span className="truncate typography-micro text-muted-foreground">{resetLabel}</span>
+          ) : null}
+          <span className="typography-ui-label text-foreground tabular-nums">
+            {metricLabel === '-' ? '' : metricLabel}
+          </span>
+        </div>
+      </div>
+      <UsageProgressBar
+        percent={displayPercent}
+        tonePercent={window.usedPercent}
+        className="h-1.5"
+      />
+    </div>
+  );
+};
+
 const getActiveContextMode = (panelState: {
   isOpen: boolean;
   activeTabId: string | null;
@@ -460,6 +520,10 @@ interface RateLimitGroup {
     familyLabel: string;
     models: Array<[string, UsageWindow]>;
   }>;
+  /** Claude only: subscriptions that are each their own budget. */
+  accounts?: QuotaAccountEntry[];
+  /** Claude only: accounts that are one budget, grouped under the one in use. */
+  accountFamilies?: QuotaAccountFamily[];
 }
 
 interface HeaderProps {
@@ -837,76 +901,98 @@ export const Header: React.FC<HeaderProps> = ({
         error: (result && !result.ok && result.configured) ? result.error : undefined,
       };
 
-      // Add model families if provider has per-model quotas
+      // The per-something breakdown. Providers report per model, except Claude,
+      // which bills per login and therefore reports accounts.
       if (models && Object.keys(models).length > 0) {
         const providerSelectedModels = selectedModels[provider.id] ?? [];
         // hasExplicitSelection = true means user has selected specific models to show
         // If the array exists but is empty, treat as "show all" (user cleared selection)
         const hasExplicitSelection = providerSelectedModels.length > 0;
-        const modelGroups = groupModelsByFamily(models, provider.id);
-        const families = getAllModelFamilies(provider.id);
-        const sortedFamilies = sortModelFamilies(families);
 
-        group.modelFamilies = [];
+        // Accounts get their own grouping because the question they answer is
+        // different: not "which model is tight" but "which subscription, and
+        // which of these names are one budget". A shared pool printed as two
+        // rows reads as two budgets, so the grouping is the correctness fix
+        // here, not decoration.
+        const accountEntries = getQuotaAccountEntries(result, formatWindowLabel);
+        if (accountEntries.length > 0) {
+          const visibleAccounts = hasExplicitSelection
+            ? accountEntries.filter((account) => providerSelectedModels.includes(account.id))
+            : accountEntries;
+          group.accountFamilies = groupQuotaAccountsByBudget(visibleAccounts);
+          group.accounts = getQuotaAccountsOutsideGroups(visibleAccounts, group.accountFamilies);
+        } else {
+          const modelGroups = groupModelsByFamily(models, provider.id);
+          const families = getAllModelFamilies(provider.id);
+          const sortedFamilies = sortModelFamilies(families);
 
-        // Add predefined families first
-        for (const family of sortedFamilies) {
-          const modelNames = modelGroups.get(family.id) ?? [];
-          if (modelNames.length === 0) continue;
+          group.modelFamilies = [];
 
-          // Filter to selected models only, OR show all if nothing selected
-          const selectedModelNames = hasExplicitSelection
-            ? modelNames.filter((m: string) => providerSelectedModels.includes(m))
-            : modelNames;
-          if (selectedModelNames.length === 0) continue;
+          // Add predefined families first
+          for (const family of sortedFamilies) {
+            const modelNames = modelGroups.get(family.id) ?? [];
+            if (modelNames.length === 0) continue;
 
-          const familyModels: Array<[string, UsageWindow]> = [];
-          for (const modelName of selectedModelNames) {
-            const modelUsage = models[modelName] as { windows?: Record<string, UsageWindow> } | undefined;
-            if (modelUsage?.windows) {
-              const windowEntries = Object.entries(modelUsage.windows);
-              if (windowEntries.length > 0) {
-                familyModels.push([modelName, windowEntries[0][1]]);
+            // Filter to selected models only, OR show all if nothing selected
+            const selectedModelNames = hasExplicitSelection
+              ? modelNames.filter((m: string) => providerSelectedModels.includes(m))
+              : modelNames;
+            if (selectedModelNames.length === 0) continue;
+
+            const familyModels: Array<[string, UsageWindow]> = [];
+            for (const modelName of selectedModelNames) {
+              const modelUsage = models[modelName] as { windows?: Record<string, UsageWindow> } | undefined;
+              if (modelUsage?.windows) {
+                const windowEntries = Object.entries(modelUsage.windows);
+                if (windowEntries.length > 0) {
+                  familyModels.push([modelName, windowEntries[0][1]]);
+                }
               }
+            }
+
+            if (familyModels.length > 0) {
+              group.modelFamilies.push({
+                familyId: family.id,
+                familyLabel: family.label,
+                models: familyModels,
+              });
             }
           }
 
-          if (familyModels.length > 0) {
-            group.modelFamilies.push({
-              familyId: family.id,
-              familyLabel: family.label,
-              models: familyModels,
-            });
-          }
-        }
-
-        // Add "Other" family for remaining models
-        const otherModelNames = modelGroups.get(null) ?? [];
-        const selectedOtherModels = hasExplicitSelection
-          ? otherModelNames.filter((m: string) => providerSelectedModels.includes(m))
-          : otherModelNames;
-        if (selectedOtherModels.length > 0) {
-          const otherModels: Array<[string, UsageWindow]> = [];
-          for (const modelName of selectedOtherModels) {
-            const modelUsage = models[modelName] as { windows?: Record<string, UsageWindow> } | undefined;
-            if (modelUsage?.windows) {
-              const windowEntries = Object.entries(modelUsage.windows);
-              if (windowEntries.length > 0) {
-                otherModels.push([modelName, windowEntries[0][1]]);
+          // Add "Other" family for remaining models
+          const otherModelNames = modelGroups.get(null) ?? [];
+          const selectedOtherModels = hasExplicitSelection
+            ? otherModelNames.filter((m: string) => providerSelectedModels.includes(m))
+            : otherModelNames;
+          if (selectedOtherModels.length > 0) {
+            const otherModels: Array<[string, UsageWindow]> = [];
+            for (const modelName of selectedOtherModels) {
+              const modelUsage = models[modelName] as { windows?: Record<string, UsageWindow> } | undefined;
+              if (modelUsage?.windows) {
+                const windowEntries = Object.entries(modelUsage.windows);
+                if (windowEntries.length > 0) {
+                  otherModels.push([modelName, windowEntries[0][1]]);
+                }
               }
             }
-          }
-          if (otherModels.length > 0) {
-            group.modelFamilies.push({
-              familyId: null,
-              familyLabel: t('header.services.modelFamily.other'),
-              models: otherModels,
-            });
+            if (otherModels.length > 0) {
+              group.modelFamilies.push({
+                familyId: null,
+                familyLabel: t('header.services.modelFamily.other'),
+                models: otherModels,
+              });
+            }
           }
         }
       }
 
-      if (entries.length > 0 || (group.modelFamilies && group.modelFamilies.length > 0) || group.error) {
+      if (
+        entries.length > 0
+        || (group.modelFamilies && group.modelFamilies.length > 0)
+        || (group.accounts && group.accounts.length > 0)
+        || (group.accountFamilies && group.accountFamilies.length > 0)
+        || group.error
+      ) {
         groups.push(group);
       }
     }
@@ -2433,7 +2519,10 @@ export const Header: React.FC<HeaderProps> = ({
                               <span className="typography-ui-label font-medium text-foreground">{group.providerName}</span>
                             </div>
 
-                            {group.entries.length === 0 && (!group.modelFamilies || group.modelFamilies.length === 0) ? (
+                            {group.entries.length === 0
+                              && (!group.modelFamilies || group.modelFamilies.length === 0)
+                              && (!group.accounts || group.accounts.length === 0)
+                              && (!group.accountFamilies || group.accountFamilies.length === 0) ? (
                               <div className="px-4 pb-2">
                                 <span className="typography-ui-label text-muted-foreground">
                                   {group.error ?? t('header.services.noRateLimitsReported')}
@@ -2497,27 +2586,74 @@ export const Header: React.FC<HeaderProps> = ({
                                           </CollapsibleTrigger>
                                           <CollapsibleContent>
                                             <div className="space-y-2.5 pb-1 pl-1 pt-1">
-                                              {family.models.map(([modelName, window]) => {
-                                                const displayPercent = quotaDisplayMode === 'remaining'
-                                                  ? window.remainingPercent
-                                                  : window.usedPercent;
-                                                const metricLabel = formatQuotaValueLabel(window.valueLabel, displayPercent);
-                                                return (
-                                                  <div key={`${group.providerId}-${modelName}`} className="flex flex-col gap-1.5">
-                                                    <div className="flex min-w-0 items-center justify-between gap-3">
-                                                      <span className="truncate typography-micro text-muted-foreground">{getDisplayModelName(modelName)}</span>
-                                                      <span className="typography-ui-label text-foreground tabular-nums">
-                                                        {metricLabel === '-' ? '' : metricLabel}
-                                                      </span>
-                                                    </div>
-                                                    <UsageProgressBar
-                                                      percent={displayPercent}
-                                                      tonePercent={window.usedPercent}
-                                                      className="h-1.5"
-                                                    />
-                                                  </div>
-                                                );
-                                              })}
+                                              {family.models.map(([modelName, window]) => (
+                                                <QuotaUsageRow
+                                                  key={`${group.providerId}-${modelName}`}
+                                                  name={getDisplayModelName(modelName)}
+                                                  window={window}
+                                                  displayMode={quotaDisplayMode}
+                                                  timeFormatPreference={timeFormatPreference}
+                                                />
+                                              ))}
+                                            </div>
+                                          </CollapsibleContent>
+                                        </Collapsible>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+
+                                {/* Claude: one row per subscription that is its own budget. */}
+                                {group.accounts && group.accounts.length > 0 && (
+                                  <div className="space-y-2.5">
+                                    {group.accounts.map((account) => (
+                                      <QuotaUsageRow
+                                        key={`${group.providerId}-${account.id}`}
+                                        name={account.name}
+                                        window={account.window}
+                                        displayMode={quotaDisplayMode}
+                                        timeFormatPreference={timeFormatPreference}
+                                      />
+                                    ))}
+                                  </div>
+                                )}
+
+                                {/* Claude: accounts that are ONE budget, grouped under the
+                                    one in use. Two rows for one pool read as two pools. */}
+                                {group.accountFamilies && group.accountFamilies.length > 0 && (
+                                  <div className="space-y-0.5">
+                                    {group.accountFamilies.map((family) => {
+                                      const providerExpandedFamilies = expandedFamilies[group.providerId] ?? [];
+                                      const isExpanded = providerExpandedFamilies.includes(family.familyId ?? 'other');
+
+                                      return (
+                                        <Collapsible
+                                          key={family.familyId ?? 'other'}
+                                          open={isExpanded}
+                                          onOpenChange={() => toggleFamilyExpanded(group.providerId, family.familyId ?? 'other')}
+                                        >
+                                          <CollapsibleTrigger className="flex w-full items-center justify-between rounded-md px-1 py-1.5 text-left hover:bg-[var(--interactive-hover)]/50 transition-colors">
+                                            <span className="typography-ui-label font-medium text-foreground">
+                                              {family.familyLabel}
+                                            </span>
+                                            {isExpanded ? (
+                                              <Icon name="arrow-down-s" className="h-4 w-4 text-muted-foreground" />
+                                            ) : (
+                                              <Icon name="arrow-right-s" className="h-4 w-4 text-muted-foreground" />
+                                            )}
+                                          </CollapsibleTrigger>
+                                          <CollapsibleContent>
+                                            <div className="space-y-2.5 pb-1 pl-1 pt-1">
+                                              {family.accounts.map((account) => (
+                                                <QuotaUsageRow
+                                                  key={`${group.providerId}-${account.id}`}
+                                                  name={account.name}
+                                                  window={account.window}
+                                                  displayMode={quotaDisplayMode}
+                                                  timeFormatPreference={timeFormatPreference}
+                                                  sharedWith={account.sharedWith}
+                                                />
+                                              ))}
                                             </div>
                                           </CollapsibleContent>
                                         </Collapsible>

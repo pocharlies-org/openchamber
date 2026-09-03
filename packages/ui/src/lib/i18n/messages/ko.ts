@@ -1570,6 +1570,7 @@ export const dict: Record<I18nKey, string> = {
   'header.services.used': '사용됨',
   'header.services.remaining': '남은 양',
   'header.services.modelFamily.other': '기타',
+  'header.services.modelFamily.sharedBudget': '{accounts}이(가) 공유하는 동일한 예산',
   'header.actions.openPlanAria': '플랜 열기',
   "header.actions.toggleChangesPanel": "변경 패널",
   "header.actions.toggleChangesPanelAria": "변경 패널 전환",

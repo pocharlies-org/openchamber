@@ -1164,6 +1164,7 @@ export const settingsDict = {
   'settings.usage.page.state.providerNotConfiguredTitle': '프로바이더가 설정되지 않았습니다',
   'settings.usage.page.state.providerNotConfiguredDescription': '사용량 추적을 활성화하려면 프로바이더 탭에서 인증 정보를 추가하세요.',
   'settings.usage.page.section.modelQuotas': '모델 할당량',
+  'settings.usage.page.section.accountQuotas': '계정 할당량',
   'settings.usage.page.section.otherModels': '기타 모델',
   'settings.usage.page.state.noQuotaWindowsTitle': '보고된 할당량 창이 없습니다',
   'settings.usage.page.state.noQuotaWindowsDescription': '이 프로바이더는 현재 rate limit 또는 사용량 할당량을 보고하지 않습니다.',

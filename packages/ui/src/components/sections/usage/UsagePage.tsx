@@ -1,7 +1,7 @@
 import React from 'react';
 import { UsageCard } from './UsageCard';
 import { QuotaCredentials } from './QuotaCredentials';
-import { QUOTA_PROVIDERS } from '@/lib/quota';
+import { QUOTA_PROVIDERS, formatWindowLabel } from '@/lib/quota';
 import { useQuotaAutoRefresh, useQuotaStore } from '@/stores/useQuotaStore';
 import { updateDesktopSettings } from '@/lib/persistence';
 import { ProviderLogo } from '@/components/ui/ProviderLogo';
@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/collapsible';
 import type { UsageWindows, QuotaProviderId } from '@/types';
 import { getAllModelFamilies, getDisplayModelName, sortModelFamilies, groupModelsByFamilyWithGetter } from '@/lib/quota/model-families';
+import { formatQuotaSharedWith, getQuotaAccountEntries, isPerAccountQuotaProvider, shouldReportNoQuotaWindows } from '@/lib/quota/accounts';
 import { Icon } from "@/components/icon/Icon";
 import { useI18n } from '@/lib/i18n';
 import { formatTimeForPreference } from '@/lib/timeFormat';
@@ -145,7 +146,31 @@ export const UsagePage: React.FC = () => {
     void updateDesktopSettings({ usageSelectedModels: nextSettings });
   }, [selectedProviderId, selectedModels, toggleModelSelected]);
 
-  const providerSelectedModels = selectedProviderId ? (selectedModels[selectedProviderId] ?? []) : [];
+  // Memoised rather than inline: the account filtering below depends on it, and
+  // a fresh array literal on every render would rebuild that memo every render.
+  const providerSelectedModels = React.useMemo(
+    () => (selectedProviderId ? (selectedModels[selectedProviderId] ?? []) : []),
+    [selectedModels, selectedProviderId],
+  );
+
+  // Claude bills per login, so its `models` entries are subscriptions and this
+  // page is the one surface with room to say so — the collapsed panel and the
+  // tray fit one line each, and since the provider-level line is gone for a
+  // multi-account machine, they fit one account's name and number. `accounts.ts`
+  // picks which of an account's windows answers "can I keep working right now"
+  // and what the operator called it; reading the map directly would give this
+  // page a different account name, and a different window, than the dropdown and
+  // the tray print for the same subscription — and would label the row with
+  // `getDisplayModelName`, i.e. an email address where a model name belongs.
+  const reportAccounts = isPerAccountQuotaProvider(selectedProviderId);
+  const accountEntries = React.useMemo(
+    () => (reportAccounts ? getQuotaAccountEntries(selectedResult ?? undefined, formatWindowLabel) : []),
+    [reportAccounts, selectedResult],
+  );
+  const visibleAccountEntries = React.useMemo(() => {
+    if (providerSelectedModels.length === 0) return accountEntries;
+    return accountEntries.filter((account) => providerSelectedModels.includes(account.id));
+  }, [accountEntries, providerSelectedModels]);
 
   if (!selectedProviderId) {
     return (
@@ -213,7 +238,31 @@ export const UsagePage: React.FC = () => {
         </SettingsSection>
       )}
 
-      {providerModels.length > 0 && (
+      {/* One card per subscription, named. */}
+      {reportAccounts && visibleAccountEntries.length > 0 && (
+        <SettingsSection
+          title={t('settings.usage.page.section.accountQuotas')}
+          contentClassName="space-y-3"
+        >
+          <div className="divide-y divide-[var(--surface-subtle)]">
+            {visibleAccountEntries.map((account) => (
+              <UsageCard
+                key={account.id}
+                title={account.label}
+                subtitle={account.sharedWith && account.sharedWith.length > 0
+                  ? `${account.name} · ${formatQuotaSharedWith(account.sharedWith)}`
+                  : account.name}
+                window={account.window}
+                showToggle
+                toggleEnabled={providerSelectedModels.includes(account.id)}
+                onToggle={() => handleModelToggle(account.id)}
+              />
+            ))}
+          </div>
+        </SettingsSection>
+      )}
+
+      {!reportAccounts && providerModels.length > 0 && (
         <SettingsSection
           title={t('settings.usage.page.section.modelQuotas')}
           contentClassName="space-y-3"
@@ -324,8 +373,16 @@ export const UsagePage: React.FC = () => {
         </SettingsSection>
       )}
 
-      {selectedResult?.configured && usage && Object.keys(usage.windows ?? {}).length === 0 &&
-        providerModels.length === 0 && (
+      {/* `usage.windows` is empty by design for a Claude machine with several
+          subscriptions — there is no provider-level budget for it to carry. So
+          the "nothing reported" sentence cannot be decided from that field
+          alone: the accounts are the report, and a machine showing three named
+          subscriptions must not announce that no quotas are reported at all. */}
+      {shouldReportNoQuotaWindows(
+        selectedResult,
+        providerModels.length > 0 || visibleAccountEntries.length > 0 ||
+          Object.keys(usage?.windows ?? {}).length > 0,
+      ) && (
         <div className="pb-8">
           <p className="typography-ui-label text-foreground">{t('settings.usage.page.state.noQuotaWindowsTitle')}</p>
           <p className="typography-meta text-muted-foreground mt-1">{t('settings.usage.page.state.noQuotaWindowsDescription')}</p>

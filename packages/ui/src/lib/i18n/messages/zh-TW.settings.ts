@@ -1071,6 +1071,7 @@
   'settings.usage.page.state.providerNotConfiguredTitle': '供應商未設定',
   'settings.usage.page.state.providerNotConfiguredDescription': '請在「供應商」分頁新增憑證以啟用用量追蹤。',
   'settings.usage.page.section.modelQuotas': '模型配額',
+  'settings.usage.page.section.accountQuotas': '帳戶配額',
   'settings.usage.page.section.otherModels': '其他模型',
   'settings.usage.page.state.noQuotaWindowsTitle': '未報告配額視窗',
   'settings.usage.page.state.noQuotaWindowsDescription': '該供應商目前未報告任何速率限制或用量配額。',

@@ -1973,6 +1973,7 @@ export const settingsDict = {
   'settings.usage.page.options.showInWorkStatusAria': 'Pokaż w panelu statusu pracy',
   'settings.usage.page.options.showInWorkStatusTooltip': 'Po włączeniu użycie tego dostawcy będzie widoczne w panelu statusu pracy.',
   'settings.usage.page.section.modelQuotas': 'Limity modeli',
+  'settings.usage.page.section.accountQuotas': 'Limity kont',
   'settings.usage.page.section.otherModels': 'Inne modele',
   'settings.usage.page.state.noData': 'Brak dostępnych danych o użyciu.',
   'settings.usage.page.state.noQuotaWindowsDescription': 'Ten dostawca obecnie nie raportuje żadnych limitów prędkości ani kwot użycia.',

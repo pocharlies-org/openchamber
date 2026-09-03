@@ -1164,6 +1164,7 @@ export const settingsDict = {
   "settings.usage.page.state.providerNotConfiguredTitle": "Провайдер не налаштований",
   "settings.usage.page.state.providerNotConfiguredDescription": "Додайте облікові дані на вкладці «Провайдери», щоб увімкнути відстеження використання.",
   "settings.usage.page.section.modelQuotas": "Модельні квоти",
+  "settings.usage.page.section.accountQuotas": "Квоти облікових записів",
   "settings.usage.page.section.otherModels": "Інші моделі",
   "settings.usage.page.state.noQuotaWindowsTitle": "Вікна квот не надходять",
   "settings.usage.page.state.noQuotaWindowsDescription": "Цей провайдер зараз не повідомляє про ліміти запитів або квоти використання.",
