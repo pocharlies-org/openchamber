@@ -242,6 +242,19 @@ const runScriptedClient = async ({ relayUrl, serverId, hostEncPubJwk }) => {
   return done;
 };
 
+// Polls until the condition holds. The deadline is generous on purpose: it is
+// not a performance budget, it is the point at which "slow" stops being a
+// plausible explanation and the message below is worth reading. A fast machine
+// leaves here in a millisecond or two.
+const waitFor = async (condition, what, { timeoutMs = 10_000, everyMs = 10 } = {}) => {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (condition()) return;
+    await new Promise((r) => setTimeout(r, everyMs));
+  }
+  throw new Error(`timed out after ${timeoutMs}ms waiting for: ${what}`);
+};
+
 describe('relay host-client integration', () => {
   let relay;
   let origin;
@@ -268,8 +281,18 @@ describe('relay host-client integration', () => {
       logger: { warn: () => {} },
     });
 
-    // Give the control socket a moment to connect before the client arrives.
-    await new Promise((r) => setTimeout(r, 200));
+    // Wait for the FACT, not for the clock. This was `setTimeout(200)`, which
+    // is a guess about how long the control socket takes to attach, and under a
+    // loaded machine the guess is wrong: the scripted client then connects
+    // before `state.control` exists, the relay has nobody to send its
+    // `connected` frame to (see startFakeRelay), the host never learns the
+    // connection happened, and the client waits forever. That is the whole
+    // "flaky relay test" — it fails only inside the full suite and passes in
+    // isolation, which is the signature of a timing assumption, not of a bug.
+    await waitFor(
+      () => relay.state.control?.readyState === WebSocket.OPEN,
+      'the host control socket never attached to the relay',
+    );
 
     const result = await runScriptedClient({
       relayUrl: relay.wsUrl,
