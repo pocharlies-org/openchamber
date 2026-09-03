@@ -101,6 +101,28 @@ describe('buildAccountResult', () => {
     expect(result.usage.windows['5h'].resetAt).toBe(1788303600000);
   });
 
+  it('reports the real duration of each window, not null', () => {
+    // The plugin does not state durations, but the windows are Anthropic's and
+    // their length is a property of the window. The roster path used to emit
+    // `windowSeconds: null` on every row, which is what made the headline ranker
+    // fall back to roster order between two accounts — see usageHeadline.ts.
+    const { windows } = buildAccountResult({
+      id: 'tercera',
+      label: 'Work personal',
+      quota: {
+        windows: {
+          fiveHour: { utilization: 0.44, resetsAt: 1788303600000 },
+          sevenDay: { utilization: 0.7, resetsAt: 1788228000000 },
+          opus: { utilization: 0.61, resetsAt: 1788228000000 },
+        },
+      },
+    }).usage;
+
+    expect(windows['5h'].windowSeconds).toBe(5 * 3600);
+    expect(windows['7d'].windowSeconds).toBe(7 * 86400);
+    expect(windows.opus.windowSeconds).toBe(7 * 86400);
+  });
+
   it('carries who shares this subscription, so one pool is not read as two', () => {
     expect(buildAccountResult(account()).sharedWith).toEqual(['works-shared']);
     expect(buildAccountResult(account({ sharesOrganizationWith: [] })).sharedWith).toBeUndefined();

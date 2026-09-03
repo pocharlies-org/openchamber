@@ -14,7 +14,7 @@
  * The plugin is optional. Everything here fails closed to null, and the caller
  * keeps the auth.json path as the default.
  */
-import { buildResult, toUsageWindow, toNumber } from '../utils/index.js';
+import { buildResult, toUsageWindow, toNumber, claudeWindowSeconds } from '../utils/index.js';
 
 export const providerId = 'claude';
 export const providerName = 'Claude';
@@ -39,6 +39,11 @@ const WINDOW_KEYS = [
 
 /**
  * The plugin reports utilization as 0..1; the quota UI speaks percent.
+ *
+ * `windowSeconds` comes from the shared Claude mapping keyed on the emitted
+ * label, not from anything the plugin says — the plugin reports the same four
+ * Anthropic windows, and the duration belongs to the window, not to the
+ * transport that carried it.
  */
 const toWindows = (windows) => {
   const out = {};
@@ -48,7 +53,7 @@ const toWindows = (windows) => {
     const used = toNumber(window.utilization);
     out[label] = toUsageWindow({
       usedPercent: used === null ? null : used * 100,
-      windowSeconds: null,
+      windowSeconds: claudeWindowSeconds(label),
       resetAt: window.resetsAt ?? null,
     });
   }

@@ -7,6 +7,10 @@ import type { UsageProviderGroup } from '@/components/usage/usageGroups';
 
 const HOUR = 3600;
 
+/** The durations Claude reports (`claudeWindowSeconds`), used by the Claude fixtures. */
+const FIVE_HOURS = 5 * HOUR;
+const SEVEN_DAYS = 7 * 24 * HOUR;
+
 const window = (windowSeconds: number | null, usedPercent: number | null = 10) => ({
   usedPercent,
   remainingPercent: usedPercent === null ? null : 100 - usedPercent,
@@ -109,9 +113,11 @@ describe('pickUsageHeadline', () => {
   });
 
   /**
-   * Two subscriptions, one row each, exactly as the server emits them:
-   * `windowSeconds: null` on every row (`claude-accounts.js:51`), no
-   * provider-level row to be found, so the account rows are the only candidates.
+   * Two subscriptions, one row each, with no window duration anywhere — the
+   * shape Claude emitted until the durations were reported, and still the shape
+   * of any provider that genuinely does not name its window. The point is the
+   * last-resort bucket: with nothing to rank on, the tie must go to usage and
+   * never to roster order.
    */
   const claudePair = (
     first: { account: string; used: number | null },
@@ -188,10 +194,10 @@ describe('pickUsageHeadline', () => {
  * the browser.
  */
 describe('resolveUsageHeadlineSummary', () => {
-  const window = (usedPercent: number | null): UsageWindow => ({
+  const window = (usedPercent: number | null, windowSeconds: number | null = null): UsageWindow => ({
     usedPercent,
     remainingPercent: usedPercent === null ? null : 100 - usedPercent,
-    windowSeconds: null,
+    windowSeconds,
     resetAfterSeconds: null,
     resetAt: null,
     resetAtFormatted: null,
@@ -205,6 +211,11 @@ describe('resolveUsageHeadlineSummary', () => {
    * 44% from Personal beside 7d 70% from Works Shared, under one anonymous
    * "Claude". The server no longer invents that number, and this fixture is its
    * shape rather than a guess at it.
+   *
+   * The durations are the real ones (`claude.js:121,128` and
+   * `claude-accounts.js:51` now emit 18000 and 604800). Until then every Claude
+   * row was durationless and this fixture could get the ranking right by
+   * accident; with them, the fixture says what the endpoint says.
    */
   const claudeRoster = (): ProviderResult => ({
     providerId: 'claude' as QuotaProviderId,
@@ -215,8 +226,8 @@ describe('resolveUsageHeadlineSummary', () => {
     usage: {
       windows: {},
       models: {
-        'Works Shared · d.s@cloudblue.com': { windows: { '5h': window(5), '7d': window(70) }, sharedWith: ['Work personal'] },
-        'Personal · me@e-dani.com': { windows: { '5h': window(44), '7d': window(11) }, sharedWith: ['work'] },
+        'Works Shared · d.s@cloudblue.com': { windows: { '5h': window(5, FIVE_HOURS), '7d': window(70, SEVEN_DAYS) }, sharedWith: ['Work personal'] },
+        'Personal · me@e-dani.com': { windows: { '5h': window(44, FIVE_HOURS), '7d': window(11, SEVEN_DAYS) }, sharedWith: ['work'] },
       },
     },
   });
@@ -256,12 +267,13 @@ describe('resolveUsageHeadlineSummary', () => {
     // the number, so the header now resolves to an account row instead.
     const summary = summaryFor(claudeRoster());
     expect(summary.kind).not.toBe('provider');
-    // Which account, and what for: every Claude row is durationless, so both
-    // subscriptions land in the same bucket and the tie is decided by usage —
-    // Personal's 5-hour at 44% over Works Shared's 5% at 5%, printed with the
-    // name that owns it. The invariant above is what this test exists for and it
-    // holds either way; only *which* account is named changed, from roster order
-    // to the tightest reading.
+    // Which account, and what for: the 5-hour is the shortest window either
+    // subscription reports, so it is the bucket that decides whether the next
+    // turn lands, and within it Personal's 44% beats Works Shared's 5% — printed
+    // with the name that owns it. Before the durations were reported every row
+    // shared one durationless bucket and this tie fell to usage alone, which
+    // happened to name the same account here; the invariant below is what the
+    // test exists for and it holds either way.
     expect(summary).toEqual({
       kind: 'account',
       label: '5-Hour',
@@ -278,8 +290,8 @@ describe('resolveUsageHeadlineSummary', () => {
       usage: {
         windows: {},
         models: {
-          'Personal · me@e-dani.com': { windows: { '5h': window(44) }, sharedWith: ['work'] },
-          'Works Shared · d.s@cloudblue.com': { windows: { '5h': window(5) }, sharedWith: ['Work personal'] },
+          'Personal · me@e-dani.com': { windows: { '5h': window(44, FIVE_HOURS) }, sharedWith: ['work'] },
+          'Works Shared · d.s@cloudblue.com': { windows: { '5h': window(5, FIVE_HOURS) }, sharedWith: ['Work personal'] },
         },
       },
     });
@@ -300,7 +312,7 @@ describe('resolveUsageHeadlineSummary', () => {
     const summary = summaryFor(
       {
         ...claudeRoster(),
-        usage: { windows: {}, models: { 'Personal · me@e-dani.com': { windows: { '5h': window(44) } } } },
+        usage: { windows: {}, models: { 'Personal · me@e-dani.com': { windows: { '5h': window(44, FIVE_HOURS) } } } },
       },
       { modeLabel: 'Used', hasRoomForAccountLabel: false },
     );
@@ -312,16 +324,16 @@ describe('resolveUsageHeadlineSummary', () => {
     // the provider-level windows, because they *are* the provider's. No spurious
     // account suffix on this surface, and no number missing either.
     //
-    // The number it shows did change, and only because this fixture's two
-    // provider-level windows are both durationless (`claude.js:121,128`), so
-    // under the two-key rule the tie between them is usage's: the 7-day at 70%
-    // over the 5-hour at 44%. The guarantee this test exists for — a single
-    // account keeps its number and gains no account tag — holds unchanged.
+    // The number is the 5-hour at 44%: the two provider-level windows carry their
+    // real durations (`claude.js:121,128`), so the shorter bucket wins and the
+    // 7-day at 70% does not outrank it on usage. That is the whole point of
+    // reporting the duration — while both were null the tie went to usage and
+    // this header read `7-Day Limit / 70%`.
     const summary = summaryFor({
       ...claudeRoster(),
-      usage: { windows: { '5h': window(44), '7d': window(70) } },
+      usage: { windows: { '5h': window(44, FIVE_HOURS), '7d': window(70, SEVEN_DAYS) } },
     });
-    expect(summary).toEqual({ kind: 'provider', label: '7-Day Limit', metric: '70%' });
+    expect(summary).toEqual({ kind: 'provider', label: '5-Hour', metric: '44%' });
   });
 
   test('leaves a single account reading as the provider when the roster is reported', () => {
@@ -329,15 +341,15 @@ describe('resolveUsageHeadlineSummary', () => {
     // account, provider-level windows filled, and the `models` entry beside
     // them (`claude-accounts.js:320` fills both). The provider row wins over the
     // account row, so the header does not start naming an account on a machine
-    // that has only one. Same durationless tie as the test above.
+    // that has only one. Same shortest-window winner as the test above.
     const summary = summaryFor({
       ...claudeRoster(),
       usage: {
-        windows: { '5h': window(44), '7d': window(70) },
-        models: { 'Personal · me@e-dani.com': { windows: { '5h': window(44), '7d': window(70) } } },
+        windows: { '5h': window(44, FIVE_HOURS), '7d': window(70, SEVEN_DAYS) },
+        models: { 'Personal · me@e-dani.com': { windows: { '5h': window(44, FIVE_HOURS), '7d': window(70, SEVEN_DAYS) } } },
       },
     });
-    expect(summary).toEqual({ kind: 'provider', label: '7-Day Limit', metric: '70%' });
+    expect(summary).toEqual({ kind: 'provider', label: '5-Hour', metric: '44%' });
   });
 
   test('leaves the auth.json answer untouched when the plugin is absent', () => {
@@ -349,7 +361,7 @@ describe('resolveUsageHeadlineSummary', () => {
       ok: true,
       configured: true,
       fetchedAt: 0,
-      usage: { windows: { '5h': window(42) } },
+      usage: { windows: { '5h': window(42, FIVE_HOURS) } },
     });
     expect(summary).toEqual({ kind: 'provider', label: '5-Hour', metric: '42%' });
   });
@@ -415,12 +427,12 @@ describe('resolveUsageHeadlineSummary', () => {
     // both display modes, rather than over one fixture. Any of these producing
     // `kind: 'provider'` would put one account's percentage under the heading
     // "Claude", which is the defect the server change removed the source of.
-    const personal = { windows: { '5h': window(44), '7d': window(11) }, sharedWith: ['work'] };
-    const worksShared = { windows: { '5h': window(5), '7d': window(70) }, sharedWith: ['Work personal'] };
+    const personal = { windows: { '5h': window(44, FIVE_HOURS), '7d': window(11, SEVEN_DAYS) }, sharedWith: ['work'] };
+    const worksShared = { windows: { '5h': window(5, FIVE_HOURS), '7d': window(70, SEVEN_DAYS) }, sharedWith: ['Work personal'] };
     // A third subscription reporting only a window the others do not — the
     // ordering case where a per-label maximum used to reach the header.
     const opus: { windows: Record<string, UsageWindow>; sharedWith?: string[] } =
-      { windows: { opus: window(61) } };
+      { windows: { opus: window(61, SEVEN_DAYS) } };
 
     for (const [a, b] of [[personal, worksShared], [worksShared, personal]]) {
       for (const extra of [undefined, opus]) {

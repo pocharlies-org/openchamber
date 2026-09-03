@@ -11,7 +11,8 @@ import {
   buildResult,
   toUsageWindow,
   toNumber,
-  toTimestamp
+  toTimestamp,
+  claudeWindowSeconds
 } from '../utils/index.js';
 
 export const providerId = 'claude';
@@ -118,28 +119,28 @@ const fetchAuthJsonQuota = async () => {
     if (fiveHour) {
       windows['5h'] = toUsageWindow({
         usedPercent: toNumber(fiveHour.utilization),
-        windowSeconds: null,
+        windowSeconds: claudeWindowSeconds('5h'),
         resetAt: toTimestamp(fiveHour.resets_at)
       });
     }
     if (sevenDay) {
       windows['7d'] = toUsageWindow({
         usedPercent: toNumber(sevenDay.utilization),
-        windowSeconds: null,
+        windowSeconds: claudeWindowSeconds('7d'),
         resetAt: toTimestamp(sevenDay.resets_at)
       });
     }
     if (sevenDaySonnet) {
       windows['7d-sonnet'] = toUsageWindow({
         usedPercent: toNumber(sevenDaySonnet.utilization),
-        windowSeconds: null,
+        windowSeconds: claudeWindowSeconds('7d-sonnet'),
         resetAt: toTimestamp(sevenDaySonnet.resets_at)
       });
     }
     if (sevenDayOpus) {
       windows['7d-opus'] = toUsageWindow({
         usedPercent: toNumber(sevenDayOpus.utilization),
-        windowSeconds: null,
+        windowSeconds: claudeWindowSeconds('7d-opus'),
         resetAt: toTimestamp(sevenDayOpus.resets_at)
       });
     }

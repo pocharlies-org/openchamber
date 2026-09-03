@@ -15,13 +15,15 @@ import type { UsageProviderGroup, UsageLimitRow } from '@/components/usage/usage
  *    a comment.
  * 2. Within one bucket, the highest `usedPercent` — the tightest reading.
  *
- * Key 2 is the one that had to be written down. Claude reports no window
- * durations at all (`claude-accounts.js:51`, `claude.js:121,128,135,142`), so
- * all of Claude lives in the no-duration bucket and, with only key 1, array
- * order decided which subscription headed the panel — a coin flip between an
- * account at 5% and one at 86%. The tightest is the one that answers "can I
- * keep working right now", and a high number cannot read as the whole
- * provider's: `resolveUsageHeadlineSummary` names the account it belongs to.
+ * Key 2 is the one that had to be written down. It exists for the case where
+ * key 1 cannot separate the rows, and that case is not hypothetical: it is
+ * every provider that reports no window duration, and it is Claude's account
+ * rows, which the server leaves in `usage.windows` empty whenever more than one
+ * subscription reports. With only key 1, array order decided which subscription
+ * headed the panel — a coin flip between an account at 5% and one at 86%. The
+ * tightest is the one that answers "can I keep working right now", and a high
+ * number cannot read as the whole provider's:
+ * `resolveUsageHeadlineSummary` names the account it belongs to.
  */
 
 const normalize = (value: string | null | undefined): string => (value ?? '').trim().toLowerCase();
@@ -41,7 +43,7 @@ export const resolveQuotaProviderId = resolveQuotaProviderIdFromModel;
  * Two keys, applied to every row alike (see the file header for why the second
  * one exists). A row with no window duration is ranked in an infinite bucket
  * rather than skipped, so it still loses to any real window but is never
- * chosen by array order — with Claude, where no row has a duration, that
+ * chosen by array order — for a provider that reports no duration at all, that
  * bucket is the only one there is.
  *
  * Returns null when nothing matches — the section then falls back to its
@@ -66,9 +68,12 @@ export const pickUsageHeadline = (
   const rows = providerRows.length > 0 ? providerRows : group.rows;
 
   // Key 1: window length, with no duration ranked last rather than skipped.
-  // It cannot be a `continue`: Claude emits `windowSeconds: null` on every row
-  // (`claude-accounts.js:51`, `claude.js:121,128,135,142`), so skipping them
-  // left the loop with nothing and handed the decision to roster order.
+  // A missing duration is a fact the provider is allowed to report — credit
+  // balances and tool counters genuinely have no window — so the row still has
+  // to be rankable: `continue` would drop it, and a row dropped cannot lose.
+  // A provider that reports no duration anywhere would then leave the loop
+  // with nothing and hand the decision to roster order, which is the outcome
+  // this whole ranking exists to prevent.
   const bucketOf = (row: UsageLimitRow): number => {
     const seconds = row.window.windowSeconds;
     return typeof seconds === 'number' && Number.isFinite(seconds) && seconds > 0
