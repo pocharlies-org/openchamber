@@ -20,13 +20,13 @@ const conversation = (count) => Array.from({ length: count }, (_, i) => bulky(i 
 describe('buildTranscript', () => {
   it('renders the whole conversation oldest first, numbered so the tail can point at the last message', () => {
     const { text, lastNumber, droppedOldest } = buildTranscript([
-      message('user', 'crea un ticket'),
-      message('assistant', 'hecho: SC-155'),
+      message('user', 'open a bug report for the flaky upload'),
+      message('assistant', 'filed it'),
     ], BUDGET);
 
     expect(lastNumber).toBe(2);
     expect(droppedOldest).toBe(0);
-    expect(text).toBe('#1 User:\ncrea un ticket\n\n#2 Assistant:\nhecho: SC-155');
+    expect(text).toBe('#1 User:\nopen a bug report for the flaky upload\n\n#2 Assistant:\nfiled it');
   });
 
   it('keeps tool names so a session that is mostly tool calls is not rendered as empty', () => {
@@ -37,15 +37,15 @@ describe('buildTranscript', () => {
 
   it('skips messages with no text and no tools rather than emitting an empty block', () => {
     const { text, lastNumber } = buildTranscript([
-      message('user', 'hola'),
+      message('user', 'hi'),
       message('assistant', ''),
-      message('assistant', 'que tal'),
+      message('assistant', 'hello'),
     ], BUDGET);
 
     // Numbering follows the session, not the rendered list: the skipped message
     // keeps #2 reserved, so the tail of the prompt points at a number the
     // transcript actually contains.
-    expect(text).toBe('#1 User:\nhola\n\n#3 Assistant:\nque tal');
+    expect(text).toBe('#1 User:\nhi\n\n#3 Assistant:\nhello');
     expect(lastNumber).toBe(3);
   });
 

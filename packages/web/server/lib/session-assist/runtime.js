@@ -65,24 +65,34 @@ const buildAssistSystemPrompt = ({ recap, suggestion }) => [
   recap
     ? 'recap: at most 20 words. State the substance directly — the facts, result, or conclusion, plus the next move if there is one. NEVER narrate ("The assistant explained…", "The agent did…") — write the content itself, like a note the user jotted down.'
     : '',
-  suggestion ? 'suggestion: speak AS the coding agent, in the first person, and say what you would do next if the user told you to keep going. One short sentence.' : '',
+  // Written in the USER's voice because the client pastes this exact string
+  // into the composer for the user to send. A suggestion phrased as the agent
+  // ("I would do X") reads as nonsense once it lands there.
+  suggestion ? 'suggestion: write ONE short message the user could send to the coding agent as-is, asking for the next step.' : '',
   suggestion ? 'You are given the WHOLE conversation, not just the end. Judge the next step against what the user actually asked for at the start, not only against your latest reply.' : '',
   suggestion ? 'Rules for suggestion:' : '',
   suggestion ? '- Return an EMPTY STRING when there is no honest next step: the request the user made is already satisfied, or the conversation is waiting on a decision only the user can make. An empty suggestion is a correct and expected answer, not a failure.' : '',
   suggestion ? '- Never invent follow-up work to fill the field. Finishing a task is a valid end state.' : '',
   suggestion ? '- Work you flagged as unverified, out of scope, or "not tested" in your own reply is NOT automatically the next step. It is only the next step if it is part of what the user asked for.' : '',
-  // Deliberately describes the grammar instead of quoting an opener: an English
-  // template here is copied verbatim, and the suggestion came back in English
-  // against a Spanish conversation in 2 of 3 measured runs.
-  suggestion ? '- Do not phrase it as an order (neither "do X" addressed to yourself, nor a request from the user). Use the first person singular and the conditional mood, as in "I would do X" — but expressed in the language of the conversation, never in English unless the conversation is in English.' : '',
+  // Describes the grammar instead of quoting an opener. An English template
+  // here is copied verbatim: measured against a Spanish conversation, quoting
+  // one returned the suggestion in English in 2 of 3 runs.
+  suggestion ? '- Address the agent directly, in the imperative, in the language of the conversation. Do not write it as the agent describing its own plan.' : '',
   suggestion ? '- Do not include alternatives, choices, slash-separated options, or "or".' : '',
   suggestion ? '- Do not restate information you already gave in the reply.' : '',
   suggestion ? 'Example 1 — the request is finished:' : '',
   suggestion ? 'The user asked for a bug ticket. You created it and summarized your findings. Your reply also noted that the mobile panel was not verified on screen.' : '',
   suggestion ? 'Correct suggestion: "" (empty). The user asked for a ticket and the ticket exists. The unverified mobile panel is work described IN the ticket, not work the user asked you to do now.' : '',
-  suggestion ? 'Example 2 — the request is not finished:' : '',
+  // Example 1 taught the "already done" case well (empty in every measured run)
+  // and this one exists because the sibling case did not: asked for a sendable
+  // imperative, the model produced "merge the PR" in 4 runs out of 4, when
+  // merging is exactly the decision it is waiting on.
+  suggestion ? 'Example 2 — the work is done and the next move is the user\'s to make:' : '',
+  suggestion ? 'You finished the change, opened a pull request, reported it is mergeable, and said you are waiting for review. Nothing is blocked on you.' : '',
+  suggestion ? 'Correct suggestion: "" (empty). Merging, deploying, approving, choosing between designs and spending money are the user\'s calls. Telling them to make their own decision is not a next step, it is nagging.' : '',
+  suggestion ? 'Example 3 — the request is not finished:' : '',
   suggestion ? 'The user asked you to make the tests pass. Two of them still fail and you have just located the cause.' : '',
-  suggestion ? 'A correct suggestion here names, in one conditional first-person sentence and in the conversation\'s language, the specific fix you would apply and the check you would re-run.' : '',
+  suggestion ? 'A correct suggestion here is one imperative sentence, in the conversation\'s language, naming the specific fix to apply and the check to re-run.' : '',
   // These examples describe the answers rather than quoting them. Quoting an
   // English sentence primes the field: measured against a Spanish session, the
   // recap came back in Spanish and the suggestion in English, 2 runs out of 3.
