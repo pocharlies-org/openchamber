@@ -56,8 +56,14 @@ lines into a utility prompt).
 Everything that varies per call — the pointer to the last message, the
 requested fields, the language sample — goes **after** the transcript. The
 history is therefore an append-only prefix between consecutive assists on one
-session, and because the call goes to the session's own model, the backend's
-prefix cache serves it. Over budget the oldest messages are dropped, but only on
+session, which a backend that caches prefixes can serve without re-prefilling.
+That is an opportunity, not a guarantee: it depends entirely on the provider.
+An OpenAI-compatible backend in front of vLLM or sglang does it automatically,
+and there the effect is large (measured: 35s for the first assist on a
+154k-character transcript, 8s for each of the next two). Anthropic caching, by
+contrast, requires explicit `cache_control` breakpoints, which `callSmallModel`
+never sends, so this ordering buys nothing there and costs nothing either.
+Over budget the oldest messages are dropped, but only on
 a `TRANSCRIPT_DROP_CHUNK` boundary: dropping one message per turn would move the
 start of the transcript every time and re-prefill the whole session on every
 cycle.
@@ -72,6 +78,15 @@ This buys latency, not spend — the provider still bills every input token, and
 assist cost is now proportional to session length rather than constant. Text
 parts and tool names alone stay far below what the conversation itself sends:
 measured on live sessions, 403 messages render to ~10k tokens, 1921 to ~56k.
+
+**The fetch scales too, and it is the larger number.** `fetchSessionMessages`
+without a `limit` pulls every message with its parts, tool inputs and outputs
+included, and the transcript then keeps only text and tool names. On a long
+session that is a transient multi-megabyte download and JSON parse in the
+server process once per assist cycle, far bigger than the prompt it produces.
+It is bounded (one in-flight assist per session, a 20s timeout) and OpenCode's
+message endpoint offers no field projection to narrow it, but anyone measuring
+this feature's cost should measure the fetch, not just the model call.
 
 The prefix cache is **assist-to-assist only**. This module calls the provider
 directly, with its own system prompt and no tool schemas, so it shares no
