@@ -97,7 +97,15 @@ const startFakeRelay = () => {
       resolve({
         wsUrl: `ws://127.0.0.1:${port}`,
         state,
+        // Terminate the live sockets before closing. `wss.close()` only stops
+        // ACCEPTING connections; it does not end the ones already open, and
+        // `server.close()` then waits for peers that nobody asked to leave. The
+        // host's control and data sockets are exactly those peers, so under
+        // full-suite load this hung until vitest killed the hook at 30s — which
+        // surfaces as "the whole relay suite failed", never as a failing
+        // assertion, and is the second half of this file's flakiness.
         stop: () => new Promise((r) => {
+          for (const client of wss.clients) client.terminate();
           wss.close();
           server.close(() => r());
         }),
@@ -178,8 +186,17 @@ const runScriptedClient = async ({ relayUrl, serverId, hostEncPubJwk }) => {
   const responseChunks = [];
   let responseStatus = null;
   let resolveDone;
-  const done = new Promise((resolve) => {
+  // Bounded on purpose. This promise used to have no deadline: if any frame
+  // went missing the test hung until the runner's own timeout killed it, with
+  // no indication of which side stopped talking. Under full-suite load that is
+  // the difference between a diagnosable failure and "the relay test is flaky
+  // again".
+  const done = new Promise((resolve, reject) => {
     resolveDone = resolve;
+    setTimeout(
+      () => reject(new Error('scripted client never received a complete response from the relay')),
+      15_000,
+    ).unref?.();
   });
 
   ws.on('open', async () => {
@@ -242,6 +259,19 @@ const runScriptedClient = async ({ relayUrl, serverId, hostEncPubJwk }) => {
   return done;
 };
 
+// Polls until the condition holds. The deadline is generous on purpose: it is
+// not a performance budget, it is the point at which "slow" stops being a
+// plausible explanation and the message below is worth reading. A fast machine
+// leaves here in a millisecond or two.
+const waitFor = async (condition, what, { timeoutMs = 10_000, everyMs = 10 } = {}) => {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (condition()) return;
+    await new Promise((r) => setTimeout(r, everyMs));
+  }
+  throw new Error(`timed out after ${timeoutMs}ms waiting for: ${what}`);
+};
+
 describe('relay host-client integration', () => {
   let relay;
   let origin;
@@ -268,8 +298,18 @@ describe('relay host-client integration', () => {
       logger: { warn: () => {} },
     });
 
-    // Give the control socket a moment to connect before the client arrives.
-    await new Promise((r) => setTimeout(r, 200));
+    // Wait for the FACT, not for the clock. This was `setTimeout(200)`, which
+    // is a guess about how long the control socket takes to attach, and under a
+    // loaded machine the guess is wrong: the scripted client then connects
+    // before `state.control` exists, the relay has nobody to send its
+    // `connected` frame to (see startFakeRelay), the host never learns the
+    // connection happened, and the client waits forever. That is the whole
+    // "flaky relay test" — it fails only inside the full suite and passes in
+    // isolation, which is the signature of a timing assumption, not of a bug.
+    await waitFor(
+      () => relay.state.control?.readyState === WebSocket.OPEN,
+      'the host control socket never attached to the relay',
+    );
 
     const result = await runScriptedClient({
       relayUrl: relay.wsUrl,
