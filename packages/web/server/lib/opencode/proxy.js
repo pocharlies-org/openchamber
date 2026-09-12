@@ -9,6 +9,7 @@ import {
   shouldForwardProxyResponseHeader,
 } from '../../proxy-headers.js';
 import { createRealpathCache } from '../path-realpath-cache.js';
+import { createProjectResolver } from '../claude/routes.js';
 import { DEFAULT_UPSTREAM_STALL_TIMEOUT_MS } from '../event-stream/upstream-reader.js';
 import { recordStartupPerformance } from './startup-performance.js';
 
@@ -286,6 +287,7 @@ export const registerOpenCodeProxy = (app, deps) => {
     SSE_HEARTBEAT_INTERVAL_MS = DEFAULT_SSE_HEARTBEAT_INTERVAL_MS,
     SSE_UPSTREAM_STALL_TIMEOUT_MS = DEFAULT_UPSTREAM_STALL_TIMEOUT_MS,
     getSseUpstreamStallTimeoutMs = () => SSE_UPSTREAM_STALL_TIMEOUT_MS,
+    claudeSurface = null,
   } = deps;
 
   if (app.get('opencodeProxyConfigured')) {
@@ -840,6 +842,19 @@ export const registerOpenCodeProxy = (app, deps) => {
           return res.status(504).json({ error: 'OpenCode session list timed out' });
         }
 
+        const claudeSessions = claudeSurface
+          ? await claudeSurface.listClaudeSessions(null).catch((error) => {
+              console.log(`[SessionMerge] Claude session list failed: ${error?.message ?? error}`);
+              return [];
+            })
+          : [];
+        for (const session of claudeSessions) {
+          if (session?.id && !seen.has(session.id)) {
+            seen.add(session.id);
+            extraSessions.push(session);
+          }
+        }
+
         const merged = [...(globalSessions || []), ...extraSessions];
         merged.sort((a, b) => {
           const aTime = a && typeof a.time_updated === 'number' ? a.time_updated : 0;
@@ -855,6 +870,84 @@ export const registerOpenCodeProxy = (app, deps) => {
     });
   }
 
+  // Claude Code sessions ride the same list the sidebar already renders. The
+  // cross-directory merge above is Windows-only, so this is registered on every
+  // platform and only when the Claude surface is wired up.
+  if (claudeSurface && process.platform !== 'win32') {
+    // Both list endpoints the front end reads — `/api/session` and the
+    // experimental one that feeds the global store — must carry Claude
+    // sessions, or the sidebar renders a list that never contained them.
+    const mergeClaudeIntoSessionList = async (req, res, next, upstreamPath) => {
+      const requestedDirectory = typeof req.query?.directory === 'string' ? req.query.directory : null;
+      // Pagination is OpenCode's; Claude sessions join the first page only, so
+      // a cursor walk never sees them twice or loses them between pages.
+      if (req.query?.cursor) return next();
+      try {
+        const result = await fetchSessionListPayload(upstreamPath, { req, timeoutMs: 10000 });
+        if (!result.upstream.ok || !Array.isArray(result.payload)) return next();
+        // The sidebar admits a session only when its directory is one of the
+        // directories the front end treats as a project — `settings.json`
+        // projects plus their worktrees — so Claude transcripts are attributed
+        // to the project that contains them. OpenCode's own `/project` list is
+        // a different set and must not be used here.
+        let knownProjects = [];
+        try {
+          const settingsPath = path.join(os.homedir(), '.config', 'openchamber', 'settings.json');
+          const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+          knownProjects = (settings.projects || [])
+            .map((project) => (typeof project?.path === 'string' ? project.path.trim() : ''))
+            .filter(Boolean)
+            .map((worktree, index) => ({ id: `project-${index}`, worktree }));
+        } catch {
+        }
+        const resolveProject = createProjectResolver(knownProjects);
+        const wantsArchived = req.query?.archived === 'true';
+        const wantsRoots = req.query?.roots !== 'false';
+        const allClaude = await claudeSurface
+          .listClaudeSessions(null, resolveProject, { archived: wantsArchived, roots: wantsRoots })
+          .catch((error) => {
+            console.log(`[SessionMerge] Claude session list failed: ${error?.message ?? error}`);
+            return [];
+          });
+        const claudeSessions = requestedDirectory === null
+          ? allClaude
+          : allClaude.filter((session) => {
+              const dir = session.metadata?.claude?.directory || '';
+              const root = requestedDirectory.replace(/\/$/, '');
+              return dir === requestedDirectory || dir.startsWith(`${root}/`);
+            });
+        const seen = new Set(result.payload.map((s) => s?.id).filter(Boolean));
+        const extra = claudeSessions.filter((s) => s?.id && !seen.has(s.id));
+        if (extra.length === 0) return next();
+        const merged = [...result.payload, ...extra];
+        merged.sort((a, b) => (b?.time?.updated ?? 0) - (a?.time?.updated ?? 0));
+        return res.json(sanitizeSessionListPayload(merged));
+      } catch (error) {
+        console.log(`[SessionMerge] Claude merge failed: ${error?.message ?? error}`);
+        return next();
+      }
+    };
+
+    app.get('/api/session', (req, res, next) => {
+      const requestedDirectory = typeof req.query?.directory === 'string' ? req.query.directory : null;
+      return mergeClaudeIntoSessionList(
+        req,
+        res,
+        next,
+        requestedDirectory === null ? '/session' : `/session?directory=${encodeURIComponent(requestedDirectory)}`,
+      );
+    });
+
+    app.get('/api/experimental/session', (req, res, next) => {
+      const params = new URLSearchParams();
+      for (const key of ['directory', 'roots', 'archived', 'limit']) {
+        if (typeof req.query?.[key] === 'string') params.set(key, req.query[key]);
+      }
+      const query = params.toString();
+      return mergeClaudeIntoSessionList(req, res, next, query ? `/experimental/session?${query}` : '/experimental/session');
+    });
+  }
+
   app.get('/api/session', (req, res, next) => {
     return forwardSanitizedSessionListRequest(req, res, next, 'session.list');
   });
@@ -865,6 +958,13 @@ export const registerOpenCodeProxy = (app, deps) => {
   app.get('/api/experimental/session', (req, res, next) => {
     return forwardSanitizedSessionListRequest(req, res, next, 'experimental.session');
   });
+
+  // Claude Code answers the same /api/session* surface for its own ids and must
+  // be registered before the generic proxy, which would otherwise forward those
+  // ids to OpenCode and 404 them.
+  if (claudeSurface) {
+    claudeSurface.register(app);
+  }
 
   // Generic proxy for non-SSE OpenCode API routes.
   // The agent is exposed as a getter so its class is resolved per request, not
