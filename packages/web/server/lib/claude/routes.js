@@ -231,20 +231,25 @@ export const createClaudeSurface = (dependencies = {}) => {
       if (!sessionId) return next();
       const body = await readJsonBody(req);
       const parts = Array.isArray(body.parts) ? body.parts : [];
-      const text = parts
-        .filter((part) => part && part.type === 'text' && typeof part.text === 'string')
-        .map((part) => part.text)
-        .join('\n');
-      if (!text.trim()) {
-        return res.status(400).json({ error: 'No text part in prompt' });
+      const hasContent = parts.some((part) => part && (part.type === 'text' || part.type === 'file'));
+      if (!hasContent) {
+        return res.status(400).json({ error: 'No text or attachment part in prompt' });
       }
+      // The runtime owns prompt construction (text, attachments, mode, effort),
+      // so the OpenCode body is forwarded rather than flattened here. The model
+      // the composer sends comes from OpenCode's provider list, so anything that
+      // is not a Claude model is dropped and the runtime's configured Claude
+      // model applies.
+      const requestedModel = typeof body.model?.modelID === 'string' ? body.model.modelID.trim() : '';
       return runtime
         .promptAsync({
           sessionID: sessionId,
           directory: body.directory || directoryOf(req),
-          message: text,
-          model: body.model?.modelID,
-          mode: body.mode,
+          parts,
+          model: requestedModel.startsWith('claude') ? body.model : undefined,
+          agent: body.agent,
+          variant: body.variant,
+          messageID: body.messageID,
         })
         .then(() => res.status(204).end())
         .catch((error) => res.status(500).json({ error: error?.message || 'Failed to prompt' }));
