@@ -123,6 +123,18 @@ export const createStartupPipelineRuntime = (dependencies) => {
     const codexRuntime = backendRegistry.getRuntime('codex');
     backendRegistry.setBackendAvailability('codex', Boolean(codexRuntime?.isAvailable?.()));
 
+    // The Claude backend resolves its Agent SDK asynchronously, so availability
+    // lands a tick later than the sync backends. Nothing renders the Claude
+    // picker until this resolves.
+    const claudeRuntime = backendRegistry.getRuntime('claude');
+    if (claudeRuntime?.ensureAvailable) {
+      void claudeRuntime.ensureAvailable()
+        .then((available) => backendRegistry.setBackendAvailability('claude', Boolean(available)))
+        .catch(() => backendRegistry.setBackendAvailability('claude', false));
+    } else {
+      backendRegistry.setBackendAvailability('claude', Boolean(claudeRuntime?.isAvailable?.()));
+    }
+
     staticRoutesRuntime.registerStaticRoutes(app);
 
     const serverStartupRuntime = createServerStartupRuntime({

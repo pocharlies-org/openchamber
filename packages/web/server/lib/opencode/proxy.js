@@ -274,7 +274,7 @@ export const registerOpenCodeProxy = (app, deps) => {
     const closeUpstream = () => abortController.abort();
     let upstream = null;
     let reader = null;
-    let removeCodexClient = null;
+    const nonOpenCodeEventRemovers = [];
 
     req.on('close', closeUpstream);
 
@@ -300,8 +300,12 @@ export const registerOpenCodeProxy = (app, deps) => {
         res.socket.setNoDelay(true);
       }
 
-      const codexRuntime = backendRegistry.getRuntime('codex');
-      removeCodexClient = codexRuntime?.addEventClient?.(res, parsed.pathname === '/api/event' ? directory : null) || null;
+      const harnessEventDirectory = parsed.pathname === '/api/event' ? directory : null;
+      for (const backendId of nonOpenCodeBackendIds()) {
+        const runtime = backendRegistry.getRuntime(backendId);
+        const remove = runtime?.addEventClient?.(res, harnessEventDirectory);
+        if (typeof remove === 'function') nonOpenCodeEventRemovers.push(remove);
+      }
 
       // Only connect to OpenCode upstream if it is available
       if (backendRegistry.isBackendAvailable('opencode')) {
@@ -347,9 +351,11 @@ export const registerOpenCodeProxy = (app, deps) => {
       }
     } finally {
       req.off('close', closeUpstream);
-      try {
-        removeCodexClient?.();
-      } catch {
+      for (const remove of nonOpenCodeEventRemovers) {
+        try {
+          remove();
+        } catch {
+        }
       }
       try {
         if (reader) {
@@ -578,29 +584,47 @@ export const registerOpenCodeProxy = (app, deps) => {
     return merged;
   };
 
-  const collectNonOpenCodeSessions = async (req) => {
-    const codexRt = backendRegistry.getRuntime('codex');
-    const sessions = codexRt?.listSessions ? await codexRt.listSessions({
-      directory: typeof req.query?.directory === 'string' ? req.query.directory : undefined,
-      archived: false,
-      roots: req.query?.roots !== 'false',
-      limit: typeof req.query?.limit === 'string' ? Number(req.query.limit) : undefined,
-    }) : [];
-    if (!Array.isArray(sessions)) {
-      return [];
-    }
+  const nonOpenCodeBackendIds = () => backendRegistry.listBackends()
+    .filter((backend) => backend.id !== 'opencode')
+    .map((backend) => backend.id);
 
-    for (const session of sessions) {
-      if (session && typeof session.id === 'string' && session.id.trim().length > 0) {
-        await sessionBindingsRuntime.upsertBinding({
-          sessionId: session.id,
-          backendId: 'codex',
-          backendSessionId: session.id,
-          directory: typeof session.directory === 'string'
-            ? session.directory
-            : (typeof session.cwd === 'string' ? session.cwd : null),
+  const collectNonOpenCodeSessions = async (req) => {
+    const directory = typeof req.query?.directory === 'string' ? req.query.directory : undefined;
+    const sessions = [];
+
+    for (const backendId of nonOpenCodeBackendIds()) {
+      if (!backendRegistry.isBackendAvailable(backendId)) continue;
+      const runtime = backendRegistry.getRuntime(backendId);
+      if (!runtime?.listSessions) continue;
+
+      let backendSessions;
+      try {
+        backendSessions = await runtime.listSessions({
+          directory,
+          archived: false,
+          roots: req.query?.roots !== 'false',
+          limit: typeof req.query?.limit === 'string' ? Number(req.query.limit) : undefined,
         });
+      } catch (error) {
+        // One broken backend must not hide the others.
+        console.warn(`[proxy] Failed to list ${backendId} sessions:`, error?.message ?? error);
+        continue;
       }
+      if (!Array.isArray(backendSessions)) continue;
+
+      for (const session of backendSessions) {
+        if (session && typeof session.id === 'string' && session.id.trim().length > 0) {
+          await sessionBindingsRuntime.upsertBinding({
+            sessionId: session.id,
+            backendId,
+            backendSessionId: session.id,
+            directory: typeof session.directory === 'string'
+              ? session.directory
+              : (typeof session.cwd === 'string' ? session.cwd : null),
+          });
+        }
+      }
+      sessions.push(...backendSessions);
     }
 
     return sessions;
@@ -687,10 +711,18 @@ export const registerOpenCodeProxy = (app, deps) => {
   });
 
   const collectNonOpenCodeStatuses = async (req) => {
-    const codexRt = backendRegistry.getRuntime('codex');
-    return codexRt?.getStatusSnapshot ? await codexRt.getStatusSnapshot({
-      directory: typeof req.query?.directory === 'string' ? req.query.directory : undefined,
-    }) : {};
+    const directory = typeof req.query?.directory === 'string' ? req.query.directory : undefined;
+    const statuses = {};
+    for (const backendId of nonOpenCodeBackendIds()) {
+      const runtime = backendRegistry.getRuntime(backendId);
+      if (!runtime?.getStatusSnapshot) continue;
+      try {
+        Object.assign(statuses, await runtime.getStatusSnapshot({ directory }) || {});
+      } catch (error) {
+        console.warn(`[proxy] Failed to read ${backendId} statuses:`, error?.message ?? error);
+      }
+    }
+    return statuses;
   };
 
   app.get('/api/session/status', async (req, res, next) => {

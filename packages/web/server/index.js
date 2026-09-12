@@ -79,6 +79,7 @@ import { createBackendRegistry, DEFAULT_BACKEND_ID } from './lib/harness/backend
 import { createSessionBindingsRuntime } from './lib/harness/session-bindings.js';
 import { createOpenCodeBackendRuntime } from './lib/harness/opencode-backend.js';
 import { createCodexBackendRuntime } from './lib/harness/codex-backend.js';
+import { createClaudeBackendRuntime } from './lib/harness/claude-backend.js';
 import { createProjectConfigRuntime } from './lib/projects/project-config.js';
 import { createPreviewProxyRuntime } from './lib/preview/proxy-runtime.js';
 import { createProxyMiddleware, responseInterceptor } from 'http-proxy-middleware';
@@ -269,6 +270,7 @@ const OPENCHAMBER_DATA_DIR = process.env.OPENCHAMBER_DATA_DIR
 const SETTINGS_FILE_PATH = path.join(OPENCHAMBER_DATA_DIR, 'settings.json');
 const SESSION_BINDINGS_FILE_PATH = path.join(OPENCHAMBER_DATA_DIR, 'session-bindings.json');
 const CODEX_SESSIONS_FILE_PATH = path.join(OPENCHAMBER_DATA_DIR, 'codex-sessions.json');
+const CLAUDE_OVERLAY_FILE_PATH = path.join(OPENCHAMBER_DATA_DIR, 'claude-sessions.json');
 const PUSH_SUBSCRIPTIONS_FILE_PATH = path.join(OPENCHAMBER_DATA_DIR, 'push-subscriptions.json');
 const CLOUDFLARE_MANAGED_REMOTE_TUNNELS_FILE_PATH = path.join(OPENCHAMBER_DATA_DIR, 'cloudflare-managed-remote-tunnels.json');
 const CLOUDFLARE_LEGACY_NAMED_TUNNELS_FILE_PATH = path.join(OPENCHAMBER_DATA_DIR, 'cloudflare-named-tunnels.json');
@@ -617,6 +619,17 @@ const codexBackendRuntime = createCodexBackendRuntime({
 backendRegistry.registerRuntime('opencode', openCodeBackendRuntime);
 backendRegistry.registerRuntime('codex', codexBackendRuntime);
 
+let publishClaudeEventToGlobalStream = null;
+
+const claudeBackendRuntime = createClaudeBackendRuntime({
+  crypto,
+  fsPromises,
+  overlayFilePath: CLAUDE_OVERLAY_FILE_PATH,
+  publishEvent: (event) => publishClaudeEventToGlobalStream?.(event),
+});
+
+backendRegistry.registerRuntime('claude', claudeBackendRuntime);
+
 const ENV_CONFIGURED_API_PREFIX = normalizeApiPrefix(
   process.env.OPENCODE_API_PREFIX || process.env.OPENCHAMBER_API_PREFIX || ''
 );
@@ -728,6 +741,7 @@ const globalMessageStreamHub = createGlobalMessageStreamHub({
   upstreamStallTimeoutMs: getUpstreamStallTimeoutMs,
 });
 publishCodexEventToGlobalStream = (event) => globalMessageStreamHub.publishLocalEvent(event);
+publishClaudeEventToGlobalStream = (event) => globalMessageStreamHub.publishLocalEvent(event);
 
 const openCodeWatcherRuntime = createOpenCodeWatcherRuntime({
   waitForOpenCodePort: (...args) => waitForOpenCodePort(...args),
