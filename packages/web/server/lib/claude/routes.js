@@ -8,22 +8,36 @@
  * any other session: it opens, streams, aborts, renames and deletes without the
  * front end knowing where it came from.
  *
- * Ids are namespaced `claude:<uuid>` so routing is decided by the id alone and
- * never by a lookup that could be cold.
+ * Ids are namespaced so routing is decided by the id alone and never by a
+ * lookup that could be cold. Session ids use `ses_ccc`, the prefix the front
+ * end already reserves for Claude Code sessions: `resolveSessionSource`
+ * (lib/sessionSourceFilter.ts) classifies a session by its id, and the sidebar's
+ * source filter — and whether that filter shows up at all — follows from it.
+ * Inventing a private prefix would leave 700 Claude sessions counted as
+ * OpenCode ones and the filter hidden.
  */
 
 import { createClaudeBackendRuntime } from './runtime.js';
 
-export const CLAUDE_ID_PREFIX = 'claude:';
+/** The contract the UI's source filter keys on: `ses_ccc` is a Claude Code session. */
+export const CLAUDE_SESSION_ID_PREFIX = 'ses_ccc';
 
-const toPublicId = (sessionId) => `${CLAUDE_ID_PREFIX}${sessionId}`;
+/** Message and part ids are namespaced too, but they are never classified as sessions. */
+export const CLAUDE_MESSAGE_ID_PREFIX = 'claude:';
+
+const toPublicId = (sessionId) => `${CLAUDE_SESSION_ID_PREFIX}${sessionId}`;
+
+const toPublicMessageId = (messageId) => `${CLAUDE_MESSAGE_ID_PREFIX}${messageId}`;
 
 const fromPublicId = (publicId) =>
-  typeof publicId === 'string' && publicId.startsWith(CLAUDE_ID_PREFIX)
-    ? publicId.slice(CLAUDE_ID_PREFIX.length)
+  typeof publicId === 'string' && publicId.startsWith(CLAUDE_SESSION_ID_PREFIX)
+    ? publicId.slice(CLAUDE_SESSION_ID_PREFIX.length)
     : null;
 
 export const isClaudeSessionId = (value) => fromPublicId(value) !== null;
+
+const isNamespacedId = (value) =>
+  value.startsWith(CLAUDE_SESSION_ID_PREFIX) || value.startsWith(CLAUDE_MESSAGE_ID_PREFIX);
 
 /**
  * Events carry the same ids the routes answer with, so the front end can match
@@ -39,7 +53,7 @@ export const namespaceEventIds = (payload) => {
   const info = properties.info;
   if (info && typeof info === 'object') {
     const nextInfo = { ...info };
-    if (typeof nextInfo.id === 'string' && !isClaudeSessionId(nextInfo.id)) nextInfo.id = toPublicId(nextInfo.id);
+    if (typeof nextInfo.id === 'string' && !isNamespacedId(nextInfo.id)) nextInfo.id = toPublicMessageId(nextInfo.id);
     if (typeof nextInfo.sessionID === 'string') nextInfo.sessionID = toPublicId(nextInfo.sessionID);
     next.properties.info = nextInfo;
   }
@@ -50,7 +64,7 @@ export const namespaceEventIds = (payload) => {
   if (part && typeof part === 'object') {
     const nextPart = { ...part };
     if (typeof nextPart.sessionID === 'string') nextPart.sessionID = toPublicId(nextPart.sessionID);
-    if (typeof nextPart.messageID === 'string') nextPart.messageID = toPublicId(nextPart.messageID);
+    if (typeof nextPart.messageID === 'string') nextPart.messageID = toPublicMessageId(nextPart.messageID);
     next.properties.part = nextPart;
   }
   return next;
@@ -140,7 +154,7 @@ export const createProjectResolver = (projects) => {
 const toMessagePayload = (record, directory) => {
   const info = {
     ...(record.info || {}),
-    id: toPublicId(record.info?.id),
+    id: toPublicMessageId(record.info?.id),
     sessionID: toPublicId(record.info?.sessionID),
   };
   if (directory) {
@@ -150,9 +164,9 @@ const toMessagePayload = (record, directory) => {
     info,
     parts: (record.parts || []).map((part) => ({
       ...part,
-      id: toPublicId(part.id),
+      id: toPublicMessageId(part.id),
       sessionID: toPublicId(part.sessionID),
-      messageID: toPublicId(part.messageID),
+      messageID: toPublicMessageId(part.messageID),
     })),
   };
 };
