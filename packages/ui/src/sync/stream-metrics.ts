@@ -391,6 +391,12 @@ export class StreamMetricsTracker {
   }
 
   private getSessionId(event: Event): string | null {
+    // Frames on the durable sync stream carry no `properties` at all: they wrap
+    // the same event under `syncEvent.data`, and the live `properties` frame of
+    // the same id arrives alongside them. Reading through absent `properties`
+    // threw here and took the whole ingest callback down, so a frame this
+    // tracker cannot key simply contributes nothing.
+    if (!event.properties) return null;
     const properties = event.properties as { sessionID?: unknown; info?: { sessionID?: unknown; id?: unknown } };
     if (typeof properties.sessionID === 'string') return properties.sessionID;
     if (typeof properties.info?.sessionID === 'string') return properties.info.sessionID;
