@@ -66,6 +66,7 @@ import {
 } from './lib/opencode/core-routes.js';
 import { registerOpenChamberRoutes } from './lib/opencode/openchamber-routes.js';
 import { createServerUtilsRuntime } from './lib/opencode/server-utils-runtime.js';
+import { createClaudeSurface } from './lib/claude/routes.js';
 import { createStaticRoutesRuntime } from './lib/opencode/static-routes-runtime.js';
 import { createSettingsRuntime } from './lib/opencode/settings-runtime.js';
 import { createOpenCodeResolutionRuntime } from './lib/opencode/opencode-resolution-runtime.js';
@@ -961,11 +962,23 @@ const processForwardedEventPayload = (payload, emitSyntheticEvent) => {
 };
 
 
+const claudeSurface = createClaudeSurface({
+  crypto,
+  fsPromises: fs.promises,
+  publishEvent: ({ payload, directory, eventId }) => {
+    broadcastGlobalUiEvent(payload, {
+      ...(directory ? { directory } : {}),
+      ...(typeof eventId === 'string' ? { eventId } : {}),
+    });
+  },
+});
+
 const serverUtilsRuntime = createServerUtilsRuntime({
   fs,
   os,
   path,
   process,
+  claudeSurface,
   openCodeReadyGraceMs: OPEN_CODE_READY_GRACE_MS,
   longRequestTimeoutMs: LONG_REQUEST_TIMEOUT_MS,
   getRuntime: () => ({
