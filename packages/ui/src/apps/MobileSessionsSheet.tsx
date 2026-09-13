@@ -59,6 +59,7 @@ import { useMobileSessionExpansionStore } from '@/stores/useMobileSessionExpansi
 import { useMobileSessionTreeStore } from '@/stores/useMobileSessionTreeStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useSessionPinnedStore } from '@/stores/useSessionPinnedStore';
+import { useSessionSourceFilterStore } from '@/stores/useSessionSourceFilterStore';
 import { orderWorktrees, useWorktreeOrderStore } from '@/stores/useWorktreeOrderStore';
 import {
   EMPTY_SESSION_ORDER_RANKS,
@@ -1035,11 +1036,19 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
     return merged.filter((session) => !session.time?.archived);
   }, [globalActiveSessions, liveSessions]);
 
-  const [sourceFilter, setSourceFilter] = React.useState<SessionSourceFilter>('all');
+  const sourceFilter = useSessionSourceFilterStore((state) => state.filter);
+  const setSourceFilter = useSessionSourceFilterStore((state) => state.setFilter);
+  // The tool filter is one state shared with the header button, not a second
+  // one local to the sheet: two controls over one list would disagree the
+  // moment either moved.
+  const setSourceFilterAvailable = useSessionSourceFilterStore((state) => state.setAvailable);
   // The control only appears when more than one tool is actually present, and
   // the check reads the UNfiltered list so it does not vanish the moment it is
   // used, when a single tool is all that is left.
   const showSourceFilter = React.useMemo(() => hasMultipleSessionSources(sessions), [sessions]);
+  React.useEffect(() => {
+    setSourceFilterAvailable(showSourceFilter);
+  }, [setSourceFilterAvailable, showSourceFilter]);
 
   // Managed Chats (sessions under ~/.config/openchamber/chats) are not owned
   // by any registered project; they get their own section above the project

@@ -2,15 +2,17 @@ import { create } from 'zustand';
 import type { SessionSourceFilter } from '@/lib/sessionSourceFilter';
 
 /**
- * Which tool's sessions the sidebar list shows (opencode / Codex / Claude Code).
+ * Which tool's sessions the list shows (opencode / Codex / Claude Code).
  *
- * The control lives in `SidebarHeader` and the filtering happens deep inside the
- * session collection, so the two never meet through props. This is the same
- * split upstream solved with `useSessionMultiSelectStore`, and the state follows
- * it here.
+ * The controls are the desktop `SidebarHeader` chip row, the mobile header
+ * button, and the chips inside the mobile sessions sheet; the filtering happens
+ * deep inside the session collection, so neither control meets it through props.
+ * One state for one list — two controls that each held their own copy would
+ * disagree the moment either moved. This is the same split upstream solved with
+ * `useSessionMultiSelectStore`, and the state follows it here.
  *
- * Deliberately not persisted. A filter that survives a reload can leave the
- * sidebar empty on startup with nothing on screen explaining why.
+ * Deliberately not persisted. A filter that survives a reload can leave the list
+ * empty on startup with nothing on screen explaining why.
  */
 type SessionSourceFilterStore = {
   filter: SessionSourceFilter;
