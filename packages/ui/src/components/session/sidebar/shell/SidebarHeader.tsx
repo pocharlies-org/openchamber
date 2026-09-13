@@ -9,6 +9,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { Icon } from "@/components/icon/Icon";
 import { ArrowsMerge } from '@/components/icons/ArrowsMerge';
@@ -227,22 +228,6 @@ export function SidebarHeader(props: Props): React.ReactNode {
                     {projectSortOrder === order ? <Icon name="check" className="h-4 w-4 text-primary" /> : null}
                   </DropdownMenuItem>
                 ))}
-                {showSessionSourceFilter ? (
-                  <>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuLabel>{t('sessions.sidebar.header.sourceFilter.label')}</DropdownMenuLabel>
-                    {SESSION_SOURCE_FILTERS.map((source) => (
-                      <DropdownMenuItem
-                        key={source}
-                        onClick={() => setSessionSourceFilter(source)}
-                        className="flex items-center justify-between"
-                      >
-                        <span>{t(SESSION_SOURCE_LABEL_KEYS[source])}</span>
-                        {sessionSourceFilter === source ? <Icon name="check" className="h-4 w-4 text-primary" /> : null}
-                      </DropdownMenuItem>
-                    ))}
-                  </>
-                ) : null}
                 <DropdownMenuSeparator />
                 {showProjectDisplayControls ? (
                   <>
@@ -320,6 +305,33 @@ export function SidebarHeader(props: Props): React.ReactNode {
             </DropdownMenu>
           </div>
         </div>
+
+        {/* Tool filter as a standing control, not a menu row: which tool owns
+            a session is a first-class question once more than one tool feeds
+            the list, and a row buried under the display menu never got found.
+            Scrolls sideways on narrow sidebars, the same escape the mobile
+            sheet uses. */}
+        {showSessionSourceFilter ? (
+          <div
+            className="flex items-center gap-1 overflow-x-auto pb-0.5"
+            role="group"
+            aria-label={t('sessions.sidebar.header.sourceFilter.label')}
+          >
+            {SESSION_SOURCE_FILTERS.map((source) => (
+              <Button
+                key={source}
+                type="button"
+                variant="chip"
+                size="xs"
+                aria-pressed={sessionSourceFilter === source}
+                onClick={() => setSessionSourceFilter(source)}
+                className="shrink-0"
+              >
+                {t(SESSION_SOURCE_LABEL_KEYS[source])}
+              </Button>
+            ))}
+          </div>
+        ) : null}
 
         {isSessionSearchOpen ? (
           <div className="pb-1">
