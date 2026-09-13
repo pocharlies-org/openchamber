@@ -15,6 +15,7 @@ export const createServerUtilsRuntime = (dependencies) => {
     ensureOpenCodeApiPrefix,
     getUpstreamStallTimeoutMs,
     getUiNotificationClients,
+    claudeSurface,
     getOpenCodePort,
     setOpenCodePortState,
     syncToHmrState,
@@ -194,6 +195,7 @@ export const createServerUtilsRuntime = (dependencies) => {
       ensureOpenCodeApiPrefix,
       getSseUpstreamStallTimeoutMs: getUpstreamStallTimeoutMs,
       getUiNotificationClients,
+      claudeSurface,
       getArchivedSessions,
       getStoredSessionMetadata,
       // Read when the proxy is set up, after `main` decided whether the spaces host exists.
