@@ -506,4 +506,24 @@ describe('StreamMetricsTracker', () => {
     runDue();
     expect(secondNotifications).toBe(1);
   });
+
+  test('ignores frames without properties instead of throwing', () => {
+    // The durable sync stream wraps the same event as { type: 'sync', syncEvent }
+    // with no `properties`, alongside the live frame that does carry them. A
+    // frame this tracker cannot key must not take the ingest callback down.
+    const { tracker } = createHarness();
+    begin(tracker);
+    // SAFETY: deliberate malformed frame — the durable sync envelope is what the
+    // relay actually sends, and it has no `properties`; the tracker must key-skip
+    // it rather than read through the missing field.
+    const syncEnvelope = {
+      id: 'evt_sync',
+      type: 'sync',
+      syncEvent: { id: 'evt_sync', type: 'message.part.updated.1', seq: 1, aggregateID: identity.sessionId },
+    } as unknown as Event;
+    tracker.ingest(identity.runtimeKey, identity.directory, syncEnvelope);
+    tracker.ingest(identity.runtimeKey, identity.directory, delta('evt_text', 'hello'));
+    tracker.flush();
+    expectMetric(tracker.getSnapshot(identity), { exact: false, characters: 5 });
+  });
 });
