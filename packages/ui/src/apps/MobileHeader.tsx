@@ -1,12 +1,22 @@
 import React from 'react';
 
 import { Icon } from '@/components/icon/Icon';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { dropdownTriggerVariants } from '@/components/ui/dropdown-trigger';
 import { useI18n } from '@/lib/i18n';
+import { SESSION_SOURCE_FILTERS, SESSION_SOURCE_LABEL_KEYS } from '@/lib/sessionSourceFilter';
 import { cn } from '@/lib/utils';
 import { useMultiRunTitle } from '@/lib/multirun/useMultiRuns';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { useGitStore, useIsGitRepo } from '@/stores/useGitStore';
+import { useSessionSourceFilterStore } from '@/stores/useSessionSourceFilterStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useSession } from '@/sync/sync-context';
 
@@ -43,6 +53,9 @@ export const MobileHeader: React.FC<{
     const status = state.directories.get(effectiveDirectory)?.status;
     return Boolean(status && !status.isClean);
   });
+  const sourceFilterAvailable = useSessionSourceFilterStore((state) => state.available);
+  const sourceFilter = useSessionSourceFilterStore((state) => state.filter);
+  const setSourceFilter = useSessionSourceFilterStore((state) => state.setFilter);
 
   // An open run overview covers the chat, so the header names the run and
   // drops the session-only metadata button rather than describe a session
@@ -100,6 +113,41 @@ export const MobileHeader: React.FC<{
           >
             <Icon name="list-unordered" className="size-5" />
           </button>
+
+          {/* Which tool owns the sessions is a question asked before the drawer
+              is opened, so it gets a header control rather than living only
+              inside the sheet. Icon-only while unfiltered; the tool's own name
+              once one is picked, so the active filter reads at a glance. */}
+          {sourceFilterAvailable ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className={cn(dropdownTriggerVariants({ size: 'default' }), 'shrink-0')}
+                  aria-label={t('sessions.sidebar.header.sourceFilter.label')}
+                  style={{ touchAction: 'manipulation' }}
+                >
+                  <Icon name="equalizer-2" className="size-4" />
+                  {sourceFilter === 'all' ? null : (
+                    <span className="min-w-0 truncate">{t(SESSION_SOURCE_LABEL_KEYS[sourceFilter])}</span>
+                  )}
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="min-w-[180px]">
+                <DropdownMenuLabel>{t('sessions.sidebar.header.sourceFilter.label')}</DropdownMenuLabel>
+                {SESSION_SOURCE_FILTERS.map((source) => (
+                  <DropdownMenuItem
+                    key={source}
+                    onSelect={() => setSourceFilter(source)}
+                    className="flex items-center justify-between"
+                  >
+                    <span>{t(SESSION_SOURCE_LABEL_KEYS[source])}</span>
+                    {sourceFilter === source ? <Icon name="check" className="size-4 text-primary" /> : null}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
 
           {/* Session title doubles as the recent-sessions switcher trigger. */}
           <button
