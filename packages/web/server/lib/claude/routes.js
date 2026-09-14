@@ -27,7 +27,7 @@ export const CLAUDE_MESSAGE_ID_PREFIX = 'claude:';
 
 const toPublicId = (sessionId) => `${CLAUDE_SESSION_ID_PREFIX}${sessionId}`;
 
-const toPublicMessageId = (messageId) => `${CLAUDE_MESSAGE_ID_PREFIX}${messageId}`;
+const toPublicMessageId = (messageId) => (messageId ? `${CLAUDE_MESSAGE_ID_PREFIX}${messageId}` : messageId);
 
 const fromPublicId = (publicId) =>
   typeof publicId === 'string' && publicId.startsWith(CLAUDE_SESSION_ID_PREFIX)
@@ -169,6 +169,11 @@ const toMessagePayload = (record, directory) => {
     id: toPublicMessageId(record.info?.id),
     sessionID: toPublicId(record.info?.sessionID),
   };
+  // The timeline resolves an assistant message's turn through `parentID`, so it
+  // must cross the same id boundary as `id`; a raw harness id matches nothing.
+  if (record.info?.parentID) {
+    info.parentID = toPublicMessageId(record.info.parentID);
+  }
   if (directory) {
     info.path = { cwd: directory };
   }
