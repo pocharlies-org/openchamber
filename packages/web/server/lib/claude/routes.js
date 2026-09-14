@@ -43,17 +43,24 @@ const isNamespacedId = (value) =>
  * Events carry the same ids the routes answer with, so the front end can match
  * a stream frame to the session it already has open. Only the id-bearing keys
  * OpenCode's events use are rewritten; everything else passes through.
+ *
+ * `properties.info.id` is polymorphic: a `session.*` event describes a session,
+ * so its id takes the session prefix, while `message.*` events carry a message
+ * id. Prefixing a session id as a message id produces an id no route answers.
  */
 export const namespaceEventIds = (payload) => {
   if (!payload || typeof payload !== 'object') return payload;
   const properties = payload.properties;
   if (!properties || typeof properties !== 'object') return payload;
 
+  const isSessionEvent = String(payload.type ?? '').startsWith('session.');
   const next = { ...payload, properties: { ...properties } };
   const info = properties.info;
   if (info && typeof info === 'object') {
     const nextInfo = { ...info };
-    if (typeof nextInfo.id === 'string' && !isNamespacedId(nextInfo.id)) nextInfo.id = toPublicMessageId(nextInfo.id);
+    if (typeof nextInfo.id === 'string' && !isNamespacedId(nextInfo.id)) {
+      nextInfo.id = isSessionEvent ? toPublicId(nextInfo.id) : toPublicMessageId(nextInfo.id);
+    }
     if (typeof nextInfo.sessionID === 'string') nextInfo.sessionID = toPublicId(nextInfo.sessionID);
     next.properties.info = nextInfo;
   }

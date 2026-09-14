@@ -2,7 +2,7 @@ import express from 'express';
 import request from 'supertest';
 import { describe, expect, it } from 'vitest';
 
-import { createClaudeSurface } from './routes.js';
+import { createClaudeSurface, namespaceEventIds } from './routes.js';
 
 /**
  * The Claude surface is registered before the OpenCode proxy and intercepts
@@ -43,5 +43,51 @@ describe('POST /api/session fall-through to the OpenCode proxy', () => {
 
     expect(response.status).toBe(200);
     expect(Buffer.from(response.body.replayable.data).toString('utf8')).toBe('not json');
+  });
+});
+
+describe('namespaceEventIds', () => {
+  const SESSION_UUID = '99de08cb-d25d-5f13-97b4-b0e6a44c757d';
+
+  it('namespaces a session event id with the session prefix', () => {
+    const namespaced = namespaceEventIds({
+      type: 'session.deleted',
+      properties: { info: { id: SESSION_UUID, directory: '/tmp/project' }, directory: '/tmp/project' },
+    });
+
+    expect(namespaced.properties.info.id).toMatch(/^ses_ccc/);
+    expect(namespaced.properties.info.id).toBe(`ses_ccc${SESSION_UUID}`);
+  });
+
+  it('namespaces a message event id with the message prefix', () => {
+    const namespaced = namespaceEventIds({
+      type: 'message.updated',
+      properties: {
+        sessionID: SESSION_UUID,
+        info: { id: 'msg_1', role: 'assistant', sessionID: SESSION_UUID },
+      },
+    });
+
+    expect(namespaced.properties.info.id).toBe('claude:msg_1');
+    expect(namespaced.properties.info.sessionID).toBe(`ses_ccc${SESSION_UUID}`);
+    expect(namespaced.properties.sessionID).toBe(`ses_ccc${SESSION_UUID}`);
+  });
+
+  it('namespaces part ids and leaves an already namespaced id alone', () => {
+    const namespaced = namespaceEventIds({
+      type: 'message.part.updated',
+      properties: {
+        part: { id: 'p1', sessionID: SESSION_UUID, messageID: 'msg_1' },
+      },
+    });
+
+    expect(namespaced.properties.part.messageID).toBe('claude:msg_1');
+    expect(namespaced.properties.part.sessionID).toBe(`ses_ccc${SESSION_UUID}`);
+
+    const twice = namespaceEventIds({
+      type: 'message.updated',
+      properties: { info: { id: 'claude:msg_1' } },
+    });
+    expect(twice.properties.info.id).toBe('claude:msg_1');
   });
 });
