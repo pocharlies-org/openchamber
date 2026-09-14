@@ -1,3 +1,5 @@
+import type { IconName } from '@/components/icon/icons';
+
 export type SessionSource = 'opencode' | 'codex' | 'claude';
 
 export type SessionSourceFilter = SessionSource | 'all';
@@ -72,3 +74,16 @@ export const SESSION_SOURCE_LABEL_KEYS = {
   codex: 'sessions.sidebar.header.sourceFilter.codex',
   claude: 'sessions.sidebar.header.sourceFilter.claude',
 } as const satisfies Record<SessionSourceFilter, string>;
+
+/**
+ * Glifo que marca la fila de una sesión ajena a opencode.
+ *
+ * Solo se dibuja para `codex` y `claude`: opencode es la herramienta nativa de
+ * la app, así que la ausencia de glifo YA dice «opencode» y una lista de un
+ * solo origen no gana ni un píxel de ruido. Marcar la excepción en vez de
+ * marcarlo todo deja la jerarquía visual intacta para quien no usa el espejo.
+ */
+export const SESSION_SOURCE_ICONS = {
+  codex: 'terminal-box',
+  claude: 'claude-code',
+} as const satisfies Partial<Record<SessionSource, IconName>>;
