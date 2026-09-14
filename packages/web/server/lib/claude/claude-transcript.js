@@ -132,6 +132,7 @@ const collectToolOutputs = (messages) => {
       outputs.set(callId, {
         output: toolResultText(block.content),
         error: block.is_error === true,
+        endedAt: toMillis(message.timestamp),
       });
     }
   }
@@ -171,7 +172,7 @@ const buildUserParts = (blocks, { sessionId, recordId }) => {
   return parts;
 };
 
-const buildAssistantParts = (blocks, toolOutputs, { sessionId, recordId }) => {
+const buildAssistantParts = (blocks, toolOutputs, { sessionId, recordId, startedAt = 0 }) => {
   const parts = [];
   blocks.forEach(({ block }, index) => {
     const id = buildClaudePartId(recordId, index, block?.type || 'custom');
@@ -204,6 +205,19 @@ const buildAssistantParts = (blocks, toolOutputs, { sessionId, recordId }) => {
       const callId = typeof block.id === 'string' ? block.id : id;
       const result = toolOutputs.get(callId);
       const status = result ? (result.error ? 'error' : 'completed') : 'running';
+      const state = {
+        status,
+        input: block.input && typeof block.input === 'object' ? block.input : undefined,
+        output: result?.output,
+        error: result?.error ? (result.output || 'Tool call failed') : undefined,
+      };
+      // The timeline only renders a finished tool card once it can read an end
+      // time, so a resolved call carries the window Claude ran it in. Running
+      // calls stay time-less for the live path to fill in.
+      if (result) {
+        const start = startedAt > 0 ? startedAt : result.endedAt;
+        state.time = { start, end: Math.max(result.endedAt, start) };
+      }
       parts.push({
         id,
         sessionID: sessionId,
@@ -211,12 +225,7 @@ const buildAssistantParts = (blocks, toolOutputs, { sessionId, recordId }) => {
         type: TOOL_PART,
         callID: callId,
         tool: typeof block.name === 'string' ? block.name : 'tool',
-        state: {
-          status,
-          input: block.input && typeof block.input === 'object' ? block.input : undefined,
-          output: result?.output,
-          error: result?.error ? (result.output || 'Tool call failed') : undefined,
-        },
+        state,
       });
       return;
     }
@@ -294,11 +303,20 @@ export const mapClaudeSessionMessages = (messages, { sessionId = '', providerId 
     if (messageId) assistantTurns.set(messageId, turn);
   });
 
+  // The shared timeline groups messages into turns by `info.parentID`: an
+  // assistant record without it is orphaned and never renders. Claude has no
+  // such field, so the parent is the user turn the transcript ran under.
+  let lastUserRecordId = '';
+
   return turns.map((turn) => {
     const isAssistant = turn.kind === 'assistant';
     const modelId = isAssistant ? turn.modelId : '';
     const parts = isAssistant
-      ? buildAssistantParts(turn.blocks, toolOutputs, { sessionId, recordId: turn.id })
+      ? buildAssistantParts(turn.blocks, toolOutputs, {
+        sessionId,
+        recordId: turn.id,
+        startedAt: turn.created,
+      })
       : buildUserParts(turn.blocks, { sessionId, recordId: turn.id });
 
     const info = {
@@ -313,6 +331,11 @@ export const mapClaudeSessionMessages = (messages, { sessionId = '', providerId 
       info.modelID = modelId;
       info.finish = 'stop';
       info.tokens = turn.usage;
+      if (lastUserRecordId) {
+        info.parentID = lastUserRecordId;
+      }
+    } else {
+      lastUserRecordId = turn.id;
     }
 
     return {
