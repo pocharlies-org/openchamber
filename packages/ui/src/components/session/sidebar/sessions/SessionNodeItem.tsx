@@ -24,6 +24,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { isSessionPinned, useSessionPinnedStore } from '@/stores/useSessionPinnedStore';
 import { Icon } from "@/components/icon/Icon";
+import { SESSION_SOURCE_ICONS, SESSION_SOURCE_LABEL_KEYS, resolveSessionSource } from '@/lib/sessionSourceFilter';
 import { buildExportFilename, downloadAsMarkdown, formatSessionAsMarkdown, getExportRevealLabelKey, revealExportedMarkdown, saveAsMarkdownDesktop } from '@/lib/exportSession';
 import type { ChildSessionExport } from '@/lib/exportSession';
 import { GuestIcon } from '@/components/layout/GuestRailIcon';
@@ -640,6 +641,11 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
     </span>
   ) : null;
   const sessionTitle = resolvedSession.title || t('sessions.sidebar.session.untitled');
+  // opencode is this app's native tool, so only a borrowed session carries a
+  // glyph: the absence of one already reads as "opencode", and a single-source
+  // list gains no noise at all.
+  const sessionSource = resolveSessionSource(session);
+  const sessionSourceIcon = sessionSource === 'opencode' ? null : SESSION_SOURCE_ICONS[sessionSource];
   // Timeline is a flat list: a node that still carries children renders as a
   // leaf, without a chevron and without an expansion state.
   const hasChildren = !isTimelineRow && node.children.length > 0;
@@ -1781,6 +1787,13 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
                   >
                     {isTimelineRow ? timelineRowBody : (
                     <div className={cn('@container flex w-full items-center min-w-0 flex-1 gap-1 overflow-hidden', actionsReserveClass)}>
+{sessionSourceIcon ? (
+                        <Icon
+                          name={sessionSourceIcon}
+                          className="h-3 w-3 flex-shrink-0 text-muted-foreground/70"
+                          aria-label={t(SESSION_SOURCE_LABEL_KEYS[sessionSource])}
+                        />
+                      ) : null}
                       {/* Unread emphasis is color-only: a font-weight change
                           would reflow the truncated title and cause a micro
                           horizontal shift when the status flips. */}
