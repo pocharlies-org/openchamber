@@ -75,6 +75,13 @@ const slugFromId = (sessionId) => `claude-${String(sessionId).slice(0, 8)}`;
 /**
  * The OpenCode proxy forwards raw request streams and no JSON body parser is
  * mounted globally, so these routes read their own body.
+ *
+ * Reading it consumes the stream, and a route that declines the request falls
+ * through to the OpenCode proxy, which can only replay a consumed body from
+ * `req.body` (see `serializeParsedBody` in lib/opencode/proxy.js). What is read
+ * here is therefore published on the request: without it the proxy forwards the
+ * original content-length with no payload and OpenCode waits for bytes that
+ * never arrive.
  */
 const readJsonBody = (req) =>
   new Promise((resolve) => {
@@ -85,14 +92,19 @@ const readJsonBody = (req) =>
     const chunks = [];
     req.on('data', (chunk) => chunks.push(chunk));
     req.on('end', () => {
-      const raw = Buffer.concat(chunks).toString('utf8');
-      if (!raw) {
+      const raw = Buffer.concat(chunks);
+      if (!raw.length) {
         resolve({});
         return;
       }
       try {
-        resolve(JSON.parse(raw));
+        const parsed = JSON.parse(raw.toString('utf8'));
+        req.body = parsed;
+        resolve(parsed);
       } catch {
+        // Not JSON for these routes: keep the raw bytes so the proxy replays
+        // them verbatim instead of an empty object.
+        req.body = raw;
         resolve({});
       }
     });
