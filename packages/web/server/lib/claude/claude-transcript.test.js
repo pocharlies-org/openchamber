@@ -167,6 +167,63 @@ describe('mapClaudeSessionMessages', () => {
     expect(filePart.mime).toBe('image/png');
     expect(filePart.url).toBe('data:image/png;base64,AAAA');
   });
+
+  it('parents every assistant turn to the user turn it ran under', () => {
+    const records = mapClaudeSessionMessages([
+      userText('first prompt', 'u1', at(0)),
+      assistantBlock('msg_a', { type: 'text', text: 'a1' }, 'a1', at(10)),
+      assistantBlock('msg_a', { type: 'text', text: 'a2' }, 'a2', at(20)),
+      assistantBlock('msg_a2', { type: 'text', text: 'a3' }, 'a3', at(25)),
+      userText('second prompt', 'u2', at(30)),
+      assistantBlock('msg_b', { type: 'text', text: 'b1' }, 'b4', at(40)),
+    ], { sessionId: 'sess-1' });
+
+    const [firstUser, mergedAssistant, secondAssistant, secondUser, lastAssistant] = records;
+    expect(records.map((record) => record.info.role)).toEqual([
+      'user', 'assistant', 'assistant', 'user', 'assistant',
+    ]);
+
+    // Blocks sharing one Claude message.id stay a single OpenChamber message.
+    expect(mergedAssistant.parts.filter((part) => part.type === 'text')).toHaveLength(2);
+
+    expect(mergedAssistant.info.parentID).toBe(firstUser.info.id);
+    expect(secondAssistant.info.parentID).toBe(firstUser.info.id);
+    expect(lastAssistant.info.parentID).toBe(secondUser.info.id);
+    expect(firstUser.info.parentID).toBeUndefined();
+  });
+
+  it('omits parentID when an assistant turn precedes any user turn', () => {
+    const records = mapClaudeSessionMessages([
+      assistantBlock('msg_a', { type: 'text', text: 'orphan' }, 'a1', at(0)),
+    ], { sessionId: 'sess-1' });
+
+    expect(records).toHaveLength(1);
+    expect(records[0].info.parentID).toBeUndefined();
+  });
+
+  it('gives a resolved tool part a time window so the timeline renders it', () => {
+    const records = mapClaudeSessionMessages([
+      userText('run it', 'u1', at(0)),
+      assistantBlock('msg_a', { type: 'tool_use', id: 'tu_1', name: 'Bash', input: { command: 'ls' } }, 'a1', at(1000)),
+      toolResultMessage('tu_1', 'file1\nfile2', 'r1', at(4000)),
+    ], { sessionId: 'sess-1' });
+
+    const tool = records[1].parts.find((part) => part.type === 'tool');
+    expect(tool.state.status).toBe('completed');
+    expect(tool.state.time).toEqual({ start: T0 + 1000, end: T0 + 4000 });
+    expect(tool.state.output).toBe('file1\nfile2');
+  });
+
+  it('leaves an unresolved tool call without a time window', () => {
+    const records = mapClaudeSessionMessages([
+      userText('run it', 'u1', at(0)),
+      assistantBlock('msg_a', { type: 'tool_use', id: 'tu_1', name: 'Bash', input: {} }, 'a1', at(1000)),
+    ], { sessionId: 'sess-1' });
+
+    const tool = records[1].parts.find((part) => part.type === 'tool');
+    expect(tool.state.status).toBe('running');
+    expect(tool.state.time).toBeUndefined();
+  });
 });
 
 describe('buildClaudeRecordId', () => {
