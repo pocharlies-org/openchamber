@@ -16,7 +16,17 @@ import { getGitHubAuth } from '../github/auth.js';
 import { getGhCliToken, isGhCliDisabled } from '../github/gh-cli-credential.js';
 
 export const PIPELINE_REPO = 'pocharlies-org/openchamber-build-pocharlies';
-export const FORK_UPDATE_WORKFLOW = 'actualizar-fork.yml';
+
+/**
+ * `build-todo` is the workflow that already exists and already does the whole
+ * thing: build from one commit, install the candidate on the canary, run
+ * Playwright against it, and promote only if that turns green -- inside the
+ * 03:00-07:00 window, because promoting restarts the service and cuts live
+ * sessions. Rebasing our stack onto upstream is a separate step that needs a
+ * credential this pipeline does not have, so the button drives what exists
+ * rather than a workflow that does not.
+ */
+export const FORK_UPDATE_WORKFLOW = 'build-todo.yml';
 
 const DISPATCH_URL = `https://api.github.com/repos/${PIPELINE_REPO}/actions/workflows/${FORK_UPDATE_WORKFLOW}/dispatches`;
 const RUNS_URL = `https://api.github.com/repos/${PIPELINE_REPO}/actions/runs`;
@@ -62,13 +72,31 @@ const pickFailingStage = (jobs) => {
   return null;
 };
 
+/**
+ * The step a running build is in. Without this the UI can only say "working",
+ * which is the thing that made the old button feel dead: a run that spends
+ * minutes bundling and then hours waiting for the promotion window looks
+ * exactly like a run that went nowhere.
+ */
+const pickActiveStage = (jobs) => {
+  if (!Array.isArray(jobs)) return null;
+  for (const job of jobs) {
+    const state = asStatus(readString(job?.status));
+    const name = readString(job?.name);
+    if (state?.state === 'running' && name) return name;
+  }
+  return null;
+};
+
 export const parseWorkflowRun = (payload) => {
   const runId = readNumber(payload?.id);
   const status = asStatus(readString(payload?.status));
   if (runId === null || !status) return null;
 
   const base = { runId, htmlUrl: readString(payload.html_url) };
-  if (status.state === 'running') return { ...base, state: 'running' };
+  if (status.state === 'running') {
+    return { ...base, state: 'running', stage: pickActiveStage(payload.jobs) };
+  }
 
   const conclusion = asConclusion(readString(payload.conclusion));
   if (!conclusion) return { ...base, state: 'unknown' };
@@ -123,14 +151,21 @@ export const dispatchForkUpdate = async (input = {}) => {
   }
 
   const ref = readString(input.ref);
-  const body = { ref: ref || 'build/v1.22.0-metrics' };
+  const surfaces = readString(input.surfaces) || 'web';
+  const inputs = {
+    ref: ref || 'build/v1.22.0-metrics',
+    surfaces,
+    // The button means "update me", and an update that stops before promoting
+    // leaves the user on the version they already had.
+    desplegar: input.desplegar === false ? 'false' : 'true',
+  };
 
   let response;
   try {
     response = await githubFetch(fetchImpl, DISPATCH_URL, token, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...body, inputs: {} }),
+      body: JSON.stringify({ ref: inputs.ref, inputs }),
     });
   } catch (error) {
     return { started: false, reason: 'unreachable', detail: error?.message || String(error) };
@@ -178,7 +213,20 @@ export const getForkUpdateStatus = async (input = {}) => {
 
   const runs = Array.isArray(payload?.workflow_runs) ? payload.workflow_runs : null;
   if (!runs || runs.length === 0) return { state: 'idle' };
-  return parseWorkflowRun(runs[0]) || { state: 'idle' };
+
+  // A workflow_dispatch reply is 204 with no body, so the caller never learns
+  // the run id. Re-reading the newest run is what lets the button follow the
+  // one it just started.
+  const latest = runs[0];
+  const latestId = readNumber(latest?.id);
+  const jobsPayload = latestId === null
+    ? null
+    : await githubFetch(fetchImpl, `${RUNS_URL}/${latestId}/jobs`, token)
+        .then((response) => (response.ok ? response.json() : null))
+        .catch(() => null);
+
+  const jobs = Array.isArray(jobsPayload?.jobs) ? jobsPayload.jobs : null;
+  return parseWorkflowRun({ ...latest, jobs }) || { state: 'idle' };
 };
 
 /**
