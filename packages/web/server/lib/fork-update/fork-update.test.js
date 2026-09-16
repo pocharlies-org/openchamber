@@ -20,7 +20,22 @@ describe('parseWorkflowRun', () => {
       runId: 7,
       htmlUrl: 'https://x/7',
       state: 'running',
+      stage: null,
     });
+  });
+
+  it('names the step a running build is in, so the wait is not a blank box', () => {
+    const parsed = parseWorkflowRun({
+      id: 7,
+      status: 'in_progress',
+      jobs: [
+        { name: 'Bundle + tarball + puerta de marcas', conclusion: 'success' },
+        { name: 'Esperar la ventana de promocion', status: 'in_progress' },
+      ],
+    });
+
+    expect(parsed.state).toBe('running');
+    expect(parsed.stage).toBe('Esperar la ventana de promocion');
   });
 
   it('names the job that failed so the message is actionable', () => {
