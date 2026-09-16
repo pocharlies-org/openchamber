@@ -7,6 +7,7 @@ export const createBootstrapRuntime = (dependencies) => {
     registerTtsRoutes,
     registerNotificationRoutes,
     registerOpenChamberRoutes,
+    registerForkUpdateRoutes,
     registerAgentToolRoutes = () => {},
     express,
   } = dependencies;
@@ -154,6 +155,10 @@ export const createBootstrapRuntime = (dependencies) => {
       fetchFreeZenModels,
       getCachedZenModels,
     });
+
+    // Registered with the other OpenChamber routes, so it stays ahead of the
+    // generic OpenCode proxy that would otherwise swallow the path.
+    registerForkUpdateRoutes(app, { express });
 
     return {
       uiAuthController,

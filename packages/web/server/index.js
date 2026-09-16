@@ -65,6 +65,7 @@ import {
   registerServerStatusRoutes,
 } from './lib/opencode/core-routes.js';
 import { registerOpenChamberRoutes } from './lib/opencode/openchamber-routes.js';
+import { registerForkUpdateRoutes } from './lib/fork-update/routes.js';
 import { createServerUtilsRuntime } from './lib/opencode/server-utils-runtime.js';
 import { createClaudeSurface } from './lib/claude/routes.js';
 import { createStaticRoutesRuntime } from './lib/opencode/static-routes-runtime.js';
@@ -1058,6 +1059,7 @@ const bootstrapRuntime = createBootstrapRuntime({
   registerTtsRoutes,
   registerNotificationRoutes,
   registerOpenChamberRoutes,
+  registerForkUpdateRoutes,
   registerAgentToolRoutes: (app, options) => options.agentToolRuntime.registerRoutes(app, options.express),
   express,
 });
