@@ -51,16 +51,36 @@ ul, ol { list-style: none; margin: 0; padding: 0; }
            white-space: nowrap; color: var(--tenue); }
 
 /* El feed crece por abajo y se queda en su caja: un panel de issue no puede
-   empujar el resto de la página hacia el infinito. */
-.feed { max-height: 220px; overflow-y: auto; border: 1px solid var(--linea);
-        border-radius: 3px; padding: 6px 8px; font-family: ui-monospace,
-        SFMono-Regular, Menlo, monospace; font-size: 12px; }
-.feed li { display: flex; gap: 8px; padding: 1px 0; }
-.feed .hora { color: var(--tenue); flex: none; }
-.feed .que { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.feed .err { color: var(--ambar-texto); }
-.feed:empty::after { content: "Sin actividad todavía."; color: var(--tenue);
-                     font-family: inherit; }
+   empujar el resto de la página hacia el infinito. Aquí va el transcript, así
+   que el texto se envuelve — recortarlo a una línea sería enseñar el principio
+   de cada frase y nada más. */
+.feed { max-height: 340px; overflow-y: auto; border: 1px solid var(--linea);
+        border-radius: 3px; padding: 6px 8px; font-size: 12px; }
+.feed:empty::after { content: "Sin actividad todavía."; color: var(--tenue); }
+
+.ev { display: grid; grid-template-columns: 58px 62px 1fr; gap: 8px;
+      padding: 3px 0; border-top: 1px solid var(--linea); align-items: baseline; }
+.ev:first-child { border-top: 0; }
+.hora { color: var(--tenue); font-variant-numeric: tabular-nums; }
+.quien { color: var(--tenue); font-weight: 600; overflow: hidden;
+         text-overflow: ellipsis; }
+/* `pre-wrap`: el modelo escribe con saltos de línea y listas, y aplanarlos
+   convierte una respuesta en un párrafo ilegible. */
+.cuerpo { white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; }
+.err { color: var(--ambar-texto); }
+
+/* Cuatro voces distinguibles de un vistazo, sin leer la etiqueta. */
+.ev--humano .quien, .ev--humano .cuerpo { color: var(--azul-texto); }
+.ev--pensando .cuerpo { color: var(--tenue); font-style: italic; }
+.ev--tool .quien { color: var(--texto); font-family: ui-monospace, SFMono-Regular,
+                   Menlo, monospace; font-weight: 500; }
+.ev--tool .cuerpo, .ev--salida .cuerpo { font-family: ui-monospace, SFMono-Regular,
+                                         Menlo, monospace; color: var(--tenue); }
+.ev--salida .quien { color: var(--tenue); }
+
+/* Los contadores del turno se pegan como pie de lo último dicho: informan sin
+   partir la conversación en dos. */
+.pie { grid-column: 3; color: var(--tenue); font-size: 11px; }
 
 .boton { font: inherit; border: 1px solid var(--linea); background: var(--fondo-sutil);
          color: var(--texto); border-radius: 3px; padding: 5px 10px; cursor: pointer; }

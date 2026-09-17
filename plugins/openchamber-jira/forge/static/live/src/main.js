@@ -11,10 +11,13 @@
  *     responde desde el tailnet. Es el directo y el `/btw`; si no contesta, el
  *     panel lo dice y se queda con lo de (1) en vez de fingir que no hay nada.
  *
- * Nada de lo que llega por (2) es cuerpo de conversación: la espina del host
- * emite nombres de tool, roles y contadores. Aun así todo se pinta con
- * `textContent`, nunca con `innerHTML`: lo que entra por la red no construye
- * marcado.
+ * Por (2) viaja el TRANSCRIPT en directo —lo que dice, lo que piensa, los
+ * argumentos de cada tool y su salida—, y por (1) nunca: el latido que se guarda
+ * en la nube de Atlassian es espina pelada. El texto va del host a este
+ * navegador por el TLS del tailnet y no pasa por Forge.
+ *
+ * Todo se pinta con `textContent`, jamás con `innerHTML`: lo que entra por la
+ * red no construye marcado.
  */
 import { invoke } from '@forge/bridge';
 
@@ -110,31 +113,69 @@ const pintarHijos = (hijos, total, activos) => {
   }
 };
 
-// ── el directo ──────────────────────────────────────────────────────────────
-const MAX_FEED = 200;
-const FRASE = {
-  tool: (e) => e.name,
-  fin_tool: (e) => (e.err ? '↳ error' : '↳ ok'),
-  pensando: () => 'pensando…',
+ // ── el directo ─────────────────────────────────────────────────────────────
+const MAX_FEED = 300;
+
+// Quién habla y cómo se pinta. `etiqueta` es lo que va en el margen; `cuerpo` lo
+// que se enseña cuando el evento trae texto, y de qué se tira cuando no.
+const PINTA = {
+  humano: { clase: 'ev--humano', etiqueta: 'tú' },
+  dice: { clase: 'ev--dice', etiqueta: 'claude' },
+  pensando: { clase: 'ev--pensando', etiqueta: 'piensa' },
+  tool: { clase: 'ev--tool', etiqueta: null },
+  fin_tool: { clase: 'ev--salida', etiqueta: '↳' },
+  turno: { clase: 'ev--turno', etiqueta: null },
+};
+
+const SIN_TEXTO = {
+  humano: () => 'turno de una persona',
   dice: (e) => `escribe ${e.n} caracteres`,
-  humano: () => '— turno de una persona —',
-  turno: (e) => `turno · ${e.out ?? '?'} tokens de salida`,
+  pensando: () => 'pensando…',
+  tool: () => '',
+  fin_tool: (e) => (e.err ? 'error' : 'ok'),
 };
 
 const anadirEventos = (eventos) => {
   const feed = $('feed');
   const pegado = feed.scrollTop + feed.clientHeight >= feed.scrollHeight - 4;
   for (const e of eventos) {
-    const frase = FRASE[e.k];
-    if (!frase) continue;
+    const pinta = PINTA[e.k];
+    if (!pinta) continue;
+
+    // El turno solo aporta contadores: se pega como pie del evento anterior en
+    // vez de ocupar una línea propia, que era puro ruido entre frase y frase.
+    if (e.k === 'turno') {
+      const ultimo = feed.lastElementChild;
+      if (ultimo && !ultimo.querySelector('.pie')) {
+        const pie = document.createElement('span');
+        pie.className = 'pie';
+        pie.textContent = [e.modelo, e.out != null ? `${e.out} tok` : null]
+          .filter(Boolean).join(' · ');
+        ultimo.append(pie);
+      }
+      continue;
+    }
+
     const li = document.createElement('li');
+    li.className = `ev ${pinta.clase}`;
+
     const hora = document.createElement('span');
     hora.className = 'hora';
     hora.textContent = hhmm(e.ts);
-    const que = document.createElement('span');
-    que.className = e.err ? 'que err' : 'que';
-    que.textContent = frase(e);
-    li.append(hora, que);
+    li.append(hora);
+
+    const quien = document.createElement('span');
+    quien.className = 'quien';
+    // En una tool el nombre ES la etiqueta: «Bash», «Read», como lo enseña el
+    // propio Claude.
+    quien.textContent = e.k === 'tool' ? (e.name ?? 'tool') : pinta.etiqueta;
+    li.append(quien);
+
+    const cuerpo = document.createElement('span');
+    cuerpo.className = e.err ? 'cuerpo err' : 'cuerpo';
+    cuerpo.textContent = e.txt ?? SIN_TEXTO[e.k]?.(e) ?? '';
+    li.append(cuerpo);
+
     feed.append(li);
   }
   while (feed.childElementCount > MAX_FEED) feed.firstElementChild.remove();
@@ -147,6 +188,9 @@ const abrirDirecto = (live) => {
   const url = new URL(`${live.base}/company-live/${live.sessionId}`);
   url.searchParams.set('sse', '1');
   url.searchParams.set('offset', '-1');
+  // El transcript, no la espina: este camino va directo del host a este
+  // navegador por el TLS del tailnet, y Atlassian no ve nada de lo que pasa.
+  url.searchParams.set('texto', '1');
   url.searchParams.set('token', live.token);
   const es = new EventSource(url);
   let visto = false;
