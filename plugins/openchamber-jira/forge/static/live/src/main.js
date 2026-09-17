@@ -62,6 +62,12 @@ const pintarLatido = (hb) => {
   }
   $('quien').textContent = quien.join(' · ');
 
+  // Si la sesión está publicada en Remote Control, se puede ENTRAR a escribirle.
+  // Es la mitad que este panel no hace: aquí se mira y se pregunta de lado.
+  const rc = $('rc');
+  rc.classList.toggle('oculto', !hb?.rcUrl);
+  if (hb?.rcUrl) rc.href = hb.rcUrl;
+
   const tool = $('tool');
   tool.textContent = hb?.actividad ?? '';
   tool.classList.toggle('oculto', !hb?.actividad);
