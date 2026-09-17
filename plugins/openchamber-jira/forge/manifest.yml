@@ -18,6 +18,16 @@ permissions:
     - read:jira-work
     - write:jira-work
     - storage:app
+  external:
+    fetch:
+      # El directo y la conversación lateral los pide el NAVEGADOR, no una
+      # función de Forge: esta entrada es el `connect-src` del iframe. El host
+      # privado solo responde desde el tailnet — de ahí que el panel se pinte
+      # primero con el latido y el directo sea un extra que puede faltar.
+      # Nombre del tailnet, con certificado público: sin TLS válido el iframe
+      # (que va por https) bloquearía la conexión como contenido mixto.
+      client:
+        - 'https://x86.taile0ad27.ts.net'
 modules:
   # Provisioned by the app, so no operator ever copies a `customfield_NNNNN` id
   # between installations. This is the reuse win that motivated the app.
@@ -76,10 +86,12 @@ modules:
         function: roles-resolver
       title: AIOPS
 
+  # Custom UI, no UI Kit nativo, y por una razón concreta: un panel nativo solo
+  # puede hablar con su resolver, y el resolver vive en la nube de Atlassian, que
+  # no alcanza este host. El directo exige que la petición salga del navegador.
   jira:issuePanel:
     - key: company-office-panel
-      resource: panel
-      render: native
+      resource: live
       resolver:
         function: panel-resolver
       title: AIOPS
@@ -144,6 +156,11 @@ modules:
       handler: index.companyStatePush
 
 resources:
+  # `static/live` es una build ya hecha (esbuild; fuente en `src/`), como pide
+  # Custom UI. `static/panel` era la versión nativa anterior y se queda como
+  # referencia hasta que el panel nuevo lleve un tiempo en producción.
+  - key: live
+    path: static/live
   - key: panel
     path: static/panel/src/index.jsx
   - key: roles-ui

@@ -82,7 +82,12 @@ export const heartbeat = async (request) => {
   } catch {
     return reply(400, { error: 'bad_json' });
   }
-  if (payload?.schemaVersion !== 1 || typeof payload.ticketKey !== 'string') {
+  // v1: el latido del despachador de opencode (agent/sessionId/runningForMs).
+  // v2: el de la compañía de Claude (jira-forge-push.py) — la misma llave y el
+  // mismo sitio, con la espina dentro: subagentes, tool actual, por qué está
+  // parada. Se aceptan las dos porque el panel pinta lo que encuentra y no
+  // puede quedarse mudo durante un despliegue a medias.
+  if (![1, 2].includes(payload?.schemaVersion) || typeof payload.ticketKey !== 'string') {
     return reply(400, { error: 'unsupported_payload' });
   }
 
@@ -105,8 +110,50 @@ const readHeartbeat = async (request) => {
   return stale ? { ...stored, state: 'stale' } : stored;
 };
 
+/**
+ * La llave con la que el NAVEGADOR habla con el host privado.
+ *
+ * Forge no alcanza ese host, pero el navegador que tiene Jira abierto sí lo hace
+ * si está en el tailnet. Falta decirle quién es: esta función acuña, con el
+ * mismo secreto que ya firma los webtriggers, un token corto sobre el uuid de
+ * la sesión. Viaja en la query, no en una cookie, así que no hay nada que un
+ * sitio ajeno pueda reutilizar sin tenerlo.
+ *
+ * Alcance deliberado: UNA sesión y quince minutos. Un token de la épica de al
+ * lado no abre esta, y uno olvidado en un historial caduca solo.
+ */
+const LIVE_TTL_SEC = 15 * 60;
+
+const mintLiveToken = async (sessionId) => {
+  const secret = process.env.COMPANY_OFFICE_HEARTBEAT_SECRET;
+  if (!secret || typeof sessionId !== 'string' || !sessionId) return null;
+  const exp = Math.floor(Date.now() / 1000) + LIVE_TTL_SEC;
+  const key = await crypto.subtle.importKey(
+    'raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
+  );
+  const firma = await crypto.subtle.sign('HMAC', key, encoder.encode(`${sessionId}.${exp}`));
+  const hex = [...new Uint8Array(firma)].map((b) => b.toString(16).padStart(2, '0')).join('');
+  return `${exp}.${hex}`;
+};
+
+/**
+ * Lo que el panel necesita para pintarse: el último latido (siempre, aunque el
+ * host esté caído) y, si hay sesión, la puerta al directo. El directo es un
+ * extra: si el navegador no alcanza el host, el panel sigue contando lo que el
+ * latido trajo, y lo dice.
+ */
+const readPanel = async (request) => {
+  const heartbeat = await readHeartbeat(request);
+  const sessionId = typeof heartbeat?.sessionId === 'string' ? heartbeat.sessionId : null;
+  const base = process.env.COMPANY_LIVE_BASE ?? 'https://x86.taile0ad27.ts.net';
+  return {
+    heartbeat,
+    live: sessionId ? { base, sessionId, token: await mintLiveToken(sessionId) } : null,
+  };
+};
+
 const panelResolver = new Resolver();
-panelResolver.define('panel', readHeartbeat);
+panelResolver.define('panel', readPanel);
 export const panel = panelResolver.getDefinitions();
 
 /** Records operator intent in Jira. It must never spawn an agent by itself. */

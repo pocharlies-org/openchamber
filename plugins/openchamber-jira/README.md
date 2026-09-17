@@ -154,6 +154,40 @@ reads, publish individual typed read tools through AgentGateway. Webhook registr
 rotation, deletion, issue mutation, and replay belong on a separately gated admin plane;
 a generic HTTP proxy is not an acceptable substitute.
 
+## Panel del ticket: el directo y la conversación lateral
+
+El `jira:issuePanel` es **Custom UI**, no UI Kit nativo, y no por gusto: un panel nativo
+solo puede hablar con su resolver, el resolver corre en la nube de Atlassian, y desde ahí
+no se alcanza el host privado donde viven las sesiones. El directo exige que la petición
+salga del navegador de quien mira.
+
+De ahí que el panel tenga dos orígenes, y que los dos hagan falta:
+
+| Origen | Qué trae | Cuándo funciona |
+|---|---|---|
+| `invoke('panel')` → resolver | el último latido que empujó `jira-forge-push.py` (estado, subagentes, por qué está parada) | siempre, desde cualquier red |
+| `https://x86.taile0ad27.ts.net` → host | el flujo SSE de la espina y el `/btw` | solo desde el tailnet |
+
+Si el segundo no responde, el panel lo dice y se queda con el primero. «Nadie trabaja
+aquí» y «no puedo saberlo» no pueden pintarse igual.
+
+Lo que viaja por ambos es la **espina**: nombres de tool, roles de los subagentes,
+contadores. Nunca el cuerpo de la conversación — el serializador del host
+(`company_live.py`) no tiene una rama por la que pueda salir, y hay un test con un canario
+que lo comprueba. Para leer el transcript está el visor del panel, tras SSO, enlazado
+desde abajo del todo.
+
+### Build de `static/live`
+
+La fuente es `static/live/src/main.js`; `main.js` es la build (Custom UI sirve estáticos,
+no fuentes). Tras tocar la fuente:
+
+```sh
+npx esbuild static/live/src/main.js --bundle --format=iife --target=es2020 --minify \
+  --outfile=static/live/main.js
+forge deploy            # el app id ya existe: es deploy, no una app nueva
+```
+
 ## Related Documents
 
 - `docs/COMPANY_OFFICE.md`
