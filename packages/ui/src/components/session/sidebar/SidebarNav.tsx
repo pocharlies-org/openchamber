@@ -7,6 +7,7 @@ import { useI18n } from '@/lib/i18n';
 // every other control lives in the icon toolbar below.
 type Props = {
   onNewSession: () => void;
+  onOpenCompanyOffice?: () => void;
 };
 
 export function SidebarNav(props: Props): React.ReactNode {
@@ -21,6 +22,16 @@ export function SidebarNav(props: Props): React.ReactNode {
         <Icon name="chat-new" className="h-4 w-4 flex-shrink-0" />
         <span className="truncate">{t('sessions.sidebar.header.actions.newSession')}</span>
       </button>
+      {props.onOpenCompanyOffice ? (
+        <button
+          type="button"
+          onClick={props.onOpenCompanyOffice}
+          className="flex w-full min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-left typography-ui-label font-normal text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+        >
+          <Icon name="home-office" className="h-4 w-4 flex-shrink-0" />
+          <span className="truncate">{t('companyOffice.navigation')}</span>
+        </button>
+      ) : null}
     </div>
   );
 }

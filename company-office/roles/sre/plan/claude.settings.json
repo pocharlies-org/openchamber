@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "defaultMode": "plan",
+    "allow": [
+      "Bash(kubectl describe:*)",
+      "Bash(kubectl events:*)",
+      "Bash(kubectl get:*)",
+      "Bash(kubectl logs:*)",
+      "Bash(kubectl top:*)"
+    ],
+    "deny": [
+      "Bash(argocd:*)",
+      "Bash(docker:*)",
+      "Bash(gh pr merge:*)",
+      "Bash(git merge:*)",
+      "Bash(git push:*)",
+      "Bash(helm:*)",
+      "Bash(kubectl apply:*)",
+      "Bash(kubectl delete:*)",
+      "Bash(kubectl patch:*)",
+      "Bash(kubectl scale:*)",
+      "Bash(kubectl:*)",
+      "Bash(rm:*)",
+      "Bash(systemctl restart:*)",
+      "Bash(systemctl stop:*)",
+      "Bash(systemctl:*)",
+      "Edit",
+      "NotebookEdit",
+      "Write"
+    ]
+  }
+}

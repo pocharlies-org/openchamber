@@ -10,7 +10,7 @@ import { BUILT_IN_UI_PLUGIN_NAMES, stageUIPluginManifests } from './stage-ui-plu
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..', '..', '..');
 
-test('stages both declarative UI plugin manifests for packaged Desktop', async (t) => {
+test('stages declarative UI plugin manifests for packaged Desktop', async (t) => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'openchamber-ui-plugins-'));
   t.after(() => fs.rm(tempDir, { recursive: true, force: true }));
   const destinationDir = path.join(tempDir, 'ui-plugins');
@@ -34,11 +34,13 @@ test('stages both declarative UI plugin manifests for packaged Desktop', async (
   }));
 
   assert.deepEqual(manifests.map((manifest) => manifest.id), [
+    '@pocharlies/openchamber-company-office',
     '@pocharlies/openchamber-side-chat',
     '@pocharlies/openchamber-stream-metrics',
   ]);
-  assert.equal(manifests[0].contributes.sideConversations.length, 1);
-  assert.equal(manifests[1].contributes.composerMetrics.length, 1);
+  assert.equal(manifests[0].contributes.workspaceViews.length, 1);
+  assert.equal(manifests[1].contributes.sideConversations.length, 1);
+  assert.equal(manifests[2].contributes.composerMetrics.length, 1);
 
   const packageManifest = JSON.parse(await fs.readFile(path.join(repoRoot, 'packages', 'electron', 'package.json'), 'utf8'));
   assert.ok(packageManifest.build.extraResources.some((resource) => (

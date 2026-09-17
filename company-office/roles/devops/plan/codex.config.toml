@@ -1,0 +1,17 @@
+# devops · plan
+#
+# Layered onto the base config with `codex exec --profile devops-plan`, so the
+# ChatGPT login and the rollout history in CODEX_HOME are untouched.
+#
+# FIDELITY: Codex's sandbox has no per-command patterns, so this role's bash rules
+# collapse into a sandbox mode. These stay denied by the role definition and are
+# NOT enforceable here -- do not read this file as if they were:
+#   kubectl apply*
+#   kubectl patch*
+#   kubectl delete*
+#   kubectl scale*
+#   kubectl edit*
+
+model_reasoning_effort = "high"
+approval_policy = "never"
+sandbox_mode = "read-only"

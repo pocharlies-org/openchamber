@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 export const BUILT_IN_UI_PLUGIN_NAMES = Object.freeze([
+  'openchamber-company-office',
   'openchamber-side-chat',
   'openchamber-stream-metrics',
 ]);

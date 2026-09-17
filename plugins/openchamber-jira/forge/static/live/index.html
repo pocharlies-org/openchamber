@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AIOPS</title>
+    <link rel="stylesheet" href="estilo.css" />
+  </head>
+  <body>
+    <!-- Estructura fija: el JS rellena, nunca construye la página entera. Así
+         un fallo de red deja la cáscara y sus mensajes, no una pantalla vacía. -->
+    <div id="cabecera" class="fila">
+      <span id="estado" class="chip chip--gris">Cargando…</span>
+      <span id="quien" class="tenue"></span>
+      <span id="tool" class="chip chip--tool oculto"></span>
+    </div>
+
+    <p id="motivo" class="aviso oculto"></p>
+
+    <p>
+      <!-- Solo aparece si el latido trae `rcUrl`: hoy las sesiones de la
+           compañía van en `-p` y no están publicadas en Remote Control. -->
+      <a id="rc" class="boton oculto" href="#" target="_blank" rel="noreferrer noopener">
+        Entrar en la sesión (Remote Control) →</a>
+    </p>
+
+    <section id="equipo" class="oculto">
+      <h2>Equipo de la sesión</h2>
+      <ul id="hijos"></ul>
+    </section>
+
+    <section id="directo">
+      <div class="fila fila--titulo">
+        <h2>En vivo</h2>
+        <span id="vivo" class="tenue"></span>
+      </div>
+      <ol id="feed" class="feed"></ol>
+      <p id="sin-directo" class="tenue oculto">
+        El directo va del navegador al host, que solo se alcanza desde el tailnet.
+        Lo de arriba sigue siendo lo último que llegó.
+      </p>
+    </section>
+
+    <p class="tenue">
+      <!-- La salida de emergencia: el visor completo del panel, que sí enseña el
+           transcript. Está tras el SSO y no cabe en un iframe de Jira, así que
+           es un enlace, no un empotrado. -->
+      <a id="visor" href="https://dgx.e-dani.com/claude-sessions#compania"
+         target="_blank" rel="noreferrer noopener">Ver la sesión completa en el panel →</a>
+    </p>
+
+    <section id="btw">
+      <button id="btw-abrir" type="button" class="boton">Preguntar a esta sesión</button>
+      <div id="btw-caja" class="oculto">
+        <p class="tenue">
+          Va a una copia lateral de la sesión: contesta con todo su contexto y no
+          toca el hilo que está corriendo. Sin manos: solo puede responder.
+        </p>
+        <textarea id="btw-texto" rows="3" placeholder="¿Por qué has elegido ese enfoque?"></textarea>
+        <div class="fila">
+          <button id="btw-enviar" type="button" class="boton boton--primario">Preguntar</button>
+          <span id="btw-estado" class="tenue"></span>
+        </div>
+        <ol id="btw-hilo" class="hilo"></ol>
+      </div>
+    </section>
+
+    <script src="main.js"></script>
+  </body>
+</html>

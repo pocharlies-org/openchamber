@@ -7,6 +7,7 @@ import { ConfigUpdateOverlay } from '@/components/ui/ConfigUpdateOverlay';
 import { Button } from '@/components/ui/button';
 import { OpenChamberLogo } from '@/components/ui/OpenChamberLogo';
 import { ChatView } from '@/components/views/ChatView';
+import { CompanyOfficeView } from '@/components/views/CompanyOfficeView';
 import { PlanView } from '@/components/views/PlanView';
 import { SettingsView } from '@/components/views/SettingsView';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
@@ -41,6 +42,7 @@ import {
   worktreeMapsEqual,
 } from '@/lib/worktrees/worktreeManager';
 import { useUIStore } from '@/stores/useUIStore';
+import { findEnabledWorkspaceViewContributions, useUIPluginsStore } from '@/stores/useUIPluginsStore';
 import { useUpdateStore } from '@/stores/useUpdateStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { SyncProvider } from '@/sync/sync-context';
@@ -96,7 +98,7 @@ const NATIVE_RESUME_SYNC_EVENT_THROTTLE_MS = 1_000;
     footer. Exactly one can be open at a time — opening another replaces it,
     closing returns to the chat. The sessions drawer and the workspace drawer
     (Changes / Files / Terminal / Notes / MCP) are separate layers. */
-type MobileSurface = 'instances' | 'settings' | 'update';
+type MobileSurface = 'company-office' | 'instances' | 'settings' | 'update';
 
 const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onActiveConnectionDeleted }) => {
   const { t } = useI18n();
@@ -113,6 +115,7 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
   // When set, the Changes surface opens directly into the per-file diff for this path.
   const [pendingChangesDiff, setPendingChangesDiff] = React.useState<{ path: string; staged: boolean } | null>(null);
   const setSettingsPage = useUIStore((state) => state.setSettingsPage);
+  const setCompanyOfficePageOpen = useUIStore((state) => state.setCompanyOfficePageOpen);
   const wideChatLayoutEnabled = useUIStore((state) => state.wideChatLayoutEnabled);
   const updateAvailable = useUpdateStore((state) => state.available);
   const updateRuntimeType = useUpdateStore((state) => state.runtimeType);
@@ -120,18 +123,29 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
   const mcpServers = useMcpConfigStore((state) => state.mcpServers);
   const setMcpDraft = useMcpConfigStore((state) => state.setMcpDraft);
   const setSelectedMcp = useMcpConfigStore((state) => state.setSelectedMcp);
+  const companyOfficeAvailable = useUIPluginsStore((state) => findEnabledWorkspaceViewContributions(state).some(
+    (contribution) => contribution.support[showCapacitorOnlyFeatures ? 'capacitorMobile' : 'hostedMobile'] === 'supported',
+  ));
+
+  React.useEffect(() => {
+    if (companyOfficeAvailable || activeSurface !== 'company-office') return;
+    setCompanyOfficePageOpen(false);
+    setActiveSurface(null);
+  }, [activeSurface, companyOfficeAvailable, setCompanyOfficePageOpen]);
 
   // NOTE: pendingChangesDiff is intentionally NOT cleared on close — it keys
   // the persistent Changes pane in the workspace drawer, and clearing it would
   // remount the pane (losing its navigation) on every close.
   const closeSurface = React.useCallback(() => {
+    setCompanyOfficePageOpen(false);
     setActiveSurface(null);
     setOpenPlan(null);
-  }, []);
+  }, [setCompanyOfficePageOpen]);
 
   const openSurface = React.useCallback((surface: MobileSurface) => {
+    setCompanyOfficePageOpen(surface === 'company-office');
     setActiveSurface(surface);
-  }, []);
+  }, [setCompanyOfficePageOpen]);
 
   const closeWorkspace = React.useCallback(() => {
     setWorkspaceOpen(false);
@@ -327,10 +341,11 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
     () => ({
       instanceLabel: showCapacitorOnlyFeatures ? getAutoConnectTargetLabel() : null,
       onOpenInstances: showCapacitorOnlyFeatures ? () => openSurface('instances') : undefined,
+      onOpenCompanyOffice: companyOfficeAvailable ? () => openSurface('company-office') : undefined,
       onOpenSettings: () => openSettingsSurface('nav'),
       onOpenUpdate: showUpdateItem ? () => openSurface('update') : undefined,
     }),
-    [openSettingsSurface, openSurface, showCapacitorOnlyFeatures, showUpdateItem],
+    [companyOfficeAvailable, openSettingsSurface, openSurface, showCapacitorOnlyFeatures, showUpdateItem],
   );
 
   const openMcpCreateSettings = React.useCallback(() => {
@@ -562,6 +577,26 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
               onConnect={closeSurface}
               onActiveConnectionDeleted={onActiveConnectionDeleted}
             />
+          </MobileFullscreenSurface>
+        ) : null}
+
+        {activeSurface === 'company-office' && companyOfficeAvailable ? (
+          <MobileFullscreenSurface
+            open
+            variant={surfaceVariant}
+            dialogAlign="app"
+            onClose={closeSurface}
+            ariaLabel={t('companyOffice.navigation')}
+            title={t('companyOffice.navigation')}
+          >
+            <ErrorBoundary>
+              <div className="relative h-full overflow-hidden">
+                <CompanyOfficeView onNavigateToSession={() => {
+                  closeSurface();
+                  if (!isTabletLayout) setSessionsSheetOpen(false);
+                }} />
+              </div>
+            </ErrorBoundary>
           </MobileFullscreenSurface>
         ) : null}
 

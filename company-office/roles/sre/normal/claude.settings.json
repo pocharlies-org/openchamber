@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "defaultMode": "acceptEdits",
+    "allow": [
+      "Bash(kubectl describe:*)",
+      "Bash(kubectl events:*)",
+      "Bash(kubectl get:*)",
+      "Bash(kubectl logs:*)",
+      "Bash(kubectl top:*)",
+      "WebFetch"
+    ],
+    "deny": [
+      "Bash(kubectl apply:*)",
+      "Bash(kubectl delete:*)",
+      "Bash(kubectl patch:*)",
+      "Bash(kubectl scale:*)",
+      "Bash(systemctl restart:*)",
+      "Bash(systemctl stop:*)"
+    ]
+  }
+}

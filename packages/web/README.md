@@ -116,6 +116,7 @@ OPENCODE_HOST=https://myhost:4096 OPENCODE_SKIP_START=true openchamber
 | `OPENCHAMBER_SKIP_API_COMPRESSION` | Set to `true` to disable gzip compression for `/api/*` responses |
 | `OPENCHAMBER_COMPRESS_API` | Set to `true` to force `/api/*` compression, or `false` to disable it. Desktop runtime disables API compression by default to reduce local sidecar CPU use |
 | `OPENCHAMBER_TERMINAL_SHELL` | Preferred terminal shell executable used by the `Auto` setting before platform defaults |
+| `OPENCHAMBER_COMPANY_OFFICE_CONFIG` | Absolute path to a Company Office JSON configuration. The JSON contains roster/runtime paths and a reference to a separate server-only Jira token file; the token itself does not belong in the JSON. The browser receives only the normalized read-only snapshot. See `company-office.config.example.json`. |
 
 </details>
 

@@ -1,0 +1,7 @@
+{
+  "name": "@pocharlies/openchamber-jira",
+  "version": "0.1.0",
+  "description": "Jira connector contract and webhook architecture for OpenChamber Company Office",
+  "license": "MIT",
+  "files": ["README.md"]
+}

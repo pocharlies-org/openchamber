@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "defaultMode": "acceptEdits",
+    "allow": [
+      "WebFetch"
+    ],
+    "deny": [
+      "Bash(argocd:*)",
+      "Bash(helm:*)",
+      "Bash(kubectl:*)",
+      "Bash(systemctl:*)"
+    ]
+  }
+}

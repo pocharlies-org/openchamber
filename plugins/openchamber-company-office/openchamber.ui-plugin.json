@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "id": "@pocharlies/openchamber-company-office",
+  "version": "0.1.0",
+  "displayName": { "default": "Company Office", "es": "Oficina de la empresa" },
+  "description": {
+    "default": "Browse the configured company roster, live sessions, and Jira work.",
+    "es": "Consulta el equipo configurado, las sesiones activas y el trabajo de Jira."
+  },
+  "engines": { "openchamber": ">=1.18.2" },
+  "contributes": {
+    "workspaceViews": [{
+      "id": "company-office",
+      "icon": "home-office",
+      "label": { "default": "Company Office", "es": "Oficina de la empresa" },
+      "endpoint": "/api/company-office/snapshot",
+      "support": {
+        "web": "supported",
+        "desktop": "supported",
+        "vscode": "unsupported",
+        "hostedMobile": "supported",
+        "capacitorMobile": "supported"
+      }
+    }]
+  }
+}

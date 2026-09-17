@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "defaultMode": "acceptEdits",
+    "allow": [
+      "WebFetch"
+    ],
+    "deny": [
+      "Edit",
+      "NotebookEdit",
+      "Write"
+    ]
+  }
+}
