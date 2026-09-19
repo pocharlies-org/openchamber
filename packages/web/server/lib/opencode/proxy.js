@@ -7,6 +7,7 @@ import {
 } from '../../proxy-headers.js';
 import { createRealpathCache } from '../path-realpath-cache.js';
 import { DEFAULT_UPSTREAM_STALL_TIMEOUT_MS } from '../event-stream/upstream-reader.js';
+import { mergeClaudeCodeSessions } from '../claude-code-sessions/merge.js';
 import { recordStartupPerformance } from './startup-performance.js';
 
 const DEFAULT_SSE_HEARTBEAT_INTERVAL_MS = 20_000;
@@ -179,6 +180,25 @@ const sanitizeSessionListPayload = (payload) => {
   return payload.map((session) => sanitizeSessionListItem(session));
 };
 
+// The `directory` query param a session-list request is scoped to, if any.
+// Used to filter on-disk Claude Code sessions so directory-scoped fetches do
+// not leak sessions from other folders into the project tree.
+const getSessionListDirectoryFilter = (req) => {
+  const rawUrl = typeof req.originalUrl === 'string' && req.originalUrl.length > 0
+    ? req.originalUrl
+    : (typeof req.url === 'string' ? req.url : '');
+  const queryIndex = rawUrl.indexOf('?');
+  if (queryIndex === -1) {
+    return null;
+  }
+  try {
+    const directory = new URLSearchParams(rawUrl.slice(queryIndex + 1)).get('directory');
+    return typeof directory === 'string' && directory.trim() ? directory.trim() : null;
+  } catch {
+    return null;
+  }
+};
+
 export const registerOpenCodeProxy = (app, deps) => {
   const {
     fs,
@@ -193,6 +213,11 @@ export const registerOpenCodeProxy = (app, deps) => {
     SSE_HEARTBEAT_INTERVAL_MS = DEFAULT_SSE_HEARTBEAT_INTERVAL_MS,
     SSE_UPSTREAM_STALL_TIMEOUT_MS = DEFAULT_UPSTREAM_STALL_TIMEOUT_MS,
     getSseUpstreamStallTimeoutMs = () => SSE_UPSTREAM_STALL_TIMEOUT_MS,
+    // Optional read-only index of on-disk Claude Code sessions
+    // (claude-code-sessions module). When present, `/api/session` folds its
+    // cache into the upstream payload; when absent the route behaves exactly
+    // as before.
+    claudeCodeSessions = null,
   } = deps;
 
   if (app.get('opencodeProxyConfigured')) {
@@ -554,7 +579,7 @@ export const registerOpenCodeProxy = (app, deps) => {
     return canonicalizeDirectoryQuery(upstreamPathRaw);
   };
 
-  const forwardSanitizedSessionListRequest = async (req, res, next, logLabel) => {
+  const forwardSanitizedSessionListRequest = async (req, res, next, logLabel, transformPayload = null) => {
     try {
       const upstreamPath = await getRequestUpstreamPath(req);
       const result = await fetchSessionListPayload(upstreamPath, { req });
@@ -575,7 +600,8 @@ export const registerOpenCodeProxy = (app, deps) => {
       }
 
       res.setHeader('content-type', result.contentType);
-      res.json(sanitizeSessionListPayload(result.payload));
+      const sanitized = sanitizeSessionListPayload(result.payload);
+      res.json(transformPayload ? transformPayload(sanitized) : sanitized);
     } catch (error) {
       if (isAbortError(error)) {
         return;
@@ -756,7 +782,25 @@ export const registerOpenCodeProxy = (app, deps) => {
   }
 
   app.get('/api/session', (req, res, next) => {
-    return forwardSanitizedSessionListRequest(req, res, next, 'session.list');
+    if (!claudeCodeSessions) {
+      return forwardSanitizedSessionListRequest(req, res, next, 'session.list');
+    }
+    // The disk index serves from its in-memory cache; the initial scan and
+    // the staleness refresh run in the background so this request never
+    // waits on (or triggers) a transcript scan.
+    claudeCodeSessions.ensureStarted();
+    claudeCodeSessions.refreshIfStale();
+    const directory = getSessionListDirectoryFilter(req);
+    return forwardSanitizedSessionListRequest(
+      req,
+      res,
+      next,
+      'session.list',
+      (payload) => mergeClaudeCodeSessions(payload, {
+        diskSessions: claudeCodeSessions.listSessions(),
+        directory,
+      }),
+    );
   });
 
   app.get('/api/global/event', forwardSseRequest);

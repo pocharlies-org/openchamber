@@ -1,5 +1,6 @@
 import { registerOpenCodeProxy } from './proxy.js';
 import { pathLooksUserConfigured, mergePathValues } from './path-utils.js';
+import { createClaudeCodeSessionIndex } from '../claude-code-sessions/index.js';
 
 export const createServerUtilsRuntime = (dependencies) => {
   const {
@@ -215,6 +216,10 @@ export const createServerUtilsRuntime = (dependencies) => {
       ensureOpenCodeApiPrefix,
       getSseUpstreamStallTimeoutMs: getUpstreamStallTimeoutMs,
       getUiNotificationClients,
+      // Read-only index of on-disk Claude Code sessions; scans lazily on the
+      // first /api/session request and refreshes incrementally in the
+      // background (see claude-code-sessions/DOCUMENTATION.md).
+      claudeCodeSessions: createClaudeCodeSessionIndex({ fs, os, path }),
     });
   };
 
