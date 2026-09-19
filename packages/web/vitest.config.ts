@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -27,5 +27,9 @@ export default defineConfig({
     // suite fail differently on every run.
     testTimeout: 30_000,
     hookTimeout: 30_000,
+    // The claude-code-sessions suites run under `node --test` (node:test +
+    // node:assert) — the SC-688 acceptance command. Vitest would load them
+    // and report no suites, so they are excluded from the vitest run.
+    exclude: [...configDefaults.exclude, '**/server/lib/claude-code-sessions/**'],
   },
 });
