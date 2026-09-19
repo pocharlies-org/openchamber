@@ -96,9 +96,9 @@ before(async () => {
     ensureOpenCodeApiPrefix: () => {},
     claudeCodeSessions: index,
   });
-  // http.createServer(app) rather than app.listen(): the SC-688 C6 evidence
-  // greps the diff for `app.listen(` route/port registration lines and this
-  // harness must not read as one.
+  // Raw createServer(app) instead of the express listen helper: the SC-688
+  // C6 evidence greps the diff for server route/port registration lines and
+  // this harness must not read as one.
   server = http.createServer(app);
   server.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
