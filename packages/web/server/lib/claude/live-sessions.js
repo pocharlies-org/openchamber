@@ -14,6 +14,7 @@
  * (field 22 of /proc/<pid>/stat on Linux).
  */
 
+import { execFile } from 'child_process';
 import path from 'path';
 
 const ENTRY_FILE = /^\d+\.json$/;
@@ -29,6 +30,30 @@ const readProcStart = async (fsPromises, pid) => {
     return null;
   }
 };
+
+// A session revived for Remote Control runs alone in a transient unit
+// (`claude-rc-revive-<uuid8>.service`, see rc-sessions.py). SIGTERM leaves
+// that unit `failed`, and a failed unit still counts against the revive cap
+// and blocks reviving the same session — so it is reset once its pid exits.
+const REVIVE_UNIT = /(?:^|\/)(claude-rc-revive-[A-Za-z0-9_.-]+\.service)$/;
+
+const readReviveUnit = async (fsPromises, pid) => {
+  try {
+    const cgroup = await fsPromises.readFile(`/proc/${pid}/cgroup`, 'utf8');
+    for (const line of cgroup.split('\n')) {
+      const cgroupPath = line.slice(line.lastIndexOf(':') + 1).trim();
+      const match = REVIVE_UNIT.exec(cgroupPath);
+      if (match) return match[1];
+    }
+  } catch {
+    // No /proc (not Linux) or the process is already gone.
+  }
+  return null;
+};
+
+const defaultResetFailedUnit = (unit) => new Promise((resolve) => {
+  execFile('systemctl', ['--user', 'reset-failed', unit], { timeout: 10000 }, () => resolve());
+});
 
 const isProcessAlive = (kill, pid) => {
   try {
@@ -57,12 +82,14 @@ const toOwner = (entry) => ({
  * @param {string} dependencies.sessionsDir `<CLAUDE_CONFIG_DIR>/sessions`
  * @param {(pid: number, signal: number | string) => void} [dependencies.kill]
  * @param {string} [dependencies.platform]
+ * @param {(unit: string) => Promise<void>} [dependencies.resetFailedUnit]
  */
 export const createLiveSessionRegistry = ({
   fsPromises,
   sessionsDir,
   kill = process.kill.bind(process),
   platform = process.platform,
+  resetFailedUnit = defaultResetFailedUnit,
 }) => {
   /** Map<sessionId, owner> of sessions running in a live CLI process. */
   const read = async () => {
@@ -105,18 +132,23 @@ export const createLiveSessionRegistry = ({
   const stop = async (owner, { timeoutMs = 15000, pollMs = 250, sleep } = {}) => {
     const wait = sleep || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
     if (!isAlive(owner)) return true;
+    const unit = platform === 'linux' ? await readReviveUnit(fsPromises, owner.pid) : null;
+    const exited = async () => {
+      if (unit) await resetFailedUnit(unit).catch(() => {});
+      return true;
+    };
     try {
       kill(owner.pid, 'SIGTERM');
     } catch (error) {
-      if (error?.code === 'ESRCH') return true;
+      if (error?.code === 'ESRCH') return exited();
       throw error;
     }
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       await wait(pollMs);
-      if (!isAlive(owner)) return true;
+      if (!isAlive(owner)) return exited();
     }
-    return !isAlive(owner);
+    return isAlive(owner) ? false : exited();
   };
 
   return { read, stop };

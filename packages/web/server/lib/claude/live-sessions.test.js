@@ -94,6 +94,36 @@ describe('live session registry', () => {
     expect(kill).toHaveBeenCalledWith(7, 'SIGTERM');
   });
 
+  it('resets the revive unit of an owner it stopped', async () => {
+    const alive = new Set([9]);
+    const fsPromises = makeFs({});
+    const readFile = fsPromises.readFile;
+    fsPromises.readFile = vi.fn(async (target, ...rest) => (target === '/proc/9/cgroup'
+      ? '0::/user.slice/user-1000.slice/user@1000.service/claude-revive.slice/claude-rc-revive-ae04f51c.service\n'
+      : readFile(target, ...rest)));
+    const resetFailedUnit = vi.fn(async () => {});
+    const registry = createLiveSessionRegistry({
+      fsPromises, sessionsDir: DIR, kill: killFor(alive), platform: 'linux', resetFailedUnit,
+    });
+    await expect(registry.stop({ pid: 9 }, { sleep: async () => {} })).resolves.toBe(true);
+    expect(resetFailedUnit).toHaveBeenCalledWith('claude-rc-revive-ae04f51c.service');
+  });
+
+  it('leaves other units alone (VS Code, the Remote Control daemon)', async () => {
+    const alive = new Set([10]);
+    const fsPromises = makeFs({});
+    const readFile = fsPromises.readFile;
+    fsPromises.readFile = vi.fn(async (target, ...rest) => (target === '/proc/10/cgroup'
+      ? '0::/user.slice/user-1000.slice/user@1000.service/app.slice/claude-rc-k8s.service\n'
+      : readFile(target, ...rest)));
+    const resetFailedUnit = vi.fn(async () => {});
+    const registry = createLiveSessionRegistry({
+      fsPromises, sessionsDir: DIR, kill: killFor(alive), platform: 'linux', resetFailedUnit,
+    });
+    await expect(registry.stop({ pid: 10 }, { sleep: async () => {} })).resolves.toBe(true);
+    expect(resetFailedUnit).not.toHaveBeenCalled();
+  });
+
   it('reports an owner that outlives the timeout', async () => {
     const kill = vi.fn(() => true);
     const registry = createLiveSessionRegistry({ fsPromises: makeFs({}), sessionsDir: DIR, kill });
