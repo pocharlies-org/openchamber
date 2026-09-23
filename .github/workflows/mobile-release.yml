@@ -195,6 +195,11 @@ jobs:
       # rewrites the bundle ids and App Group at build time, so the committed
       # project keeps upstream's ids and merges from upstream stay clean.
       IOS_BUNDLE_ID: ${{ vars.IOS_BUNDLE_ID || 'com.openchamber.app' }}
+      # Such a build must not register openchamber:// too — with two apps
+      # claiming it iOS opens either one. IOS_URL_SCHEME (openchamber-<suffix>,
+      # the form deepLinks.ts accepts) replaces it in Info.plist and in the
+      # widget/Control Center URLs.
+      IOS_URL_SCHEME: ${{ vars.IOS_URL_SCHEME || 'openchamber' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -276,6 +281,31 @@ jobs:
             echo "Upstream bundle id still present after rewrite."
             exit 1
           fi
+        working-directory: ${{ env.IOS_PROJECT_DIR }}
+
+      - name: Apply iOS URL scheme
+        if: env.IOS_BUNDLE_ID != 'com.openchamber.app' || env.IOS_URL_SCHEME != 'openchamber'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$IOS_URL_SCHEME" == 'openchamber' ]]; then
+            echo "IOS_BUNDLE_ID is overridden but IOS_URL_SCHEME is not: the app would claim openchamber:// alongside the official one."
+            exit 1
+          fi
+          if [[ ! "$IOS_URL_SCHEME" =~ ^openchamber-[a-z0-9.+-]+$ ]]; then
+            echo "IOS_URL_SCHEME must look like openchamber-<suffix> (lowercase), got: $IOS_URL_SCHEME"
+            exit 1
+          fi
+          /usr/libexec/PlistBuddy -c "Set :CFBundleURLTypes:0:CFBundleURLSchemes:0 $IOS_URL_SCHEME" App/Info.plist
+          grep -rlF --include='*.swift' --exclude-dir=Pods '"openchamber://' . | while IFS= read -r file; do
+            sed -i '' "s|\"openchamber://|\"${IOS_URL_SCHEME}://|g" "$file"
+            echo "rewrote $file"
+          done
+          if grep -rF --include='*.swift' --exclude-dir=Pods '"openchamber://' .; then
+            echo "openchamber:// still emitted after rewrite."
+            exit 1
+          fi
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleURLTypes' App/Info.plist
         working-directory: ${{ env.IOS_PROJECT_DIR }}
 
       - name: Set TestFlight entitlement and versions
