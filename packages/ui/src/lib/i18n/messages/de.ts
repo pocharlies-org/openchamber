@@ -3016,7 +3016,6 @@ export const dict = {
   'sessions.sidebar.header.sourceFilter.label': 'Nach Werkzeug filtern',
   'sessions.sidebar.header.sourceFilter.all': 'Alle Werkzeuge',
   'sessions.sidebar.header.sourceFilter.opencode': 'opencode',
-  'sessions.sidebar.header.sourceFilter.codex': 'Codex',
   'sessions.sidebar.header.sourceFilter.claude': 'Claude Code',
   'sessions.sidebar.header.grouping.byWorktree': 'Nach Worktree',
   'sessions.sidebar.header.grouping.flat': 'Flache Liste',

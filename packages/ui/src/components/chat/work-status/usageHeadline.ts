@@ -18,8 +18,6 @@ import type { UsageProviderGroup, UsageLimitRow } from '@/components/usage/usage
  * it bills against the same Claude subscription the `claude` quota reports.
  */
 const QUOTA_PROVIDER_ALIASES = new Map<string, string>([
-  ['openai', 'codex'],
-  ['chatgpt', 'codex'],
   ['anthropic', 'claude'],
   ['claude-code', 'claude'],
   ['gemini', 'google'],

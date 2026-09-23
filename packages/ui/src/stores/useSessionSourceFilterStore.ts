@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import type { SessionSourceFilter } from '@/lib/sessionSourceFilter';
 
 /**
- * Which tool's sessions the list shows (opencode / Codex / Claude Code).
+ * Which tool's sessions the list shows (opencode / Claude Code).
  *
  * The controls are the desktop `SidebarHeader` chip row, the mobile header
  * button, and the chips inside the mobile sessions sheet; the filtering happens

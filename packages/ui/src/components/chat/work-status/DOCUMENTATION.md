@@ -255,7 +255,7 @@ Selection rules live in `usageHeadline.ts` and are pinned by
 `usageHeadline.test.ts`:
 
 - provider ids are matched directly, with a small alias table for the ones that
-  diverge from OpenCode's (`openai`/`chatgpt` → `codex`, `anthropic` → `claude`,
+  diverge from OpenCode's (`anthropic` → `claude`,
   `gemini` → `google`);
 - model-scoped rows are skipped while any provider-level row exists — a
   per-model quota is not the provider's;

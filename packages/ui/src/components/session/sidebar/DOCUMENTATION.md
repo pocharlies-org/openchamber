@@ -49,7 +49,7 @@ project tree, with no Recent projection. VS Code excludes worktrees and managed
 Chats, while retaining its workspace-scoped grouped list and inline archived
 buckets.
 
-The optional tool filter (opencode, Codex, Claude Code) narrows both partitions
+The optional tool filter (opencode, Claude Code) narrows both partitions
 together, never one of them. `buildSidebarSessionStructure` applies it after the
 directory filter, so the project tree, the Chats section, the roots and every
 count read the same list. The header reads the filter and its own availability

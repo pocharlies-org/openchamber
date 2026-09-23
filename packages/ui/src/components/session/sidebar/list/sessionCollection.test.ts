@@ -241,12 +241,12 @@ describe('projectSidebarCollection', () => {
 
   test('the tool filter narrows the project tree and the Chats section together', () => {
     const opencodeRoot = session('project-root', '/workspace/a');
-    const codexRoot = session('ses_cdx_root', '/workspace/a');
-    const codexChat = session('ses_cdx_chat', '/home/.config/openchamber/chats/2026-08-24/session-root');
+    const claudeRoot = session('ses_ccc_root', '/workspace/a');
+    const opencodeChat = session('ses_native_chat', '/home/.config/openchamber/chats/2026-08-24/session-root');
     const claudeChat = session('ses_ccc_chat', '/home/.config/openchamber/chats/2026-08-24/session-root');
 
     const input = {
-      globalActiveSessions: [opencodeRoot, codexRoot, codexChat, claudeChat],
+      globalActiveSessions: [opencodeRoot, claudeRoot, opencodeChat, claudeChat],
       liveSessions: [],
       knownDirectories: new Set(['/workspace/a']),
       isVSCode: false,
@@ -255,20 +255,20 @@ describe('projectSidebarCollection', () => {
     };
 
     const unfiltered = buildSidebarSessionProjection(input);
-    expect(unfiltered.projectSessions.map((entry) => entry.id)).toEqual(['project-root', 'ses_cdx_root']);
-    expect(unfiltered.chatSessions.map((entry) => entry.id).sort()).toEqual(['ses_ccc_chat', 'ses_cdx_chat']);
+    expect(unfiltered.projectSessions.map((entry) => entry.id)).toEqual(['project-root', 'ses_ccc_root']);
+    expect(unfiltered.chatSessions.map((entry) => entry.id).sort()).toEqual(['ses_ccc_chat', 'ses_native_chat']);
 
     // Filtering must reach both partitions: a Chats section that ignored the
     // filter would show rows from a tool the project tree has hidden.
-    const codexOnly = buildSidebarSessionProjection({ ...input, sourceFilter: 'codex' });
-    expect(codexOnly.projectSessions.map((entry) => entry.id)).toEqual(['ses_cdx_root']);
-    expect(codexOnly.chatSessions.map((entry) => entry.id)).toEqual(['ses_cdx_chat']);
-    expect(codexOnly.orderedSessions.map((entry) => entry.id).sort()).toEqual(['ses_cdx_chat', 'ses_cdx_root']);
+    const claudeOnly = buildSidebarSessionProjection({ ...input, sourceFilter: 'claude' });
+    expect(claudeOnly.projectSessions.map((entry) => entry.id)).toEqual(['ses_ccc_root']);
+    expect(claudeOnly.chatSessions.map((entry) => entry.id)).toEqual(['ses_ccc_chat']);
+    expect(claudeOnly.orderedSessions.map((entry) => entry.id).sort()).toEqual(['ses_ccc_chat', 'ses_ccc_root']);
   });
 
   test('availability is measured before the filter, so using it cannot hide the control', () => {
     const input = {
-      globalActiveSessions: [session('project-root', '/workspace/a'), session('ses_cdx_root', '/workspace/a')],
+      globalActiveSessions: [session('project-root', '/workspace/a'), session('ses_ccc_root', '/workspace/a')],
       liveSessions: [],
       knownDirectories: new Set(['/workspace/a']),
       isVSCode: false,
@@ -277,8 +277,8 @@ describe('projectSidebarCollection', () => {
     };
 
     expect(buildSidebarSessionProjection(input).hasMultipleSources).toBe(true);
-    // Only Codex sessions remain visible, but more than one tool is still present.
-    expect(buildSidebarSessionProjection({ ...input, sourceFilter: 'codex' }).hasMultipleSources).toBe(true);
+    // Only Claude sessions remain visible, but more than one tool is still present.
+    expect(buildSidebarSessionProjection({ ...input, sourceFilter: 'claude' }).hasMultipleSources).toBe(true);
 
     const singleTool = { ...input, globalActiveSessions: [session('project-root', '/workspace/a')] };
     expect(buildSidebarSessionProjection(singleTool).hasMultipleSources).toBe(false);

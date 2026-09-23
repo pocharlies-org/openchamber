@@ -965,6 +965,9 @@ const processForwardedEventPayload = (payload, emitSyntheticEvent) => {
 const claudeSurface = createClaudeSurface({
   crypto,
   fsPromises: fs.promises,
+  // Archive state and titles staged before a session's first turn: Claude Code
+  // owns the transcripts, OpenChamber owns this overlay.
+  overlayFilePath: path.join(OPENCHAMBER_DATA_DIR, 'claude-sessions.json'),
   publishEvent: ({ payload, directory, eventId }) => {
     broadcastGlobalUiEvent(payload, {
       ...(directory ? { directory } : {}),

@@ -469,7 +469,6 @@ export const dict = {
   'sessions.sidebar.header.sourceFilter.label': 'Filter by tool',
   'sessions.sidebar.header.sourceFilter.all': 'All tools',
   'sessions.sidebar.header.sourceFilter.opencode': 'opencode',
-  'sessions.sidebar.header.sourceFilter.codex': 'Codex',
   'sessions.sidebar.header.sourceFilter.claude': 'Claude Code',
   'sessions.sidebar.header.grouping.byWorktree': 'By worktree',
   'sessions.sidebar.header.grouping.flat': 'Flat list',

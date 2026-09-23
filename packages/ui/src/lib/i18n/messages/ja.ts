@@ -470,7 +470,6 @@ export const dict: Record<I18nKey, string> = {
   'sessions.sidebar.header.sourceFilter.label': 'ツールで絞り込む',
   'sessions.sidebar.header.sourceFilter.all': 'すべてのツール',
   'sessions.sidebar.header.sourceFilter.opencode': 'opencode',
-  'sessions.sidebar.header.sourceFilter.codex': 'Codex',
   'sessions.sidebar.header.sourceFilter.claude': 'Claude Code',
   'sessions.sidebar.header.grouping.byWorktree': 'ワークツリー別',
   'sessions.sidebar.header.grouping.flat': 'フラットリスト',

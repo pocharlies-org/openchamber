@@ -8,7 +8,6 @@
 import { buildResult } from '../utils/index.js';
 
 import * as claude from './claude/index.js';
-import * as codex from './codex.js';
 import * as copilot from './copilot.js';
 import * as crof from './crof.js';
 import * as cursor from './cursor.js';
@@ -34,12 +33,6 @@ const registry = {
     providerName: claude.providerName,
     isConfigured: claude.isConfigured,
     fetchQuota: claude.fetchQuota
-  },
-  codex: {
-    providerId: codex.providerId,
-    providerName: codex.providerName,
-    isConfigured: codex.isConfigured,
-    fetchQuota: codex.fetchQuota
   },
   crof: {
     providerId: crof.providerId,
@@ -210,7 +203,6 @@ export const fetchQuotaForProvider = (providerId) => {
 export const fetchClaudeQuota = claude.fetchQuota;
 export const fetchOpenaiQuota = openai.fetchQuota;
 export const fetchGoogleQuota = google.fetchGoogleQuota;
-export const fetchCodexQuota = codex.fetchQuota;
 export const fetchCursorQuota = cursor.fetchQuota;
 export const fetchDeepseekQuota = deepseek.fetchQuota;
 export const fetchCopilotQuota = copilot.fetchQuota;

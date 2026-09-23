@@ -483,7 +483,6 @@ export const dict: Record<I18nKey, string> = {
   'sessions.sidebar.header.sourceFilter.label': '依工具篩選',
   'sessions.sidebar.header.sourceFilter.all': '所有工具',
   'sessions.sidebar.header.sourceFilter.opencode': 'opencode',
-  'sessions.sidebar.header.sourceFilter.codex': 'Codex',
   'sessions.sidebar.header.sourceFilter.claude': 'Claude Code',
   'sessions.sidebar.header.grouping.byWorktree': '依工作樹',
   'sessions.sidebar.header.grouping.flat': '平面清單',

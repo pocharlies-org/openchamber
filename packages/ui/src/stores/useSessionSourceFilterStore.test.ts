@@ -15,10 +15,10 @@ describe('useSessionSourceFilterStore', () => {
   test('losing availability clears the filter', () => {
     const { setAvailable, setFilter } = useSessionSourceFilterStore.getState();
     setAvailable(true);
-    setFilter('codex');
-    expect(useSessionSourceFilterStore.getState().filter).toBe('codex');
+    setFilter('claude');
+    expect(useSessionSourceFilterStore.getState().filter).toBe('claude');
 
-    // The control disappears with the second tool. Keeping 'codex' here would
+    // The control disappears with the second tool. Keeping 'claude' here would
     // leave the list filtered with nothing on screen able to clear it.
     setAvailable(false);
     expect(useSessionSourceFilterStore.getState().filter).toBe('all');
