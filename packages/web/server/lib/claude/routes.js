@@ -321,6 +321,18 @@ export const createClaudeSurface = (dependencies = {}) => {
         .catch((error) => answer(() => sendPromptError(res, error)));
     });
 
+    // The front end still shows a session another process is writing: keep
+    // following its transcript (the follow lapses otherwise, see runtime).
+    app.post('/api/session/:id/claude/follow', async (req, res, next) => {
+      const sessionId = fromPublicId(req.params.id);
+      if (!sessionId) return next();
+      const body = await readJsonBody(req);
+      return runtime
+        .keepFollowing({ sessionID: sessionId, directory: body.directory || directoryOf(req) })
+        .then(() => res.status(204).end())
+        .catch((error) => res.status(500).json({ error: error?.message || 'Failed' }));
+    });
+
     // Continue here a session another process holds: that process is closed,
     // this one resumes the transcript (see runtime `takeOverSession`).
     app.post('/api/session/:id/claude/takeover', async (req, res, next) => {
