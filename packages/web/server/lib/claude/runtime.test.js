@@ -330,11 +330,12 @@ describe('claude backend promptAsync', () => {
       ],
     });
 
+    // The prompt is a stream that stays open for the next turn: read the
+    // first message rather than draining it.
     const prompt = sdk.query.mock.calls[0][0].prompt;
-    const messages = [];
-    for await (const value of prompt) messages.push(value);
-    expect(messages).toHaveLength(1);
-    expect(messages[0].message.content).toEqual([
+    const first = await prompt[Symbol.asyncIterator]().next();
+    expect(first.done).toBe(false);
+    expect(first.value.message.content).toEqual([
       { type: 'text', text: 'look' },
       { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } },
     ]);
@@ -676,5 +677,105 @@ describe('claude backend live turn rendering', () => {
     const onStarted = vi.fn();
     await expect(runtime.promptAsync({ sessionID: 'sess-1', parts: [], onStarted })).rejects.toThrow(/empty input/);
     expect(onStarted).not.toHaveBeenCalled();
+  });
+});
+
+describe('claude backend live processes', () => {
+  // A CLI that stays up across prompts: answers each one and closes the turn.
+  const interactiveQuery = () => vi.fn(({ prompt }) => {
+    const queued = [];
+    const waiting = [];
+    let ended = false;
+    const push = (value) => {
+      const next = waiting.shift();
+      if (next) next({ value, done: false });
+      else queued.push(value);
+    };
+    const end = () => {
+      ended = true;
+      for (const next of waiting.splice(0)) next({ value: undefined, done: true });
+    };
+    (async () => {
+      for await (const message of prompt) {
+        push({ ...message, isReplay: true });
+        push({ type: 'result', is_error: false });
+      }
+      end();
+    })();
+    return {
+      [Symbol.asyncIterator]: () => ({
+        next: () => {
+          if (queued.length > 0) return Promise.resolve({ value: queued.shift(), done: false });
+          if (ended) return Promise.resolve({ value: undefined, done: true });
+          return new Promise((resolve) => waiting.push(resolve));
+        },
+      }),
+      interrupt: vi.fn(async () => {}),
+      close: vi.fn(end),
+      setModel: vi.fn(async () => {}),
+      setPermissionMode: vi.fn(async () => {}),
+      enableRemoteControl: vi.fn(async () => ({ session_url: 'https://claude.ai/code/session_x', bridge_session_id: 'cse_x' })),
+    };
+  });
+
+  it('reuses the session process for the next turn', async () => {
+    const sdk = makeSdk({ query: interactiveQuery() });
+    const { runtime } = createRuntime({ sdk });
+
+    await runtime.promptAsync({ sessionID: 'sess-1', parts: [{ type: 'text', text: 'one' }] });
+    await runtime.promptAsync({ sessionID: 'sess-1', parts: [{ type: 'text', text: 'two' }] });
+
+    expect(sdk.query).toHaveBeenCalledTimes(1);
+    expect(sdk.query.mock.calls[0][0].options.extraArgs).toEqual({ 'replay-user-messages': null });
+    await runtime.shutdownAll();
+  });
+
+  it('starts a new process when the effort changes', async () => {
+    const sdk = makeSdk({ query: interactiveQuery() });
+    const { runtime } = createRuntime({ sdk });
+
+    await runtime.promptAsync({ sessionID: 'sess-1', parts: [{ type: 'text', text: 'one' }], variant: 'low' });
+    await runtime.promptAsync({ sessionID: 'sess-1', parts: [{ type: 'text', text: 'two' }], variant: 'max' });
+
+    expect(sdk.query).toHaveBeenCalledTimes(2);
+    expect(sdk.query.mock.calls[1][0].options.effort).toBe('max');
+    await runtime.shutdownAll();
+  });
+
+  it('links the process to Remote Control with a first-party base URL and advertises the link', async () => {
+    const sdk = makeSdk({
+      query: interactiveQuery(),
+      listSessions: vi.fn(async () => [sessionInfo()]),
+    });
+    const { runtime } = createRuntime({
+      sdk,
+      remoteControl: { enabled: true, baseUrl: 'https://api.anthropic.com' },
+    });
+
+    await runtime.promptAsync({ sessionID: 'sess-1', directory: '/repo/project', parts: [{ type: 'text', text: 'hi' }] });
+
+    const options = sdk.query.mock.calls[0][0].options;
+    expect(options.settings).toEqual({ env: { ANTHROPIC_BASE_URL: 'https://api.anthropic.com' } });
+    const handle = sdk.query.mock.results[0].value;
+    expect(handle.enableRemoteControl).toHaveBeenCalledWith(true, 'summarised work');
+
+    await vi.waitFor(async () => {
+      const [session] = await runtime.listSessions({ directory: '/repo/project' });
+      expect(session.metadata.remoteControl).toEqual({ url: 'https://claude.ai/code/session_x' });
+    });
+    await runtime.shutdownAll();
+  });
+
+  it('closes the longest-idle process to make room, never a busy one', async () => {
+    const sdk = makeSdk({ query: interactiveQuery() });
+    const { runtime } = createRuntime({ sdk, maxConcurrentRuns: 1 });
+
+    await runtime.promptAsync({ sessionID: 'sess-1', parts: [{ type: 'text', text: 'one' }] });
+    await runtime.promptAsync({ sessionID: 'sess-2', parts: [{ type: 'text', text: 'two' }] });
+
+    const first = sdk.query.mock.results[0].value;
+    expect(first.close).toHaveBeenCalled();
+    expect(sdk.query).toHaveBeenCalledTimes(2);
+    await runtime.shutdownAll();
   });
 });

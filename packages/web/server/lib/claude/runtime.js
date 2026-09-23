@@ -12,12 +12,14 @@
 
 import os from 'os';
 import path from 'path';
-import { mapClaudeSessionMessages, deriveClaudeTitle, toolResultText } from './claude-transcript.js';
+import { mapClaudeSessionMessages, deriveClaudeTitle } from './claude-transcript.js';
+import { createClaudeSessionProcess } from './session-process.js';
 
 const BACKEND_ID = 'claude';
 const PROVIDER_ID = 'claude';
 const LIST_CACHE_TTL_MS = 4000;
 const DEFAULT_MAX_CONCURRENT_RUNS = 4;
+const DEFAULT_IDLE_TIMEOUT_MS = 60 * 60 * 1000;
 const DEFAULT_MODE_ID = 'default';
 const DEFAULT_EFFORT_ID = 'high';
 const SDK_IMPORT_PATH = '@anthropic-ai/claude-agent-sdk';
@@ -49,12 +51,6 @@ const EFFORT_OPTIONS = Object.freeze([
   { id: 'high', label: 'High' },
   { id: 'max', label: 'Max' },
 ]);
-
-// Stream deltas that grow a part live, keyed by the Anthropic delta type.
-const STREAM_DELTA_KINDS = Object.freeze({
-  text_delta: { partType: 'text', field: 'text' },
-  thinking_delta: { partType: 'reasoning', field: 'thinking' },
-});
 
 const DEFAULT_MODEL_CATALOG = Object.freeze([
   { id: 'sonnet', label: 'Sonnet' },
@@ -154,10 +150,17 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     maxConcurrentRuns = DEFAULT_MAX_CONCURRENT_RUNS,
     sdkLoader,
     settingSources = ['user', 'project', 'local'],
+    idleTimeoutMs = DEFAULT_IDLE_TIMEOUT_MS,
+    // `{ enabled, baseUrl }`. Remote Control only links a session whose
+    // ANTHROPIC_BASE_URL is first-party; `baseUrl` overrides the settings'
+    // value for the processes OpenChamber starts (see DOCUMENTATION.md).
+    remoteControl = null,
   } = dependencies;
 
   const eventClients = new Set();
-  const runs = new Map();
+  /** Live CLI process per session id; see session-process.js. */
+  const processes = new Map();
+  const idleTimers = new Map();
   const listCache = new Map();
 
   /** OpenChamber-side overlay: Claude owns transcripts, not archive state. */
@@ -352,6 +355,13 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     metadata: info.gitBranch ? { gitBranch: info.gitBranch } : null,
   });
 
+  /** A session with a live process advertises its Remote Control link. */
+  const withLiveState = (session) => {
+    const link = processes.get(session.id)?.remoteControl();
+    if (!link) return { ...session };
+    return { ...session, metadata: { ...(session.metadata || {}), remoteControl: { url: link.url } } };
+  };
+
   const listSessions = async (input = {}) => {
     const sdk = await ensureSdk();
     if (!sdk) return [];
@@ -397,7 +407,7 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
       .sort((a, b) => (b.time?.updated ?? 0) - (a.time?.updated ?? 0));
 
     if (limit) result = result.slice(0, limit);
-    return result.map((session) => ({ ...session }));
+    return result.map(withLiveState);
   };
 
   const getSession = async (input = {}) => {
@@ -415,7 +425,7 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     try {
       const info = await sdk.getSessionInfo?.(sessionId, directory ? { dir: directory } : {});
       if (!info) return null;
-      return buildSessionFromInfo(info, directory);
+      return withLiveState(buildSessionFromInfo(info, directory));
     } catch (error) {
       console.warn('[claude-backend] getSessionInfo failed:', error?.message || error);
       return null;
@@ -529,6 +539,122 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     }
   };
 
+  const remoteControlName = (title, directory) => {
+    const label = clampText(title, 80);
+    if (label && label !== 'Untitled session' && label !== 'New session') return label;
+    return `OpenChamber · ${path.basename(directory || '') || 'session'}`;
+  };
+
+  const closeProcess = async (sessionId) => {
+    const proc = processes.get(sessionId);
+    if (!proc) return;
+    processes.delete(sessionId);
+    clearTimeout(idleTimers.get(sessionId));
+    idleTimers.delete(sessionId);
+    await proc.close();
+  };
+
+  // A live process holds memory and, with Remote Control, a claude.ai link.
+  // An idle one is closed after `idleTimeoutMs`; the next prompt resumes the
+  // transcript in a fresh process.
+  const scheduleIdleClose = (sessionId) => {
+    clearTimeout(idleTimers.get(sessionId));
+    if (!(idleTimeoutMs > 0)) return;
+    const timer = setTimeout(() => {
+      const proc = processes.get(sessionId);
+      if (proc && !proc.isBusy()) void closeProcess(sessionId);
+    }, idleTimeoutMs);
+    timer.unref?.();
+    idleTimers.set(sessionId, timer);
+  };
+
+  /** Room for one more process: evict the longest-idle one, never a busy one. */
+  const makeRoomForProcess = async () => {
+    if (processes.size < maxConcurrentRuns) return;
+    const idle = Array.from(processes.entries())
+      .filter(([, proc]) => !proc.isBusy())
+      .sort(([, a], [, b]) => a.lastActivityAt() - b.lastActivityAt());
+    if (idle.length === 0) {
+      throw new Error(`Claude is already running ${processes.size} sessions (limit ${maxConcurrentRuns}). Stop one first.`);
+    }
+    await closeProcess(idle[0][0]);
+  };
+
+  const startProcess = async ({ sdk, sessionId, directory, model, effort, permissionMode, title }) => {
+    await makeRoomForProcess();
+    const executable = await resolveExecutable();
+    const resume = (await transcriptExists(sdk, sessionId, directory)) && !overlay.pendingTitles[sessionId];
+    const flagSettings = remoteControl?.baseUrl ? { env: { ANTHROPIC_BASE_URL: remoteControl.baseUrl } } : undefined;
+
+    const proc = createClaudeSessionProcess({
+      sdk,
+      sessionId,
+      directory,
+      model,
+      options: {
+        cwd: directory || undefined,
+        model,
+        effort,
+        permissionMode,
+        settingSources,
+        includePartialMessages: true,
+        env: { ...process.env },
+        // Prompts from another surface (claude.ai) reach the stream only as
+        // echoes; this is the flag the VS Code extension runs with too.
+        extraArgs: { 'replay-user-messages': null },
+        ...(flagSettings ? { settings: flagSettings } : {}),
+        ...pathToExecutableOption(executable),
+        ...(resume ? { resume: sessionId } : { sessionId }),
+      },
+      remoteControl: remoteControl?.enabled ? { name: remoteControlName(title, directory) } : null,
+      emit: (payload) => emitEvent(directory, payload),
+      setStatus: (status) => setBusyStatus(sessionId, directory, status),
+      onRemotePrompt: (text) => {
+        const now = Date.now();
+        const recordId = `msg_${String(now).padStart(14, '0')}_000000_remote`;
+        emitRecordEvents(directory, {
+          info: {
+            id: recordId,
+            sessionID: sessionId,
+            role: 'user',
+            time: { created: new Date(now).toISOString(), completed: new Date(now).toISOString() },
+          },
+          parts: [{ id: `${recordId}_text_0`, sessionID: sessionId, messageID: recordId, type: 'text', text }],
+        });
+      },
+      onRemoteControl: () => {
+        listCache.clear();
+        void getSession({ sessionID: sessionId, directory })
+          .then((session) => session && emitSessionUpdate('session.updated', session))
+          .catch(() => {});
+      },
+      onTurnEnd: async () => {
+        await applyPendingTitle(sdk, sessionId, directory);
+        listCache.clear();
+        const known = await getSession({ sessionID: sessionId, directory }).catch(() => null);
+        emitSessionUpdate('session.updated', withLiveState(buildSession({
+          sessionId,
+          directory,
+          title: known?.title || title || 'Untitled session',
+          createdAt: known?.time?.created ?? Date.now(),
+          updatedAt: Date.now(),
+          metadata: known?.metadata ?? null,
+        })));
+        scheduleIdleClose(sessionId);
+      },
+      onExit: () => {
+        if (processes.get(sessionId) === proc) {
+          processes.delete(sessionId);
+          clearTimeout(idleTimers.get(sessionId));
+          idleTimers.delete(sessionId);
+        }
+      },
+      createUuid: () => createSessionId(crypto),
+    });
+    processes.set(sessionId, proc);
+    return proc;
+  };
+
   const promptAsync = async (input = {}) => {
     const sdk = await ensureSdk();
     if (!sdk) throw new Error('Claude backend is not available');
@@ -536,14 +662,13 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
 
     const sessionId = typeof input.sessionID === 'string' ? input.sessionID.trim() : '';
     if (!sessionId) throw new Error('Session not found');
-    if (runs.has(sessionId)) throw new Error('Session is already running');
-    if (runs.size >= maxConcurrentRuns) {
-      throw new Error(`Claude is already running ${runs.size} sessions (limit ${maxConcurrentRuns}). Stop one first.`);
-    }
+    const live = processes.get(sessionId);
+    if (live?.isBusy()) throw new Error('Session is already running');
 
-    const directory = normalizeDirectory(input.directory);
+    const directory = normalizeDirectory(input.directory) || live?.directory || '';
     const settings = await readSettings();
     const modeId = MODE_DEFINITIONS[input.agent] ? input.agent : DEFAULT_MODE_ID;
+    const permissionMode = MODE_DEFINITIONS[modeId].permissionMode;
     const effort = EFFORT_OPTIONS.some((option) => option.id === input.variant)
       ? input.variant
       : (typeof settings?.effortLevel === 'string' && EFFORT_OPTIONS.some((option) => option.id === settings.effortLevel)
@@ -557,10 +682,33 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     if (blocks.length === 0) {
       throw new Error('Cannot start a turn with empty input — the message had no text or attachment');
     }
+    if (unsupported.length > 0) {
+      console.warn(`[claude-backend] ${unsupported.length} attachment(s) could not be sent for ${sessionId}`);
+    }
+
+    // Effort is fixed when the CLI starts; a different one needs a new process.
+    if (live && live.effort !== effort) await closeProcess(sessionId);
+    let proc = processes.get(sessionId);
+    if (!proc) {
+      const existing = await getSession({ sessionID: sessionId, directory }).catch(() => null);
+      proc = await startProcess({
+        sdk,
+        sessionId,
+        directory,
+        model,
+        effort,
+        permissionMode,
+        title: overlay.pendingTitles[sessionId] || existing?.title,
+      });
+    } else {
+      await proc.applyModel(model);
+      await proc.applyPermissionMode(permissionMode);
+    }
+    clearTimeout(idleTimers.get(sessionId));
 
     const now = Date.now();
     const userRecordId = `msg_${String(now).padStart(14, '0')}_000000_local`;
-    const userRecord = {
+    emitRecordEvents(directory, {
       info: {
         id: typeof input.messageID === 'string' && input.messageID.trim() ? input.messageID.trim() : userRecordId,
         sessionID: sessionId,
@@ -576,307 +724,22 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
           type: 'text',
           text: block.text,
         })),
-    };
-    emitRecordEvents(directory, userRecord);
+    });
 
-    const existing = await getSession({ sessionID: sessionId, directory }).catch(() => null);
-    const abortController = new AbortController();
-    runs.set(sessionId, { abortController, directory });
-    setBusyStatus(sessionId, directory, { type: 'busy' });
+    const turnDone = proc.send(blocks);
     // The turn is accepted from here on: every later failure is reported as a
     // `session.error` event, so an HTTP caller can be answered now instead of
     // being held open for the whole turn.
     input.onStarted?.();
-
-    // One OpenChamber message per Claude API message id; the CLI emits several
-    // API messages per turn (one per tool round), so ids must not be reused.
-    const streamingParts = new Map();
-
-    const ensureStreamingPart = (apiMessageId, index, type, text) => {
-      const messageId = `msg_${apiMessageId}`;
-      const partId = `${messageId}_${type}_${index}`;
-      const existingPart = streamingParts.get(partId);
-      if (existingPart) {
-        existingPart.text += text;
-        return existingPart;
-      }
-
-      const part = { id: partId, sessionID: sessionId, messageID: messageId, type, text };
-      streamingParts.set(partId, part);
-      emitEvent(directory, {
-        type: 'message.updated',
-        properties: {
-          info: {
-            id: messageId,
-            sessionID: sessionId,
-            role: 'assistant',
-            model: { providerID: PROVIDER_ID, modelID: model || '' },
-            providerID: PROVIDER_ID,
-            modelID: model || '',
-            time: { created: new Date().toISOString() },
-          },
-          directory,
-        },
-      });
-      // The reducer applies deltas to an existing part only, so open it empty.
-      emitEvent(directory, {
-        type: 'message.part.updated',
-        properties: { part: { ...part, text: '' }, directory },
-      });
-      return existingPart || part;
-    };
-
-    const emitStreamingPart = (partId) => {
-      const part = streamingParts.get(partId);
-      if (!part) return;
-      emitEvent(directory, {
-        type: 'message.part.updated',
-        properties: { part: { ...part }, directory },
-      });
-    };
-
-    // The CLI delivers each content block of an API message as its own SDK
-    // `assistant` message, always at content index 0, while the stream events
-    // that preceded it carried the block's real index. The finished block
-    // therefore settles the part its deltas already built instead of opening
-    // a second one keyed by index 0, which would render the text twice.
-    const settledPartIds = new Set();
-    const settleBlockPart = (apiMessageId, type, text) => {
-      const messageId = `msg_${apiMessageId}`;
-      const finalText = typeof text === 'string' ? text : '';
-      for (const part of streamingParts.values()) {
-        if (part.messageID !== messageId || part.type !== type || settledPartIds.has(part.id)) continue;
-        if (part.text.trim() !== finalText.trim()) continue;
-        part.text = finalText;
-        settledPartIds.add(part.id);
-        emitStreamingPart(part.id);
-        return;
-      }
-      let index = 0;
-      while (streamingParts.has(`${messageId}_${type}_${index}`)) index += 1;
-      const part = ensureStreamingPart(apiMessageId, index, type, finalText);
-      settledPartIds.add(part.id);
-      emitStreamingPart(part.id);
-    };
-
-    // Tool calls stay open until the CLI hands back their `tool_result`, which
-    // arrives as a `user` message in the same stream: the card closes live
-    // instead of waiting for the transcript to be re-read after the turn.
-    const toolParts = new Map();
-
-    try {
-      const executable = await resolveExecutable();
-      const query = sdk.query({
-        prompt: blocks.length === 1 && blocks[0].type === 'text'
-          ? blocks[0].text
-          : (async function* promptStream() {
-            yield {
-              type: 'user',
-              session_id: sessionId,
-              parent_tool_use_id: null,
-              message: { role: 'user', content: blocks },
-            };
-          })(),
-        options: {
-          cwd: directory || undefined,
-          model,
-          effort,
-          permissionMode: MODE_DEFINITIONS[modeId].permissionMode,
-          settingSources,
-          includePartialMessages: true,
-          abortController,
-          env: { ...process.env },
-          ...pathToExecutableOption(executable),
-          ...(((await transcriptExists(sdk, sessionId, directory)) && !overlay.pendingTitles[sessionId])
-            ? { resume: sessionId }
-            : { sessionId }),
-        },
-      });
-      runs.set(sessionId, { abortController, directory, query });
-
-      let currentApiMessageId = null;
-
-      for await (const message of query) {
-        if (message?.type === 'stream_event') {
-          const event = message.event;
-          if (event?.type === 'message_start') {
-            currentApiMessageId = typeof event.message?.id === 'string' ? event.message.id : null;
-            continue;
-          }
-          const deltaKind = event?.type === 'content_block_delta'
-            ? STREAM_DELTA_KINDS[event.delta?.type]
-            : undefined;
-          if (deltaKind) {
-            const apiMessageId = currentApiMessageId || `turn-${Date.now()}`;
-            const index = typeof event.index === 'number' ? event.index : 0;
-            const delta = event.delta[deltaKind.field] || '';
-            ensureStreamingPart(apiMessageId, index, deltaKind.partType, delta);
-            emitEvent(directory, {
-              type: 'message.part.delta',
-              properties: {
-                sessionID: sessionId,
-                messageID: `msg_${apiMessageId}`,
-                partID: `msg_${apiMessageId}_${deltaKind.partType}_${index}`,
-                field: 'text',
-                delta,
-              },
-            });
-          }
-          continue;
-        }
-
-        if (message?.type === 'user') {
-          const content = Array.isArray(message.message?.content) ? message.message.content : [];
-          for (const block of content) {
-            if (block?.type !== 'tool_result' || typeof block.tool_use_id !== 'string') continue;
-            const toolPart = toolParts.get(block.tool_use_id);
-            if (!toolPart) continue;
-            toolParts.delete(block.tool_use_id);
-            const output = toolResultText(block.content);
-            const failed = block.is_error === true;
-            emitEvent(directory, {
-              type: 'message.part.updated',
-              properties: {
-                part: {
-                  ...toolPart,
-                  state: {
-                    status: failed ? 'error' : 'completed',
-                    input: toolPart.state.input,
-                    output,
-                    error: failed ? (output || 'Tool call failed') : undefined,
-                    time: { start: toolPart.state.time.start, end: Date.now() },
-                  },
-                },
-                directory,
-              },
-            });
-          }
-          continue;
-        }
-
-        if (message?.type === 'assistant') {
-          const apiMessageId = typeof message.message?.id === 'string'
-            ? message.message.id
-            : (currentApiMessageId || `turn-${Date.now()}`);
-          const content = Array.isArray(message.message?.content) ? message.message.content : [];
-          content.forEach((block, index) => {
-            if (block?.type === 'text') {
-              settleBlockPart(apiMessageId, 'text', block.text || '');
-              return;
-            }
-            if (block?.type === 'thinking') {
-              if (typeof block.thinking === 'string' && block.thinking.length > 0) {
-                settleBlockPart(apiMessageId, 'reasoning', block.thinking);
-              }
-              return;
-            }
-            if (block?.type === 'tool_use') {
-              const messageId = `msg_${apiMessageId}`;
-              const callId = typeof block.id === 'string' ? block.id : `${messageId}_tool_${index}`;
-              emitEvent(directory, {
-                type: 'message.updated',
-                properties: {
-                  info: {
-                    id: messageId,
-                    sessionID: sessionId,
-                    role: 'assistant',
-                    model: { providerID: PROVIDER_ID, modelID: model || '' },
-                    providerID: PROVIDER_ID,
-                    modelID: model || '',
-                    time: { created: new Date().toISOString() },
-                  },
-                  directory,
-                },
-              });
-              // Keyed by call id, not content index: every block arrives at
-              // index 0, so parallel calls of one API message would overwrite
-              // each other's card.
-              const toolPart = {
-                id: `${messageId}_tool_${callId}`,
-                sessionID: sessionId,
-                messageID: messageId,
-                type: 'tool',
-                callID: callId,
-                tool: typeof block.name === 'string' ? block.name : 'tool',
-                state: {
-                  status: 'running',
-                  input: block.input && typeof block.input === 'object' ? block.input : undefined,
-                  time: { start: Date.now() },
-                },
-              };
-              toolParts.set(callId, toolPart);
-              emitEvent(directory, {
-                type: 'message.part.updated',
-                properties: { part: toolPart, directory },
-              });
-            }
-          });
-          continue;
-        }
-
-        if (message?.type === 'result') {
-          if (message.is_error) {
-            emitEvent(directory, {
-              type: 'session.error',
-              properties: {
-                sessionID: sessionId,
-                error: { message: typeof message.result === 'string' ? message.result : 'Claude run failed' },
-                directory,
-              },
-            });
-          }
-          continue;
-        }
-      }
-
-      await applyPendingTitle(sdk, sessionId, directory);
-
-      const updated = buildSession({
-        sessionId,
-        directory,
-        title: existing?.title || 'Untitled session',
-        createdAt: existing?.time?.created ?? now,
-        updatedAt: Date.now(),
-      });
-      emitSessionUpdate('session.updated', updated);
-      return { ok: true };
-    } catch (error) {
-      if (error?.name !== 'AbortError') {
-        emitEvent(directory, {
-          type: 'session.error',
-          properties: {
-            sessionID: sessionId,
-            error: { message: error instanceof Error ? error.message : 'Claude run failed' },
-            directory,
-          },
-        });
-      }
-      throw error;
-    } finally {
-      runs.delete(sessionId);
-      setBusyStatus(sessionId, directory, { type: 'idle' });
-      listCache.clear();
-      if (unsupported.length > 0) {
-        console.warn(`[claude-backend] ${unsupported.length} attachment(s) could not be sent for ${sessionId}`);
-      }
-    }
+    return turnDone;
   };
 
   const abortSession = async (input = {}) => {
     const sessionId = typeof input.sessionID === 'string' ? input.sessionID.trim() : '';
-    const run = runs.get(sessionId);
-    if (run) {
-      try {
-        await run.query?.interrupt?.();
-      } catch {
-        // best effort
-      }
-      try {
-        run.abortController.abort();
-      } catch {
-        // best effort
-      }
-      runs.delete(sessionId);
+    const proc = processes.get(sessionId);
+    if (proc) {
+      await proc.interrupt();
+      return true;
     }
     const entry = await getSession({ sessionID: sessionId }).catch(() => null);
     setBusyStatus(sessionId, entry?.directory || normalizeDirectory(input.directory), { type: 'idle' });
@@ -932,7 +795,7 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     const sessionId = typeof input.sessionID === 'string' ? input.sessionID.trim() : '';
     if (!sessionId) return false;
 
-    await abortSession({ sessionID: sessionId, directory: input.directory });
+    await closeProcess(sessionId);
 
     const directory = normalizeDirectory(input.directory);
     let removed = false;
@@ -963,8 +826,9 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
   const getStatusSnapshot = async (input = {}) => {
     const directory = normalizeDirectory(input.directory);
     const result = {};
-    for (const [sessionId, run] of runs) {
-      if (directory && run.directory !== directory) continue;
+    for (const [sessionId, proc] of processes) {
+      if (!proc.isBusy()) continue;
+      if (directory && proc.directory !== directory) continue;
       result[sessionId] = { type: 'busy' };
     }
     return result;
@@ -1065,19 +929,7 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
   };
 
   const shutdownAll = async () => {
-    for (const [sessionId, run] of Array.from(runs)) {
-      try {
-        await run.query?.interrupt?.();
-      } catch {
-        // best effort
-      }
-      try {
-        run.abortController.abort();
-      } catch {
-        // best effort
-      }
-      runs.delete(sessionId);
-    }
+    await Promise.all(Array.from(processes.keys()).map((sessionId) => closeProcess(sessionId)));
   };
 
   // Kick availability detection off at construction so the sync
