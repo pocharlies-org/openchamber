@@ -802,7 +802,8 @@ describe('claude backend sessions live in another process', () => {
     const state = { owners: new Map(owners.map((o) => [o.sessionId, o])) };
     return {
       state,
-      read: vi.fn(async () => new Map(state.owners)),
+      read: vi.fn(async ({ ignoreParentPid } = {}) => new Map([...state.owners]
+        .filter(([, o]) => ignoreParentPid === undefined || o.ppid !== ignoreParentPid))),
       stop: vi.fn(async (o) => { state.owners.delete(o.sessionId); return true; }),
     };
   };
@@ -873,6 +874,35 @@ describe('claude backend sessions live in another process', () => {
     await vi.waitFor(async () => {
       const [session] = await runtime.listSessions({ directory: '/repo/project' });
       expect(session.metadata?.liveElsewhere).toBeUndefined();
+    });
+    await runtime.shutdownAll();
+  });
+
+  it('yields its own process when someone else resumes the session on top of it', async () => {
+    const publishEvent = vi.fn();
+    const close = vi.fn();
+    const sdk = makeSdk({
+      getSessionInfo: vi.fn(async () => sessionInfo()),
+      query: vi.fn(() => makeQuery([
+        { type: 'result', is_error: false, session_id: 'sess-1' },
+        new Promise(() => {}),
+      ], { close })),
+    });
+    const liveRegistry = makeRegistry([]);
+    const { runtime } = createRuntime({ sdk, publishEvent, liveRegistry, livePollMs: 5, selfPid: 100 });
+
+    await runtime.promptAsync({ sessionID: 'sess-1', directory: '/repo/project', parts: [{ type: 'text', text: 'hi' }] });
+    // Our own CLI child is in the registry too: it is not a foreign writer.
+    liveRegistry.state.owners.set('sess-1', owner({ entrypoint: 'sdk-ts', pid: 555, ppid: 100, status: 'idle' }));
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(close).not.toHaveBeenCalled();
+
+    // VS Code resumes it on top of ours: ours closes, the session is followed.
+    liveRegistry.state.owners.set('sess-1', owner({ pid: 4242, ppid: 1, status: 'busy' }));
+    await vi.waitFor(() => expect(close).toHaveBeenCalled());
+    await vi.waitFor(async () => {
+      const session = await runtime.getSession({ sessionID: 'sess-1', directory: '/repo/project' });
+      expect(session.metadata.liveElsewhere).toMatchObject({ entrypoint: 'claude-vscode', pid: 4242 });
     });
     await runtime.shutdownAll();
   });
