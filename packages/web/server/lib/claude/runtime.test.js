@@ -346,7 +346,7 @@ describe('claude backend promptAsync', () => {
     await expect(runtime.promptAsync({ sessionID: 'sess-1', parts: [] })).rejects.toThrow(/empty input/);
   });
 
-  it('rejects a second concurrent run on the same session', async () => {
+  it('queues a second prompt in the same process instead of refusing it', async () => {
     let release;
     const gate = new Promise((resolve) => { release = resolve; });
     const sdk = makeSdk({
@@ -357,11 +357,16 @@ describe('claude backend promptAsync', () => {
     const first = runtime.promptAsync({ sessionID: 'sess-1', parts: [{ type: 'text', text: 'a' }] });
     await vi.waitFor(() => expect(runtime.getStatusSnapshot({})).resolves.toHaveProperty('sess-1'));
 
-    await expect(runtime.promptAsync({ sessionID: 'sess-1', parts: [{ type: 'text', text: 'b' }] }))
-      .rejects.toThrow(/already running/);
+    const onStarted = vi.fn();
+    const second = runtime.promptAsync({ sessionID: 'sess-1', parts: [{ type: 'text', text: 'b' }], onStarted });
+    await vi.waitFor(() => expect(onStarted).toHaveBeenCalled());
+    // Never a second writer on the transcript.
+    expect(sdk.query).toHaveBeenCalledTimes(1);
 
     release();
     await first;
+    // This fake CLI exits after one turn without taking the queued prompt.
+    await expect(second).rejects.toThrow(/exited before taking the prompt/);
   });
 
   it('emits session.error and still goes idle when the run fails', async () => {
