@@ -5,7 +5,7 @@ import { BusyDots } from '@/components/chat/message/parts/BusyDots';
 import { toast } from '@/components/ui';
 import { Button } from '@/components/ui/button';
 import { getClaudeLiveState, type ClaudeLiveOwnerKind } from '@/lib/claudeSessionMetadata';
-import { takeOverClaudeSession } from '@/lib/claudeTakeOver';
+import { CLAUDE_FOLLOW_KEEPALIVE_MS, keepFollowingClaudeSession, takeOverClaudeSession } from '@/lib/claudeTakeOver';
 import { useI18n } from '@/lib/i18n';
 import { useSession } from '@/sync/sync-context';
 
@@ -36,6 +36,18 @@ export const ClaudeLiveSessionBanner = memo(({ sessionId, directory }: ClaudeLiv
   const session = useSession(sessionId, directory ?? undefined);
   const { liveElsewhere, remoteControlUrl } = getClaudeLiveState(session);
   const [takingOver, setTakingOver] = React.useState(false);
+  const isLiveElsewhere = Boolean(liveElsewhere);
+
+  // While this banner shows a session another process writes, its messages
+  // keep streaming here however long it stays open.
+  React.useEffect(() => {
+    if (!sessionId || !isLiveElsewhere) return undefined;
+    void keepFollowingClaudeSession(sessionId, directory);
+    const timer = window.setInterval(() => {
+      void keepFollowingClaudeSession(sessionId, directory);
+    }, CLAUDE_FOLLOW_KEEPALIVE_MS);
+    return () => window.clearInterval(timer);
+  }, [directory, isLiveElsewhere, sessionId]);
 
   const handleTakeOver = React.useCallback(async () => {
     if (!sessionId) return;

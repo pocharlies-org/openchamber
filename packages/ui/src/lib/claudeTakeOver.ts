@@ -17,3 +17,22 @@ export const takeOverClaudeSession = async (sessionId: string, directory: string
     return false;
   }
 };
+
+/** How often a session shown live keeps its server-side follow alive (the follow lapses after 15 min). */
+export const CLAUDE_FOLLOW_KEEPALIVE_MS = 4 * 60 * 1000;
+
+/**
+ * Tell the server this window still shows a session another process is
+ * writing, so it keeps publishing that process's messages here.
+ */
+export const keepFollowingClaudeSession = async (sessionId: string, directory: string | null): Promise<void> => {
+  try {
+    await runtimeFetch(`/api/session/${encodeURIComponent(sessionId)}/claude/follow`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ directory }),
+    });
+  } catch {
+    // The next tick retries; the transcript stays readable either way.
+  }
+};
