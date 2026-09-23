@@ -879,7 +879,6 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     const sessionId = typeof input.sessionID === 'string' ? input.sessionID.trim() : '';
     if (!sessionId) throw new Error('Session not found');
     const live = processes.get(sessionId);
-    if (live?.isBusy()) throw new Error('Session is already running');
 
     const directory = normalizeDirectory(input.directory) || live?.directory || '';
     const { permissionMode, effort, model } = await resolveTurnSettings(input);
@@ -893,8 +892,10 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
       console.warn(`[claude-backend] ${unsupported.length} attachment(s) could not be sent for ${sessionId}`);
     }
 
-    // Effort is fixed when the CLI starts; a different one needs a new process.
-    if (live && live.effort !== effort) await closeProcess(sessionId);
+    // Effort is fixed when the CLI starts; a different one needs a new
+    // process — but never under a running turn, whose prompt then keeps the
+    // process it has.
+    if (live && !live.isBusy() && live.effort !== effort) await closeProcess(sessionId);
     let proc = processes.get(sessionId);
     if (!proc) {
       const existing = await getSession({ sessionID: sessionId, directory }).catch(() => null);
@@ -907,7 +908,7 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
         permissionMode,
         title: overlay.pendingTitles[sessionId] || existing?.title,
       });
-    } else {
+    } else if (!proc.isBusy()) {
       await proc.applyModel(model);
       await proc.applyPermissionMode(permissionMode);
     }
