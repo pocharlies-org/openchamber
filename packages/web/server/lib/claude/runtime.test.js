@@ -818,6 +818,39 @@ describe('claude backend sessions live in another process', () => {
     expect(sdk.query).not.toHaveBeenCalled();
   });
 
+  it('writes to a session live elsewhere through its claude.ai bridge, without a second process', async () => {
+    const sdk = makeSdk({ getSessionInfo: vi.fn(async () => sessionInfo()) });
+    const liveRegistry = makeRegistry([owner()]);
+    const remoteAttach = { send: vi.fn(async () => {}), closeAll: vi.fn() };
+    const { runtime } = createRuntime({ sdk, liveRegistry, remoteAttach, livePollMs: 5 });
+
+    const onStarted = vi.fn();
+    await runtime.promptAsync({ sessionID: 'sess-1', directory: '/repo/project', parts: [{ type: 'text', text: 'hola' }], onStarted });
+
+    expect(remoteAttach.send).toHaveBeenCalledWith('session_01REMOTE', [{ type: 'text', text: 'hola' }]);
+    expect(onStarted).toHaveBeenCalled();
+    expect(sdk.query).not.toHaveBeenCalled();
+    expect(liveRegistry.stop).not.toHaveBeenCalled();
+    await vi.waitFor(async () => {
+      const session = await runtime.getSession({ sessionID: 'sess-1', directory: '/repo/project' });
+      expect(session.metadata.liveElsewhere.attachable).toBe(true);
+    });
+    await runtime.shutdownAll();
+    expect(remoteAttach.closeAll).toHaveBeenCalled();
+  });
+
+  it('still refuses a live session that is not linked to claude.ai', async () => {
+    const sdk = makeSdk();
+    const liveRegistry = makeRegistry([owner({ bridgeSessionId: '' })]);
+    const remoteAttach = { send: vi.fn(async () => {}), closeAll: vi.fn() };
+    const { runtime } = createRuntime({ sdk, liveRegistry, remoteAttach, livePollMs: 0 });
+
+    await expect(runtime.promptAsync({ sessionID: 'sess-1', parts: [{ type: 'text', text: 'hi' }] }))
+      .rejects.toMatchObject({ code: 'CLAUDE_SESSION_LIVE_ELSEWHERE' });
+    expect(remoteAttach.send).not.toHaveBeenCalled();
+    expect(sdk.query).not.toHaveBeenCalled();
+  });
+
   it('takes a session over: stops the owner, then resumes it here and reattaches its claude.ai link', async () => {
     const enableRemoteControl = vi.fn(async () => ({ session_url: 'https://claude.ai/code/session_01REMOTE' }));
     const sdk = makeSdk({
@@ -858,7 +891,7 @@ describe('claude backend sessions live in another process', () => {
     await runtime.listSessions({ directory: '/repo/project' });
     await vi.waitFor(async () => {
       const [session] = await runtime.listSessions({ directory: '/repo/project' });
-      expect(session.metadata.liveElsewhere).toEqual({ entrypoint: 'claude-vscode', name: 'k8s-93', status: 'busy', pid: 4242 });
+      expect(session.metadata.liveElsewhere).toEqual({ entrypoint: 'claude-vscode', name: 'k8s-93', status: 'busy', pid: 4242, attachable: false });
       expect(session.metadata.remoteControl).toEqual({ url: 'https://claude.ai/code/session_01REMOTE' });
     });
     expect(await runtime.getStatusSnapshot({ directory: '/repo/project' })).toEqual({ 'sess-1': { type: 'busy' } });
