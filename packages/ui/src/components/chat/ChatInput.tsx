@@ -18,7 +18,9 @@ import {
 import type { AttachedFile } from '@/stores/types/sessionTypes';
 import * as sessionActions from '@/sync/session-actions';
 import { buildLinkedIssue, buildLinkedLinearIssue } from '@/lib/linkedIssues';
-import { useUserMessageHistory } from "@/sync/sync-context";
+import { useSession, useUserMessageHistory } from "@/sync/sync-context";
+import { getClaudeLiveState } from '@/lib/claudeSessionMetadata';
+import { takeOverClaudeSession } from '@/lib/claudeTakeOver';
 import { getInlineCommentDraftKey, useInlineCommentDraftStore, type InlineCommentDraft, type InlineCommentDraftTarget } from '@/stores/useInlineCommentDraftStore';
 import { useSnippetsStore } from '@/stores/useSnippetsStore';
 import { renderMagicPrompt } from '@/lib/magicPrompts';
@@ -350,6 +352,11 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     const currentSessionDirectoryForSync = useSessionUIStore(
         React.useCallback((s) => currentSessionId ? s.getDirectoryForSession(currentSessionId) : null, [currentSessionId]),
     );
+    // A Claude session open in another process with no claude.ai link cannot
+    // be written from here (409): sending offers to take it over first.
+    const claudeLiveElsewhere = getClaudeLiveState(
+        useSession(currentSessionId, currentSessionDirectoryForSync ?? currentDirectory ?? undefined),
+    ).liveElsewhere;
     // btw mode: the CURRENT session's metadata links an active btw fork and
     // the panel is expanded, so this composer's sends route to the fork
     // instead of the main session. Collapsed keeps the fork alive (chip stays
@@ -1035,6 +1042,30 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             ? queuedMessages.filter((message) => message.id === queuedMessageId)
             : queuedMessages
         ).filter((message) => !sendingIds.includes(message.id));
+
+        // Held by another process that OpenChamber cannot reach (no claude.ai
+        // link): nothing is sent and the prompt stays in the composer; the
+        // toast takes the session over and then sends it.
+        if (!queuedOnly && currentSessionId && claudeLiveElsewhere && !claudeLiveElsewhere.attachable) {
+            const sessionIdToTake = currentSessionId;
+            const directoryToTake = currentSessionDirectoryForSync ?? currentDirectory ?? null;
+            toast.warning(t('chat.claudeLive.toast.sendNeedsTakeOver'), {
+                description: t('chat.claudeLive.description'),
+                action: {
+                    label: t('chat.claudeLive.actions.takeOverAndSend'),
+                    onClick: () => {
+                        void (async () => {
+                            if (!await takeOverClaudeSession(sessionIdToTake, directoryToTake)) {
+                                toast.error(t('chat.claudeLive.toast.takeOverFailed'));
+                                return;
+                            }
+                            await handleSubmitRef.current(options);
+                        })();
+                    },
+                },
+            });
+            return;
+        }
 
         if (queuedOnly && autoReviewRunning) {
             return;
