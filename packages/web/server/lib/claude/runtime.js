@@ -181,6 +181,7 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     // apart by their parent pid.
     selfPid = process.pid,
     livePollMs = DEFAULT_LIVE_POLL_MS,
+    liveFollowWindowMs = LIVE_FOLLOW_WINDOW_MS,
   } = dependencies;
 
   const eventClients = new Set();
@@ -569,7 +570,7 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     if (!sdk) return;
     const now = Date.now();
     for (const [sessionId, entry] of followed) {
-      if (now - entry.readAt > LIVE_FOLLOW_WINDOW_MS) {
+      if (now - entry.readAt > liveFollowWindowMs) {
         followed.delete(sessionId);
         continue;
       }
@@ -579,6 +580,28 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
       if (!owners.has(sessionId) && !previous.has(sessionId)) continue;
       await refreshFollowed(sdk, sessionId, entry);
     }
+  };
+
+  /**
+   * The front end still shows this session: keep following its transcript.
+   * A follow that lapsed (a sleeping laptop) starts over and republishes every
+   * record, so the view catches up on what it missed.
+   */
+  const keepFollowing = async (input = {}) => {
+    const sessionId = typeof input.sessionID === 'string' ? input.sessionID.trim() : '';
+    if (!sessionId) return;
+    const entry = followed.get(sessionId);
+    if (entry) {
+      entry.readAt = Date.now();
+      return;
+    }
+    followed.set(sessionId, {
+      directory: normalizeDirectory(input.directory),
+      lastModified: null,
+      sent: new Map(),
+      readAt: Date.now(),
+    });
+    ensureLivePolling();
   };
 
   const ensureLivePolling = () => {
@@ -1190,6 +1213,7 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     getMessages,
     promptAsync,
     takeOverSession,
+    keepFollowing,
     abortSession,
     updateSession,
     deleteSession,
