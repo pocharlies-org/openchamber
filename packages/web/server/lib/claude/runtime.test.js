@@ -779,3 +779,134 @@ describe('claude backend live processes', () => {
     await runtime.shutdownAll();
   });
 });
+
+describe('claude backend sessions live in another process', () => {
+  const owner = (overrides = {}) => ({
+    pid: 4242,
+    sessionId: 'sess-1',
+    cwd: '/repo/project',
+    entrypoint: 'claude-vscode',
+    name: 'k8s-93',
+    status: 'busy',
+    bridgeSessionId: 'session_01REMOTE',
+    updatedAt: 1,
+    ...overrides,
+  });
+
+  const makeRegistry = (owners) => {
+    const state = { owners: new Map(owners.map((o) => [o.sessionId, o])) };
+    return {
+      state,
+      read: vi.fn(async () => new Map(state.owners)),
+      stop: vi.fn(async (o) => { state.owners.delete(o.sessionId); return true; }),
+    };
+  };
+
+  it('refuses to resume a session another process is writing', async () => {
+    const sdk = makeSdk();
+    const liveRegistry = makeRegistry([owner()]);
+    const { runtime } = createRuntime({ sdk, liveRegistry, livePollMs: 0 });
+
+    await expect(runtime.promptAsync({ sessionID: 'sess-1', parts: [{ type: 'text', text: 'hi' }] }))
+      .rejects.toMatchObject({ code: 'CLAUDE_SESSION_LIVE_ELSEWHERE', owner: { pid: 4242 } });
+    expect(sdk.query).not.toHaveBeenCalled();
+  });
+
+  it('takes a session over: stops the owner, then resumes it here and reattaches its claude.ai link', async () => {
+    const enableRemoteControl = vi.fn(async () => ({ session_url: 'https://claude.ai/code/session_01REMOTE' }));
+    const sdk = makeSdk({
+      getSessionInfo: vi.fn(async () => sessionInfo()),
+      query: vi.fn(() => Object.assign(makeQuery([]), { enableRemoteControl })),
+    });
+    const liveRegistry = makeRegistry([owner()]);
+    const { runtime } = createRuntime({
+      sdk, liveRegistry, livePollMs: 0, remoteControl: { enabled: true },
+    });
+
+    await runtime.takeOverSession({ sessionID: 'sess-1' });
+
+    expect(liveRegistry.stop).toHaveBeenCalledWith(expect.objectContaining({ pid: 4242 }));
+    const options = sdk.query.mock.calls[0][0].options;
+    expect(options.resume).toBe('sess-1');
+    expect(options.cwd).toBe('/repo/project');
+    await vi.waitFor(() => expect(enableRemoteControl).toHaveBeenCalledWith(
+      true, 'summarised work', { reattachSessionId: 'session_01REMOTE' },
+    ));
+  });
+
+  it('does not resume when the owner will not exit', async () => {
+    const sdk = makeSdk();
+    const liveRegistry = { ...makeRegistry([owner()]), stop: vi.fn(async () => false) };
+    const { runtime } = createRuntime({ sdk, liveRegistry, livePollMs: 0 });
+
+    await expect(runtime.takeOverSession({ sessionID: 'sess-1' })).rejects.toThrow(/did not exit/);
+    expect(sdk.query).not.toHaveBeenCalled();
+  });
+
+  it('publishes the foreign owner, its busy state and its claude.ai link', async () => {
+    const publishEvent = vi.fn();
+    const sdk = makeSdk({ listSessions: vi.fn(async () => [sessionInfo()]) });
+    const liveRegistry = makeRegistry([owner()]);
+    const { runtime } = createRuntime({ sdk, publishEvent, liveRegistry, livePollMs: 5 });
+
+    await runtime.listSessions({ directory: '/repo/project' });
+    await vi.waitFor(async () => {
+      const [session] = await runtime.listSessions({ directory: '/repo/project' });
+      expect(session.metadata.liveElsewhere).toEqual({ entrypoint: 'claude-vscode', name: 'k8s-93', status: 'busy', pid: 4242 });
+      expect(session.metadata.remoteControl).toEqual({ url: 'https://claude.ai/code/session_01REMOTE' });
+    });
+    expect(await runtime.getStatusSnapshot({ directory: '/repo/project' })).toEqual({ 'sess-1': { type: 'busy' } });
+    const statuses = publishEvent.mock.calls.map(([e]) => e.payload).filter((p) => p.type === 'session.status');
+    expect(statuses.at(-1).properties.status.type).toBe('busy');
+
+    // The owner goes idle, then exits: both are published.
+    liveRegistry.state.owners.set('sess-1', owner({ status: 'idle' }));
+    await vi.waitFor(() => expect(
+      publishEvent.mock.calls.map(([e]) => e.payload).filter((p) => p.type === 'session.status').at(-1).properties.status.type,
+    ).toBe('idle'));
+    liveRegistry.state.owners.delete('sess-1');
+    await vi.waitFor(async () => {
+      const [session] = await runtime.listSessions({ directory: '/repo/project' });
+      expect(session.metadata?.liveElsewhere).toBeUndefined();
+    });
+    await runtime.shutdownAll();
+  });
+
+  it('follows the transcript while another process writes it, publishing only what changed', async () => {
+    const publishEvent = vi.fn();
+    let lastModified = 100;
+    let transcript = [
+      { type: 'user', uuid: 'u1', timestamp: '2026-09-23T00:00:00.000Z', message: { role: 'user', content: 'hola' } },
+    ];
+    const sdk = makeSdk({
+      getSessionInfo: vi.fn(async () => sessionInfo({ lastModified })),
+      getSessionMessages: vi.fn(async () => transcript),
+    });
+    const liveRegistry = makeRegistry([owner()]);
+    const { runtime } = createRuntime({ sdk, publishEvent, liveRegistry, livePollMs: 5 });
+
+    const first = await runtime.getMessages({ sessionID: 'sess-1', directory: '/repo/project' });
+    expect(first).toHaveLength(1);
+    await vi.waitFor(() => expect(sdk.getSessionInfo).toHaveBeenCalled());
+
+    transcript = [
+      ...transcript,
+      { type: 'assistant', uuid: 'a1', timestamp: '2026-09-23T00:00:01.000Z', message: { id: 'api_1', role: 'assistant', content: [{ type: 'text', text: 'desde VS Code' }] } },
+    ];
+    lastModified = 200;
+
+    await vi.waitFor(() => {
+      const texts = publishEvent.mock.calls
+        .map(([e]) => e.payload)
+        .filter((p) => p.type === 'message.part.updated')
+        .map((p) => p.properties.part.text);
+      expect(texts).toContain('desde VS Code');
+    });
+    // The user message did not change, so it is not re-published.
+    const userEchoes = publishEvent.mock.calls
+      .map(([e]) => e.payload)
+      .filter((p) => p.type === 'message.part.updated' && p.properties.part.text === 'hola');
+    expect(userEchoes).toHaveLength(0);
+    await runtime.shutdownAll();
+  });
+});

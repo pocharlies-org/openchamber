@@ -195,6 +195,19 @@ const toMessagePayload = (record, directory) => {
   };
 };
 
+/**
+ * A prompt refused because another process holds the session is a conflict
+ * the user can resolve (take it over), not a server failure.
+ */
+const sendPromptError = (res, error) => {
+  if (error?.code === 'CLAUDE_SESSION_LIVE_ELSEWHERE') {
+    const { entrypoint, name, status, pid } = error.owner || {};
+    res.status(409).json({ error: error.message, code: error.code, owner: { entrypoint, name, status, pid } });
+    return;
+  }
+  res.status(500).json({ error: error?.message || 'Failed to prompt' });
+};
+
 export const createClaudeSurface = (dependencies = {}) => {
   const { publishEvent, ...rest } = dependencies;
   const runtime = createClaudeBackendRuntime({
@@ -301,7 +314,25 @@ export const createClaudeSurface = (dependencies = {}) => {
           onStarted: () => answer(() => res.status(204).end()),
         })
         .then(() => answer(() => res.status(204).end()))
-        .catch((error) => answer(() => res.status(500).json({ error: error?.message || 'Failed to prompt' })));
+        .catch((error) => answer(() => sendPromptError(res, error)));
+    });
+
+    // Continue here a session another process holds: that process is closed,
+    // this one resumes the transcript (see runtime `takeOverSession`).
+    app.post('/api/session/:id/claude/takeover', async (req, res, next) => {
+      const sessionId = fromPublicId(req.params.id);
+      if (!sessionId) return next();
+      const body = await readJsonBody(req);
+      return runtime
+        .takeOverSession({
+          sessionID: sessionId,
+          directory: body.directory || directoryOf(req),
+          model: typeof body.model?.modelID === 'string' && body.model.modelID.startsWith('claude') ? body.model : undefined,
+          agent: body.agent,
+          variant: body.variant,
+        })
+        .then((session) => (session ? res.json(toSessionPayload(session)) : res.status(404).json({ error: 'Session not found' })))
+        .catch((error) => res.status(500).json({ error: error?.message || 'Failed to take the session over' }));
     });
 
     app.post('/api/session/:id/abort', (req, res, next) => {
