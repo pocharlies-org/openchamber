@@ -279,7 +279,17 @@ export const createClaudeSurface = (dependencies = {}) => {
       // is not a Claude model is dropped and the runtime's configured Claude
       // model applies.
       const requestedModel = typeof body.model?.modelID === 'string' ? body.model.modelID.trim() : '';
-      return runtime
+      // `prompt_async` answers once the turn is accepted, as OpenCode's does;
+      // the turn itself streams over the event channel. Only a rejection
+      // before acceptance (empty input, session already running, backend
+      // unavailable) can still become this request's error response.
+      let answered = false;
+      const answer = (send) => {
+        if (answered) return;
+        answered = true;
+        send();
+      };
+      runtime
         .promptAsync({
           sessionID: sessionId,
           directory: body.directory || directoryOf(req),
@@ -288,9 +298,10 @@ export const createClaudeSurface = (dependencies = {}) => {
           agent: body.agent,
           variant: body.variant,
           messageID: body.messageID,
+          onStarted: () => answer(() => res.status(204).end()),
         })
-        .then(() => res.status(204).end())
-        .catch((error) => res.status(500).json({ error: error?.message || 'Failed to prompt' }));
+        .then(() => answer(() => res.status(204).end()))
+        .catch((error) => answer(() => res.status(500).json({ error: error?.message || 'Failed to prompt' })));
     });
 
     app.post('/api/session/:id/abort', (req, res, next) => {
