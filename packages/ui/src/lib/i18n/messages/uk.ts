@@ -470,7 +470,6 @@ export const dict: Record<I18nKey, string> = {
   "sessions.sidebar.header.sourceFilter.label": "Фільтрувати за інструментом",
   "sessions.sidebar.header.sourceFilter.all": "Усі інструменти",
   "sessions.sidebar.header.sourceFilter.opencode": "opencode",
-  "sessions.sidebar.header.sourceFilter.codex": "Codex",
   "sessions.sidebar.header.sourceFilter.claude": "Claude Code",
   "sessions.sidebar.header.grouping.byWorktree": "За worktree",
   "sessions.sidebar.header.grouping.flat": "Плаский список",

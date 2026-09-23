@@ -554,7 +554,7 @@ describe('claude backend status and events', () => {
 
     expect(parsed(chunksA).some((payload) => payload.type === 'message.part.delta')).toBe(true);
     // Message traffic is directory-scoped, while session lifecycle events are
-    // broadcast to every client (same contract as the codex backend).
+    // broadcast to every client (same contract as the OpenCode event stream).
     expect(parsed(chunksB).every((payload) => payload.type.startsWith('session.'))).toBe(true);
     expect(parsed(chunksB).length).toBeGreaterThan(0);
     expect(typeof removeA).toBe('function');
@@ -578,5 +578,103 @@ describe('claude backend shutdownAll', () => {
 
     release();
     await running.catch(() => {});
+  });
+});
+
+describe('claude backend live turn rendering', () => {
+  const payloadsOf = (publishEvent) => publishEvent.mock.calls.map(([event]) => event.payload);
+  const partUpdates = (publishEvent) => payloadsOf(publishEvent)
+    .filter((payload) => payload.type === 'message.part.updated')
+    .map((payload) => payload.properties.part);
+
+  it('streams thinking deltas into a reasoning part', async () => {
+    const sdk = makeSdk({
+      query: vi.fn(() => makeQuery([
+        { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg_a' } } },
+        { type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'pien' } } },
+        { type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'so' } } },
+        { type: 'result', is_error: false },
+      ])),
+    });
+    const publishEvent = vi.fn();
+    const { runtime } = createRuntime({ sdk, publishEvent });
+
+    await runtime.promptAsync({ sessionID: 'sess-1', parts: [{ type: 'text', text: 'hi' }] });
+
+    const deltas = payloadsOf(publishEvent).filter((payload) => payload.type === 'message.part.delta');
+    expect(deltas.map((payload) => payload.properties.delta)).toEqual(['pien', 'so']);
+    expect(deltas[0].properties.partID).toBe('msg_msg_a_reasoning_0');
+    expect(partUpdates(publishEvent).some((part) => part.id === 'msg_msg_a_reasoning_0' && part.type === 'reasoning'))
+      .toBe(true);
+  });
+
+  it('settles the streamed text part with the finished block instead of rendering it twice', async () => {
+    // The CLI sends each finished block as its own assistant message at
+    // content index 0, while its deltas carried the real block index (1).
+    const sdk = makeSdk({
+      query: vi.fn(() => makeQuery([
+        { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg_a' } } },
+        { type: 'stream_event', event: { type: 'content_block_delta', index: 1, delta: { type: 'text_delta', text: 'O' } } },
+        { type: 'stream_event', event: { type: 'content_block_delta', index: 1, delta: { type: 'text_delta', text: 'K' } } },
+        { type: 'assistant', message: { id: 'msg_a', content: [{ type: 'text', text: 'OK' }] } },
+        { type: 'result', is_error: false },
+      ])),
+    });
+    const publishEvent = vi.fn();
+    const { runtime } = createRuntime({ sdk, publishEvent });
+
+    await runtime.promptAsync({ sessionID: 'sess-1', parts: [{ type: 'text', text: 'hi' }] });
+
+    const textParts = partUpdates(publishEvent).filter((part) => part.type === 'text' && part.messageID === 'msg_msg_a');
+    expect(new Set(textParts.map((part) => part.id))).toEqual(new Set(['msg_msg_a_text_1']));
+    expect(textParts.at(-1).text).toBe('OK');
+  });
+
+  it('closes a tool card live when its tool_result arrives', async () => {
+    const sdk = makeSdk({
+      query: vi.fn(() => makeQuery([
+        { type: 'assistant', message: { id: 'msg_a', content: [{ type: 'tool_use', id: 'call_1', name: 'Bash', input: { command: 'pwd' } }] } },
+        { type: 'assistant', message: { id: 'msg_a', content: [{ type: 'tool_use', id: 'call_2', name: 'Read', input: { file_path: '/x' } }] } },
+        { type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'call_1', content: '/repo' }] } },
+        { type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'call_2', content: 'nope', is_error: true }] } },
+        { type: 'result', is_error: false },
+      ])),
+    });
+    const publishEvent = vi.fn();
+    const { runtime } = createRuntime({ sdk, publishEvent });
+
+    await runtime.promptAsync({ sessionID: 'sess-1', parts: [{ type: 'text', text: 'hi' }] });
+
+    const tools = partUpdates(publishEvent).filter((part) => part.type === 'tool');
+    // Parallel calls of one API message keep separate cards.
+    expect(new Set(tools.map((part) => part.id)).size).toBe(2);
+    const last = (callID) => tools.filter((part) => part.callID === callID).at(-1);
+    expect(last('call_1').state).toMatchObject({ status: 'completed', output: '/repo', input: { command: 'pwd' } });
+    expect(last('call_1').state.time.end).toBeGreaterThanOrEqual(last('call_1').state.time.start);
+    expect(last('call_2').state).toMatchObject({ status: 'error', error: 'nope' });
+  });
+
+  it('reports acceptance through onStarted before the turn finishes', async () => {
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    const sdk = makeSdk({
+      query: vi.fn(() => makeQuery([(async () => { await gate; return { type: 'result', is_error: false }; })()])),
+    });
+    const { runtime } = createRuntime({ sdk });
+    const onStarted = vi.fn();
+
+    const running = runtime.promptAsync({ sessionID: 'sess-1', parts: [{ type: 'text', text: 'hi' }], onStarted });
+    await vi.waitFor(() => expect(onStarted).toHaveBeenCalledTimes(1));
+
+    release();
+    await running;
+    expect(onStarted).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not report acceptance for a turn rejected up front', async () => {
+    const { runtime } = createRuntime();
+    const onStarted = vi.fn();
+    await expect(runtime.promptAsync({ sessionID: 'sess-1', parts: [], onStarted })).rejects.toThrow(/empty input/);
+    expect(onStarted).not.toHaveBeenCalled();
   });
 });

@@ -470,7 +470,6 @@ export const dict: Record<I18nKey, string> = {
   "sessions.sidebar.header.sourceFilter.label": "Filtrar por ferramenta",
   "sessions.sidebar.header.sourceFilter.all": "Todas as ferramentas",
   "sessions.sidebar.header.sourceFilter.opencode": "opencode",
-  "sessions.sidebar.header.sourceFilter.codex": "Codex",
   "sessions.sidebar.header.sourceFilter.claude": "Claude Code",
   "sessions.sidebar.header.grouping.byWorktree": "Por worktree",
   "sessions.sidebar.header.grouping.flat": "Lista plana",

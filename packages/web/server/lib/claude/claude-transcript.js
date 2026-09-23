@@ -41,7 +41,7 @@ const textOf = (block) => {
   return '';
 };
 
-const toolResultText = (content) => {
+export const toolResultText = (content) => {
   if (typeof content === 'string') return content;
   if (!Array.isArray(content)) return undefined;
   const text = content

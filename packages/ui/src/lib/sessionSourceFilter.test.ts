@@ -6,8 +6,8 @@ import {
 } from './sessionSourceFilter';
 
 describe('resolveSessionSource', () => {
-  test('reconoce un rollout de Codex por su prefijo', () => {
-    expect(resolveSessionSource({ id: 'ses_cdx01a02461ad4a755090aae4d440a84090' })).toBe('codex');
+  test('un id `ses_cdx` ya no es un origen propio: Codex se retiró y cae en opencode', () => {
+    expect(resolveSessionSource({ id: 'ses_cdx01a02461ad4a755090aae4d440a84090' })).toBe('opencode');
   });
 
   test('reconoce una sesión de Claude Code y también sus subagentes', () => {
@@ -39,18 +39,16 @@ describe('resolveSessionSource', () => {
 
 describe('filterSessionsBySource', () => {
   const sessions = [
-    { id: 'ses_cdx0001' },
     { id: 'ses_ccc0002' },
     { id: 'ses_ccs0003' },
     { id: 'ses_native0004' },
   ];
 
   test('devuelve la lista intacta con `all`', () => {
-    expect(filterSessionsBySource(sessions, 'all')).toHaveLength(4);
+    expect(filterSessionsBySource(sessions, 'all')).toHaveLength(3);
   });
 
   test('filtra por herramienta', () => {
-    expect(filterSessionsBySource(sessions, 'codex').map((s) => s.id)).toEqual(['ses_cdx0001']);
     expect(filterSessionsBySource(sessions, 'claude').map((s) => s.id)).toEqual(['ses_ccc0002', 'ses_ccs0003']);
     expect(filterSessionsBySource(sessions, 'opencode').map((s) => s.id)).toEqual(['ses_native0004']);
   });
@@ -65,7 +63,7 @@ describe('hasMultipleSessionSources', () => {
     expect(hasMultipleSessionSources([])).toBe(false);
   });
 
-  test('es cierto en cuanto convive una espejada con una nativa', () => {
-    expect(hasMultipleSessionSources([{ id: 'ses_a' }, { id: 'ses_cdx1' }])).toBe(true);
+  test('es cierto en cuanto convive una de Claude con una nativa', () => {
+    expect(hasMultipleSessionSources([{ id: 'ses_a' }, { id: 'ses_ccc1' }])).toBe(true);
   });
 });
