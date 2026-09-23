@@ -67,6 +67,7 @@ import {
 import { registerOpenChamberRoutes } from './lib/opencode/openchamber-routes.js';
 import { createServerUtilsRuntime } from './lib/opencode/server-utils-runtime.js';
 import { createClaudeSurface } from './lib/claude/routes.js';
+import { createLiveSessionRegistry } from './lib/claude/live-sessions.js';
 import { createStaticRoutesRuntime } from './lib/opencode/static-routes-runtime.js';
 import { createSettingsRuntime } from './lib/opencode/settings-runtime.js';
 import { createOpenCodeResolutionRuntime } from './lib/opencode/opencode-resolution-runtime.js';
@@ -971,6 +972,12 @@ const claudeSurface = createClaudeSurface({
   // Opt-in: link every Claude process OpenChamber starts to claude.ai / the
   // Claude app. The base URL override is for hosts whose settings route the
   // CLI through a local proxy, which Remote Control refuses.
+  // Claude Code's own registry of running CLI processes: a session live in
+  // one of them is followed read-only and must be taken over to be written.
+  liveRegistry: createLiveSessionRegistry({
+    fsPromises: fs.promises,
+    sessionsDir: path.join(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'), 'sessions'),
+  }),
   remoteControl: {
     enabled: ['1', 'true'].includes(String(process.env.OPENCHAMBER_CLAUDE_REMOTE_CONTROL || '').toLowerCase()),
     baseUrl: process.env.OPENCHAMBER_CLAUDE_BASE_URL?.trim() || undefined,

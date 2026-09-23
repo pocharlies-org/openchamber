@@ -69,7 +69,8 @@ const humanText = (content) => {
  * @param {string} dependencies.directory
  * @param {object} dependencies.options SDK query options, minus `prompt`
  * @param {string} [dependencies.model] model the process was started with
- * @param {{ name: string } | null} [dependencies.remoteControl] enable Remote Control under this name
+ * @param {{ name: string, reattachSessionId?: string } | null} [dependencies.remoteControl]
+ *   enable Remote Control under this name, reattaching an existing remote session when given
  * @param {(payload: object) => void} dependencies.emit directory-scoped event emitter
  * @param {(status: object) => void} dependencies.setStatus busy/idle publisher
  * @param {(text: string) => void} dependencies.onRemotePrompt a prompt typed on another surface
@@ -349,8 +350,23 @@ export const createClaudeSessionProcess = (dependencies) => {
     }
   })();
 
+  // Taking a session over from a process that had it on claude.ai reattaches
+  // that same remote session; if the service refuses, a fresh link is better
+  // than none.
+  const enableRemoteControl = async () => {
+    if (!remoteControl.reattachSessionId) return query.enableRemoteControl(true, remoteControl.name);
+    try {
+      return await query.enableRemoteControl(true, remoteControl.name, {
+        reattachSessionId: remoteControl.reattachSessionId,
+      });
+    } catch (error) {
+      console.warn(`[claude-backend] Remote Control reattach refused for ${sessionId}:`, error?.message || error);
+      return query.enableRemoteControl(true, remoteControl.name);
+    }
+  };
+
   if (remoteControl && typeof query.enableRemoteControl === 'function') {
-    query.enableRemoteControl(true, remoteControl.name)
+    enableRemoteControl()
       .then((response) => {
         const url = typeof response?.session_url === 'string' ? response.session_url : '';
         if (!url) return;
