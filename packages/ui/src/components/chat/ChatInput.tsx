@@ -51,6 +51,7 @@ import { lazyWithChunkRecovery } from '@/lib/chunkLoadRecovery';
 import type { ToolPopupContent } from './message/types';
 import { QueuedMessageChips } from './QueuedMessageChips';
 import { AutoReviewBanner } from './AutoReviewBanner';
+import { ClaudeLiveSessionBanner } from './ClaudeLiveSessionBanner';
 import type { FileMentionHandle } from './FileMentionAutocomplete';
 import type { CommandAutocompleteHandle, CommandInfo } from './CommandAutocomplete';
 import type { SkillAutocompleteHandle } from './SkillAutocomplete';
@@ -3798,6 +3799,10 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                     and returns unchanged when the comment exits. */}
                 {!mobileCommentActive ? (<>
                 <AutoReviewBanner />
+                <ClaudeLiveSessionBanner
+                    sessionId={currentSessionId}
+                    directory={currentSessionDirectoryForSync ?? currentDirectory ?? null}
+                />
                 {hasDrafts ? (
                     <ComposerContextChips
                         draftTarget={inlineDraftTarget}
