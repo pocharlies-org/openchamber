@@ -1608,6 +1608,7 @@ export const dict: Record<I18nKey, string> = {
   'chat.claudeLive.title.desktop': 'Відкрито в Claude Desktop',
   'chat.claudeLive.title.other': 'Відкрито в іншому застосунку',
   'chat.claudeLive.description': 'Там зараз іде запис. Щоб продовжити тут, OpenChamber закриє її там і відновить.',
+  'chat.claudeLive.descriptionAttached': 'Підключено: те, що ви напишете тут, піде в ту сесію, і вона відповість там і тут.',
   'chat.claudeLive.actions.takeOver': 'Перейняти керування',
   'chat.claudeLive.actions.openRemote': 'Відкрити в claude.ai',
   'chat.claudeLive.toast.takeOverFailed': 'Не вдалося перейняти сесію',

@@ -1394,6 +1394,7 @@ export const dict = {
   'chat.claudeLive.title.desktop': 'Ouverte dans Claude Desktop',
   'chat.claudeLive.title.other': 'Ouverte dans une autre application',
   'chat.claudeLive.description': 'Elle est en cours d’écriture là-bas. Pour continuer ici, OpenChamber la ferme là-bas et la reprend.',
+  'chat.claudeLive.descriptionAttached': 'Connectée : ce que vous écrivez ici part vers cette session, qui répond là-bas et ici.',
   'chat.claudeLive.actions.takeOver': 'Prendre la main',
   'chat.claudeLive.actions.openRemote': 'Ouvrir dans claude.ai',
   'chat.claudeLive.toast.takeOverFailed': 'Impossible de prendre la main sur la session',

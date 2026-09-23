@@ -1863,6 +1863,7 @@ export const dict: Record<I18nKey, string> = {
   'chat.claudeLive.title.desktop': 'Otwarta w Claude Desktop',
   'chat.claudeLive.title.other': 'Otwarta w innej aplikacji',
   'chat.claudeLive.description': 'Jest tam właśnie zapisywana. Aby kontynuować tutaj, OpenChamber zamknie ją tam i wznowi.',
+  'chat.claudeLive.descriptionAttached': 'Połączono: to, co tu napiszesz, trafi do tamtej sesji, a ona odpowie tam i tutaj.',
   'chat.claudeLive.actions.takeOver': 'Przejmij',
   'chat.claudeLive.actions.openRemote': 'Otwórz w claude.ai',
   'chat.claudeLive.toast.takeOverFailed': 'Nie udało się przejąć sesji',

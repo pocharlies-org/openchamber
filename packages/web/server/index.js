@@ -68,6 +68,7 @@ import { registerOpenChamberRoutes } from './lib/opencode/openchamber-routes.js'
 import { createServerUtilsRuntime } from './lib/opencode/server-utils-runtime.js';
 import { createClaudeSurface } from './lib/claude/routes.js';
 import { createLiveSessionRegistry } from './lib/claude/live-sessions.js';
+import { createRemoteAttachments } from './lib/claude/remote-attach.js';
 import { createStaticRoutesRuntime } from './lib/opencode/static-routes-runtime.js';
 import { createSettingsRuntime } from './lib/opencode/settings-runtime.js';
 import { createOpenCodeResolutionRuntime } from './lib/opencode/opencode-resolution-runtime.js';
@@ -977,6 +978,18 @@ const claudeSurface = createClaudeSurface({
   liveRegistry: createLiveSessionRegistry({
     fsPromises: fs.promises,
     sessionsDir: path.join(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'), 'sessions'),
+  }),
+  // A session live elsewhere and linked to claude.ai is written through its
+  // Remote Control bridge, as Claude Desktop does, with the CLI's own login.
+  remoteAttach: createRemoteAttachments({
+    readAccessToken: async () => {
+      const credentials = path.join(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'), '.credentials.json');
+      try {
+        return JSON.parse(await fs.promises.readFile(credentials, 'utf8'))?.claudeAiOauth?.accessToken || '';
+      } catch {
+        return '';
+      }
+    },
   }),
   remoteControl: {
     enabled: ['1', 'true'].includes(String(process.env.OPENCHAMBER_CLAUDE_REMOTE_CONTROL || '').toLowerCase()),

@@ -173,6 +173,10 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     // Registry of sessions live in a CLI process OpenChamber does not own
     // (live-sessions.js). Without it every session is assumed free.
     liveRegistry = null,
+    // Writes to a session live in another process through its Remote Control
+    // bridge (remote-attach.js), as Claude Desktop does. Without it such a
+    // session can only be taken over.
+    remoteAttach = null,
     // Our own CLI children are in Claude Code's registry too; they are told
     // apart by their parent pid.
     selfPid = process.pid,
@@ -400,6 +404,7 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
           name: owner.name,
           status: owner.status,
           pid: owner.pid,
+          attachable: Boolean(remoteAttach && owner.bridgeSessionId),
         },
         ...(url ? { remoteControl: { url } } : {}),
       },
@@ -837,14 +842,6 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     return owners.get(sessionId) || null;
   };
 
-  // One writer per transcript: a session open in another process is never
-  // resumed underneath it. The caller has to take it over first.
-  const assertNotLiveElsewhere = async (sessionId) => {
-    const owner = await readForeignOwner(sessionId);
-    if (!owner) return;
-    throw new ClaudeSessionLiveElsewhereError(owner);
-  };
-
   /**
    * Close the process that holds a session elsewhere and continue it here,
    * keeping its claude.ai link when it had one. Nothing is prompted: the
@@ -898,7 +895,6 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
 
     const directory = normalizeDirectory(input.directory) || live?.directory || '';
     const { permissionMode, effort, model } = await resolveTurnSettings(input);
-    if (!live) await assertNotLiveElsewhere(sessionId);
 
     const { blocks, unsupported } = buildPrompt(input.parts);
     if (blocks.length === 0) {
@@ -906,6 +902,22 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     }
     if (unsupported.length > 0) {
       console.warn(`[claude-backend] ${unsupported.length} attachment(s) could not be sent for ${sessionId}`);
+    }
+
+    // One writer per transcript: a session open in another process is never
+    // resumed underneath it. Linked to claude.ai, the message goes to that
+    // process through its bridge, which runs the turn; otherwise it has to be
+    // taken over first.
+    if (!live) {
+      const owner = await readForeignOwner(sessionId);
+      if (owner) {
+        if (!remoteAttach || !owner.bridgeSessionId) throw new ClaudeSessionLiveElsewhereError(owner);
+        // Follow the transcript so the owner's answer streams here.
+        if (!followed.has(sessionId)) await getMessages({ sessionID: sessionId, directory: directory || owner.cwd });
+        await remoteAttach.send(owner.bridgeSessionId, blocks);
+        input.onStarted?.();
+        return;
+      }
     }
 
     // Effort is fixed when the CLI starts; a different one needs a new
@@ -1160,6 +1172,7 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
   const shutdownAll = async () => {
     clearInterval(livePollTimer);
     livePollTimer = null;
+    remoteAttach?.closeAll();
     await Promise.all(Array.from(processes.keys()).map((sessionId) => closeProcess(sessionId)));
   };
 
