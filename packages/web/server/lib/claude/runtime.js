@@ -14,12 +14,17 @@ import os from 'os';
 import path from 'path';
 import { mapClaudeSessionMessages, deriveClaudeTitle } from './claude-transcript.js';
 import { createClaudeSessionProcess } from './session-process.js';
+import { remoteControlUrl } from './live-sessions.js';
 
 const BACKEND_ID = 'claude';
 const PROVIDER_ID = 'claude';
 const LIST_CACHE_TTL_MS = 4000;
 const DEFAULT_MAX_CONCURRENT_RUNS = 4;
 const DEFAULT_IDLE_TIMEOUT_MS = 60 * 60 * 1000;
+const DEFAULT_LIVE_POLL_MS = 2000;
+// A session whose messages were read this recently is being looked at: its
+// transcript is followed while another process writes it.
+const LIVE_FOLLOW_WINDOW_MS = 15 * 60 * 1000;
 const DEFAULT_MODE_ID = 'default';
 const DEFAULT_EFFORT_ID = 'high';
 const SDK_IMPORT_PATH = '@anthropic-ai/claude-agent-sdk';
@@ -139,6 +144,16 @@ const toModelOption = (entry) => {
   return option;
 };
 
+/** A prompt for a session another process is writing; carries that owner. */
+export class ClaudeSessionLiveElsewhereError extends Error {
+  constructor(owner) {
+    super(`This session is open in ${owner.entrypoint} (pid ${owner.pid}). Take it over to continue it here.`);
+    this.name = 'ClaudeSessionLiveElsewhereError';
+    this.code = 'CLAUDE_SESSION_LIVE_ELSEWHERE';
+    this.owner = owner;
+  }
+}
+
 export const createClaudeBackendRuntime = (dependencies = {}) => {
   const {
     crypto,
@@ -155,6 +170,10 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     // ANTHROPIC_BASE_URL is first-party; `baseUrl` overrides the settings'
     // value for the processes OpenChamber starts (see DOCUMENTATION.md).
     remoteControl = null,
+    // Registry of sessions live in a CLI process OpenChamber does not own
+    // (live-sessions.js). Without it every session is assumed free.
+    liveRegistry = null,
+    livePollMs = DEFAULT_LIVE_POLL_MS,
   } = dependencies;
 
   const eventClients = new Set();
@@ -162,6 +181,11 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
   const processes = new Map();
   const idleTimers = new Map();
   const listCache = new Map();
+  /** Map<sessionId, owner>: sessions live in a process that is not ours. */
+  let foreignOwners = new Map();
+  /** Map<sessionId, { directory, readAt, lastModified, sent: Map<recordId, json> }> */
+  const followed = new Map();
+  let livePollTimer = null;
 
   /** OpenChamber-side overlay: Claude owns transcripts, not archive state. */
   let overlay = { archived: {}, pendingTitles: {} };
@@ -358,13 +382,31 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
   /** A session with a live process advertises its Remote Control link. */
   const withLiveState = (session) => {
     const link = processes.get(session.id)?.remoteControl();
-    if (!link) return { ...session };
-    return { ...session, metadata: { ...(session.metadata || {}), remoteControl: { url: link.url } } };
+    if (link) {
+      return { ...session, metadata: { ...(session.metadata || {}), remoteControl: { url: link.url } } };
+    }
+    const owner = foreignOwners.get(session.id);
+    if (!owner) return { ...session };
+    const url = remoteControlUrl(owner.bridgeSessionId);
+    return {
+      ...session,
+      metadata: {
+        ...(session.metadata || {}),
+        liveElsewhere: {
+          entrypoint: owner.entrypoint,
+          name: owner.name,
+          status: owner.status,
+          pid: owner.pid,
+        },
+        ...(url ? { remoteControl: { url } } : {}),
+      },
+    };
   };
 
   const listSessions = async (input = {}) => {
     const sdk = await ensureSdk();
     if (!sdk) return [];
+    ensureLivePolling();
 
     await loadOverlay();
     const directory = normalizeDirectory(input.directory);
@@ -432,6 +474,103 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     }
   };
 
+  const recordJson = (record) => JSON.stringify(record);
+
+  const rememberFollowed = (sessionId, directory, records) => {
+    const entry = followed.get(sessionId) || { directory, lastModified: null, sent: new Map() };
+    entry.directory = directory;
+    entry.readAt = Date.now();
+    entry.sent = new Map(records.map((record) => [record.info.id, recordJson(record)]));
+    followed.set(sessionId, entry);
+  };
+
+  /**
+   * Re-read a transcript another process is writing and publish only the
+   * records that changed since the last read, as the live stream of an owned
+   * session would have. Record ids are stable across reads, so the front end
+   * updates in place.
+   */
+  const refreshFollowed = async (sdk, sessionId, entry) => {
+    let info;
+    try {
+      info = await sdk.getSessionInfo?.(sessionId, entry.directory ? { dir: entry.directory } : {});
+    } catch {
+      return;
+    }
+    const lastModified = info?.lastModified ?? null;
+    if (lastModified === null || lastModified === entry.lastModified) return;
+    const first = entry.lastModified === null;
+    entry.lastModified = lastModified;
+    if (first && entry.sent.size > 0) return;
+    const records = await getMessages({ sessionID: sessionId, directory: entry.directory, internal: true });
+    const directory = entry.directory;
+    for (const record of records) {
+      const json = recordJson(record);
+      if (entry.sent.get(record.info.id) === json) continue;
+      entry.sent.set(record.info.id, json);
+      emitRecordEvents(directory, record);
+    }
+  };
+
+  const pollLiveSessions = async () => {
+    if (!liveRegistry) return;
+    let owners;
+    try {
+      owners = await liveRegistry.read();
+    } catch (error) {
+      console.warn('[claude-backend] live session registry unreadable:', error?.message || error);
+      return;
+    }
+    // Our own processes show up in the registry too; they are not foreign.
+    for (const sessionId of owners.keys()) {
+      const proc = processes.get(sessionId);
+      if (proc && !proc.hasExited()) owners.delete(sessionId);
+    }
+    const previous = foreignOwners;
+    foreignOwners = owners;
+
+    const changed = new Set([...previous.keys(), ...owners.keys()]);
+    for (const sessionId of changed) {
+      const before = previous.get(sessionId);
+      const after = owners.get(sessionId);
+      const statusBefore = before?.status || 'idle';
+      const statusAfter = after?.status || 'idle';
+      const directory = normalizeDirectory(after?.cwd || before?.cwd || followed.get(sessionId)?.directory);
+      if (statusBefore !== statusAfter) setBusyStatus(sessionId, directory, { type: statusAfter });
+      if (Boolean(before) !== Boolean(after)) {
+        listCache.clear();
+        const session = await getSession({ sessionID: sessionId, directory }).catch(() => null);
+        if (session) emitSessionUpdate('session.updated', session);
+      }
+    }
+
+    const sdk = await ensureSdk();
+    if (!sdk) return;
+    const now = Date.now();
+    for (const [sessionId, entry] of followed) {
+      if (now - entry.readAt > LIVE_FOLLOW_WINDOW_MS) {
+        followed.delete(sessionId);
+        continue;
+      }
+      // Owned sessions stream live already; only a foreign writer (or one
+      // that just exited, for its last lines) needs the transcript followed.
+      if (processes.has(sessionId)) continue;
+      if (!owners.has(sessionId) && !previous.has(sessionId)) continue;
+      await refreshFollowed(sdk, sessionId, entry);
+    }
+  };
+
+  const ensureLivePolling = () => {
+    if (!liveRegistry || livePollTimer || !(livePollMs > 0)) return;
+    let running = false;
+    livePollTimer = setInterval(() => {
+      if (running) return;
+      running = true;
+      void pollLiveSessions().finally(() => { running = false; });
+    }, livePollMs);
+    livePollTimer.unref?.();
+  };
+
   const getMessages = async (input = {}) => {
     const sdk = await ensureSdk();
     const sessionId = typeof input.sessionID === 'string' ? input.sessionID.trim() : '';
@@ -447,6 +586,10 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     }
 
     let records = mapClaudeSessionMessages(messages, { sessionId, providerId: PROVIDER_ID });
+    if (!input.internal) {
+      rememberFollowed(sessionId, directory, records);
+      ensureLivePolling();
+    }
     if (typeof input.before === 'string' && input.before.trim().length > 0) {
       records = records.filter((record) => record.info.id < input.before);
     }
@@ -580,7 +723,7 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     await closeProcess(idle[0][0]);
   };
 
-  const startProcess = async ({ sdk, sessionId, directory, model, effort, permissionMode, title }) => {
+  const startProcess = async ({ sdk, sessionId, directory, model, effort, permissionMode, title, reattachSessionId }) => {
     await makeRoomForProcess();
     const executable = await resolveExecutable();
     const resume = (await transcriptExists(sdk, sessionId, directory)) && !overlay.pendingTitles[sessionId];
@@ -606,7 +749,9 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
         ...pathToExecutableOption(executable),
         ...(resume ? { resume: sessionId } : { sessionId }),
       },
-      remoteControl: remoteControl?.enabled ? { name: remoteControlName(title, directory) } : null,
+      remoteControl: remoteControl?.enabled
+        ? { name: remoteControlName(title, directory), reattachSessionId }
+        : null,
       emit: (payload) => emitEvent(directory, payload),
       setStatus: (status) => setBusyStatus(sessionId, directory, status),
       onRemotePrompt: (text) => {
@@ -655,6 +800,77 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     return proc;
   };
 
+  const resolveTurnSettings = async (input = {}) => {
+    const settings = await readSettings();
+    const modeId = MODE_DEFINITIONS[input.agent] ? input.agent : DEFAULT_MODE_ID;
+    const effort = EFFORT_OPTIONS.some((option) => option.id === input.variant)
+      ? input.variant
+      : (typeof settings?.effortLevel === 'string' && EFFORT_OPTIONS.some((option) => option.id === settings.effortLevel)
+        ? settings.effortLevel
+        : DEFAULT_EFFORT_ID);
+    const model = typeof input.model?.modelID === 'string' && input.model.modelID.trim().length > 0
+      ? input.model.modelID.trim()
+      : (typeof settings?.model === 'string' && settings.model.trim() ? settings.model.trim() : undefined);
+    return { permissionMode: MODE_DEFINITIONS[modeId].permissionMode, effort, model };
+  };
+
+  /** The foreign owner of a session, read now rather than from the last poll. */
+  const readForeignOwner = async (sessionId) => {
+    if (!liveRegistry) return null;
+    const owners = await liveRegistry.read();
+    return owners.get(sessionId) || null;
+  };
+
+  // One writer per transcript: a session open in another process is never
+  // resumed underneath it. The caller has to take it over first.
+  const assertNotLiveElsewhere = async (sessionId) => {
+    const owner = await readForeignOwner(sessionId);
+    if (!owner) return;
+    throw new ClaudeSessionLiveElsewhereError(owner);
+  };
+
+  /**
+   * Close the process that holds a session elsewhere and continue it here,
+   * keeping its claude.ai link when it had one. Nothing is prompted: the
+   * session is left open and idle for the next message.
+   */
+  const takeOverSession = async (input = {}) => {
+    const sdk = await ensureSdk();
+    if (!sdk) throw new Error('Claude backend is not available');
+    await loadOverlay();
+    const sessionId = typeof input.sessionID === 'string' ? input.sessionID.trim() : '';
+    if (!sessionId) throw new Error('Session not found');
+
+    const owner = await readForeignOwner(sessionId);
+    const directory = normalizeDirectory(input.directory) || normalizeDirectory(owner?.cwd);
+    if (owner) {
+      const stopped = await liveRegistry.stop(owner);
+      if (!stopped) {
+        throw new Error(`The ${owner.entrypoint} process (pid ${owner.pid}) holding this session did not exit`);
+      }
+      foreignOwners.delete(sessionId);
+    }
+    if (!processes.get(sessionId)) {
+      const existing = await getSession({ sessionID: sessionId, directory }).catch(() => null);
+      const { permissionMode, effort, model } = await resolveTurnSettings(input);
+      await startProcess({
+        sdk,
+        sessionId,
+        directory,
+        model,
+        effort,
+        permissionMode,
+        title: existing?.title,
+        reattachSessionId: owner?.bridgeSessionId || undefined,
+      });
+    }
+    setBusyStatus(sessionId, directory, { type: 'idle' });
+    listCache.clear();
+    const session = await getSession({ sessionID: sessionId, directory });
+    if (session) emitSessionUpdate('session.updated', session);
+    return session;
+  };
+
   const promptAsync = async (input = {}) => {
     const sdk = await ensureSdk();
     if (!sdk) throw new Error('Claude backend is not available');
@@ -666,17 +882,8 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     if (live?.isBusy()) throw new Error('Session is already running');
 
     const directory = normalizeDirectory(input.directory) || live?.directory || '';
-    const settings = await readSettings();
-    const modeId = MODE_DEFINITIONS[input.agent] ? input.agent : DEFAULT_MODE_ID;
-    const permissionMode = MODE_DEFINITIONS[modeId].permissionMode;
-    const effort = EFFORT_OPTIONS.some((option) => option.id === input.variant)
-      ? input.variant
-      : (typeof settings?.effortLevel === 'string' && EFFORT_OPTIONS.some((option) => option.id === settings.effortLevel)
-        ? settings.effortLevel
-        : DEFAULT_EFFORT_ID);
-    const model = typeof input.model?.modelID === 'string' && input.model.modelID.trim().length > 0
-      ? input.model.modelID.trim()
-      : (typeof settings?.model === 'string' && settings.model.trim() ? settings.model.trim() : undefined);
+    const { permissionMode, effort, model } = await resolveTurnSettings(input);
+    if (!live) await assertNotLiveElsewhere(sessionId);
 
     const { blocks, unsupported } = buildPrompt(input.parts);
     if (blocks.length === 0) {
@@ -831,6 +1038,11 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
       if (directory && proc.directory !== directory) continue;
       result[sessionId] = { type: 'busy' };
     }
+    for (const [sessionId, owner] of foreignOwners) {
+      if (owner.status !== 'busy') continue;
+      if (directory && normalizeDirectory(owner.cwd) !== directory) continue;
+      result[sessionId] = { type: 'busy' };
+    }
     return result;
   };
 
@@ -929,6 +1141,8 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
   };
 
   const shutdownAll = async () => {
+    clearInterval(livePollTimer);
+    livePollTimer = null;
     await Promise.all(Array.from(processes.keys()).map((sessionId) => closeProcess(sessionId)));
   };
 
@@ -945,6 +1159,7 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     getSession,
     getMessages,
     promptAsync,
+    takeOverSession,
     abortSession,
     updateSession,
     deleteSession,

@@ -140,3 +140,35 @@ describe('POST /api/session/:id/prompt_async', () => {
     expect(response.body.error).toMatch(/not available/);
   });
 });
+
+describe('a session live in another process', () => {
+  it('answers a prompt with 409 and who holds it', async () => {
+    const app = express();
+    const sdk = {
+      listSessions: async () => [],
+      getSessionMessages: async () => [],
+      getSessionInfo: async () => null,
+      query: () => { throw new Error('must not start a second writer'); },
+    };
+    createClaudeSurface({
+      crypto: nodeCrypto,
+      fsPromises: { readFile: async () => { throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' }); } },
+      claudeExecutable: '/usr/bin/claude',
+      sdkLoader: async () => sdk,
+      livePollMs: 0,
+      liveRegistry: {
+        read: async () => new Map([['sess-1', {
+          pid: 9, sessionId: 'sess-1', cwd: '/repo', entrypoint: 'cli', name: 'term', status: 'idle', bridgeSessionId: '',
+        }]]),
+        stop: async () => true,
+      },
+    }).register(app);
+
+    const response = await request(app)
+      .post('/api/session/ses_cccsess-1/prompt_async')
+      .send({ parts: [{ type: 'text', text: 'hi' }] });
+
+    expect(response.status).toBe(409);
+    expect(response.body).toMatchObject({ code: 'CLAUDE_SESSION_LIVE_ELSEWHERE', owner: { entrypoint: 'cli', pid: 9 } });
+  });
+});
