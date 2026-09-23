@@ -5,8 +5,8 @@ import { BusyDots } from '@/components/chat/message/parts/BusyDots';
 import { toast } from '@/components/ui';
 import { Button } from '@/components/ui/button';
 import { getClaudeLiveState, type ClaudeLiveOwnerKind } from '@/lib/claudeSessionMetadata';
+import { takeOverClaudeSession } from '@/lib/claudeTakeOver';
 import { useI18n } from '@/lib/i18n';
-import { runtimeFetch } from '@/lib/runtime-fetch';
 import { useSession } from '@/sync/sync-context';
 
 const TITLE_KEYS = {
@@ -40,18 +40,9 @@ export const ClaudeLiveSessionBanner = memo(({ sessionId, directory }: ClaudeLiv
   const handleTakeOver = React.useCallback(async () => {
     if (!sessionId) return;
     setTakingOver(true);
-    try {
-      const response = await runtimeFetch(`/api/session/${encodeURIComponent(sessionId)}/claude/takeover`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ directory }),
-      });
-      if (!response.ok) toast.error(t('chat.claudeLive.toast.takeOverFailed'));
-    } catch {
-      toast.error(t('chat.claudeLive.toast.takeOverFailed'));
-    } finally {
-      setTakingOver(false);
-    }
+    const ok = await takeOverClaudeSession(sessionId, directory);
+    if (!ok) toast.error(t('chat.claudeLive.toast.takeOverFailed'));
+    setTakingOver(false);
   }, [directory, sessionId, t]);
 
   if (!sessionId || (!liveElsewhere && !remoteControlUrl)) {
