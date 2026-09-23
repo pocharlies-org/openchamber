@@ -97,6 +97,8 @@ export const createClaudeSessionProcess = (dependencies) => {
 
   const prompts = createPromptStream();
   const sentUuids = new Set();
+  /** Prompts sent while a turn ran, keyed by uuid, until the CLI takes them. */
+  const queued = new Map();
   let model = dependencies.model;
   let permissionMode = options.permissionMode;
   let turn = null;
@@ -109,6 +111,8 @@ export const createClaudeSessionProcess = (dependencies) => {
   const beginTurn = (pending = null) => {
     turn = {
       pending,
+      // Prompts the CLI folded into this turn while it ran; they end with it.
+      folded: [],
       // One OpenChamber message per Claude API message id; the CLI emits
       // several API messages per turn (one per tool round).
       streamingParts: new Map(),
@@ -133,9 +137,11 @@ export const createClaudeSessionProcess = (dependencies) => {
     } catch (hookError) {
       console.warn(`[claude-backend] turn-end hook failed for ${sessionId}:`, hookError?.message || hookError);
     }
-    if (!finished.pending) return;
-    if (error) finished.pending.reject(error);
-    else finished.pending.resolve({ ok: true });
+    for (const waiter of [finished.pending, ...finished.folded]) {
+      if (!waiter) continue;
+      if (error) waiter.reject(error);
+      else waiter.resolve({ ok: true });
+    }
   };
 
   const assistantInfo = (messageId) => ({
@@ -290,7 +296,17 @@ export const createClaudeSessionProcess = (dependencies) => {
     if (message.parent_tool_use_id) return;
     // `--replay-user-messages` echoes every prompt the process accepts. Ours
     // are already on screen; anything else was typed on another surface.
-    if (typeof message.uuid === 'string' && sentUuids.delete(message.uuid)) return;
+    if (typeof message.uuid === 'string' && sentUuids.delete(message.uuid)) {
+      // A prompt queued behind a turn is taken now: into the running turn if
+      // the CLI folded it in, or as the turn that starts here.
+      const waiter = queued.get(message.uuid);
+      if (waiter) {
+        queued.delete(message.uuid);
+        if (turn) turn.folded.push(waiter);
+        else beginTurn(waiter);
+      }
+      return;
+    }
     const text = humanText(content);
     if (!text) return;
     onRemotePrompt(text);
@@ -346,6 +362,8 @@ export const createClaudeSessionProcess = (dependencies) => {
       exited = true;
       prompts.end();
       await endTurn();
+      for (const waiter of queued.values()) waiter.reject(new Error('Claude process exited before taking the prompt'));
+      queued.clear();
       onExit?.();
     }
   })();
@@ -381,13 +399,17 @@ export const createClaudeSessionProcess = (dependencies) => {
       });
   }
 
-  /** Send a prompt; resolves when the turn it starts ends. */
+  /**
+   * Send a prompt; resolves when the turn that answers it ends. While a turn
+   * runs the prompt is queued in the CLI, as OpenCode queues one, instead of
+   * being refused.
+   */
   const send = (content) => {
     if (exited) return Promise.reject(new Error('Claude process has exited'));
-    if (turn) return Promise.reject(new Error('Session is already running'));
     return new Promise((resolve, reject) => {
-      beginTurn({ resolve, reject });
       const uuid = createUuid();
+      if (turn) queued.set(uuid, { resolve, reject });
+      else beginTurn({ resolve, reject });
       sentUuids.add(uuid);
       prompts.push({
         type: 'user',
