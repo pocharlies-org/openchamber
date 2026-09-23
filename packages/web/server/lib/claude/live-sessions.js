@@ -19,13 +19,15 @@ import path from 'path';
 
 const ENTRY_FILE = /^\d+\.json$/;
 
-const readProcStart = async (fsPromises, pid) => {
+/** Start time (field 22) and parent pid (field 4) of a process, from /proc. */
+const readProcStat = async (fsPromises, pid) => {
   try {
     const stat = await fsPromises.readFile(`/proc/${pid}/stat`, 'utf8');
     // `comm` (field 2) is parenthesised and may contain spaces: count fields
     // from the closing parenthesis. Field 3 is the first one after it.
     const afterComm = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
-    return afterComm[22 - 3] ?? null;
+    const ppid = Number.parseInt(afterComm[4 - 3], 10);
+    return { start: afterComm[22 - 3] ?? null, ppid: Number.isInteger(ppid) ? ppid : null };
   } catch {
     return null;
   }
@@ -74,6 +76,7 @@ const toOwner = (entry) => ({
   status: entry.status === 'busy' ? 'busy' : 'idle',
   bridgeSessionId: typeof entry.bridgeSessionId === 'string' ? entry.bridgeSessionId : '',
   updatedAt: Number.isFinite(entry.updatedAt) ? entry.updatedAt : 0,
+  ppid: Number.isInteger(entry.ppid) ? entry.ppid : null,
 });
 
 /**
@@ -91,8 +94,12 @@ export const createLiveSessionRegistry = ({
   platform = process.platform,
   resetFailedUnit = defaultResetFailedUnit,
 }) => {
-  /** Map<sessionId, owner> of sessions running in a live CLI process. */
-  const read = async () => {
+  /**
+   * Map<sessionId, owner> of sessions running in a live CLI process.
+   * `ignoreParentPid` leaves out the processes that pid spawned — the caller's
+   * own CLI children — so what remains are writers someone else runs.
+   */
+  const read = async ({ ignoreParentPid } = {}) => {
     let names;
     try {
       names = await fsPromises.readdir(sessionsDir);
@@ -110,11 +117,15 @@ export const createLiveSessionRegistry = ({
       }
       if (!entry || typeof entry.sessionId !== 'string' || !Number.isInteger(entry.pid)) return;
       if (!isProcessAlive(kill, entry.pid)) return;
-      if (platform === 'linux' && entry.procStart !== undefined) {
-        const procStart = await readProcStart(fsPromises, entry.pid);
-        if (procStart !== null && String(procStart) !== String(entry.procStart)) return;
+      let ppid = null;
+      if (platform === 'linux') {
+        const stat = await readProcStat(fsPromises, entry.pid);
+        if (stat && entry.procStart !== undefined && stat.start !== null
+          && String(stat.start) !== String(entry.procStart)) return;
+        ppid = stat?.ppid ?? null;
       }
-      const owner = toOwner(entry);
+      if (ignoreParentPid !== undefined && ppid === ignoreParentPid) return;
+      const owner = toOwner({ ...entry, ppid });
       const previous = owners.get(owner.sessionId);
       // Two live entries for one session means it was resumed while still
       // open; the most recently active one is the writer that matters.

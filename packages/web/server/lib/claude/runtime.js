@@ -173,6 +173,9 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     // Registry of sessions live in a CLI process OpenChamber does not own
     // (live-sessions.js). Without it every session is assumed free.
     liveRegistry = null,
+    // Our own CLI children are in Claude Code's registry too; they are told
+    // apart by their parent pid.
+    selfPid = process.pid,
     livePollMs = DEFAULT_LIVE_POLL_MS,
   } = dependencies;
 
@@ -512,19 +515,32 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     }
   };
 
+  const readOwners = () => liveRegistry.read({ ignoreParentPid: selfPid });
+
   const pollLiveSessions = async () => {
     if (!liveRegistry) return;
     let owners;
     try {
-      owners = await liveRegistry.read();
+      owners = await readOwners();
     } catch (error) {
       console.warn('[claude-backend] live session registry unreadable:', error?.message || error);
       return;
     }
-    // Our own processes show up in the registry too; they are not foreign.
-    for (const sessionId of owners.keys()) {
+    for (const [sessionId, owner] of owners) {
       const proc = processes.get(sessionId);
-      if (proc && !proc.hasExited()) owners.delete(sessionId);
+      if (!proc || proc.hasExited()) continue;
+      // Without a parent pid (no /proc) our own process cannot be told apart
+      // from a foreign one: it is taken as ours.
+      if (!Number.isInteger(owner.ppid)) {
+        owners.delete(sessionId);
+        continue;
+      }
+      // Someone resumed a session we hold — typically VS Code reopening it.
+      // Two writers corrupt the transcript, and ours is the one we can stop:
+      // it yields, and the session is followed from here on.
+      console.warn(`[claude-backend] ${sessionId} was resumed by ${owner.entrypoint} (pid ${owner.pid}); closing our process`);
+      await closeProcess(sessionId);
+      setBusyStatus(sessionId, normalizeDirectory(owner.cwd), { type: owner.status });
     }
     const previous = foreignOwners;
     foreignOwners = owners;
@@ -817,7 +833,7 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
   /** The foreign owner of a session, read now rather than from the last poll. */
   const readForeignOwner = async (sessionId) => {
     if (!liveRegistry) return null;
-    const owners = await liveRegistry.read();
+    const owners = await readOwners();
     return owners.get(sessionId) || null;
   };
 

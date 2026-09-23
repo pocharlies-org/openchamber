@@ -73,6 +73,16 @@ describe('live session registry', () => {
     expect((await registry.read()).get('same').pid).toBe(2);
   });
 
+  it('leaves out the processes a given pid spawned (its own CLI children)', async () => {
+    // The fake /proc stat puts 4 in the parent pid field.
+    const fs = makeFs({ '1.json': entry(1) }, { 1: '100' });
+    const registry = createLiveSessionRegistry({
+      fsPromises: fs, sessionsDir: DIR, kill: killFor(new Set([1])), platform: 'linux',
+    });
+    expect((await registry.read({ ignoreParentPid: 4 })).size).toBe(0);
+    expect((await registry.read({ ignoreParentPid: 5 })).get('sess-1')).toMatchObject({ pid: 1, ppid: 4 });
+  });
+
   it('skips unreadable entries and treats a missing directory as nothing live', async () => {
     const fs = makeFs({ '1.json': '{not json' });
     const registry = createLiveSessionRegistry({ fsPromises: fs, sessionsDir: DIR, kill: killFor(new Set([1])) });
