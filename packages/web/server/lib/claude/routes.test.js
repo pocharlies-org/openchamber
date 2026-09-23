@@ -1,5 +1,6 @@
 import express from 'express';
 import request from 'supertest';
+import nodeCrypto from 'crypto';
 import { describe, expect, it } from 'vitest';
 
 import { createClaudeSurface, namespaceEventIds } from './routes.js';
@@ -89,5 +90,53 @@ describe('namespaceEventIds', () => {
       properties: { info: { id: 'claude:msg_1' } },
     });
     expect(twice.properties.info.id).toBe('claude:msg_1');
+  });
+});
+
+describe('POST /api/session/:id/prompt_async', () => {
+  const createApp = (query) => {
+    const app = express();
+    const sdk = query
+      ? {
+        listSessions: async () => [],
+        getSessionMessages: async () => [],
+        getSessionInfo: async () => null,
+        renameSession: async () => {},
+        query,
+      }
+      : null;
+    createClaudeSurface({
+      crypto: nodeCrypto,
+      fsPromises: { readFile: async () => { throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' }); } },
+      claudeExecutable: '/usr/bin/claude',
+      sdkLoader: async () => sdk,
+    }).register(app);
+    return app;
+  };
+
+  it('answers once the turn is accepted, while the turn is still running', async () => {
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    const query = () => (async function* stream() {
+      await gate;
+      yield { type: 'result', is_error: false };
+    })();
+
+    const response = await request(createApp(query))
+      .post('/api/session/ses_cccsess-1/prompt_async')
+      .send({ parts: [{ type: 'text', text: 'hi' }] });
+
+    expect(response.status).toBe(204);
+    release();
+  });
+
+  it('still reports a turn rejected before acceptance as an error', async () => {
+    // No Agent SDK: the backend refuses the turn before accepting it.
+    const response = await request(createApp(null))
+      .post('/api/session/ses_cccsess-1/prompt_async')
+      .send({ parts: [{ type: 'text', text: 'hi' }] });
+
+    expect(response.status).toBe(500);
+    expect(response.body.error).toMatch(/not available/);
   });
 });
