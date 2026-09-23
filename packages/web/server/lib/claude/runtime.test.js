@@ -940,6 +940,45 @@ describe('claude backend sessions live in another process', () => {
     await runtime.shutdownAll();
   });
 
+  it('keeps following while the front end still shows the session, and catches up after a lapse', async () => {
+    const publishEvent = vi.fn();
+    let lastModified = 100;
+    let transcript = [
+      { type: 'user', uuid: 'u1', timestamp: '2026-09-23T00:00:00.000Z', message: { role: 'user', content: 'hola' } },
+    ];
+    const sdk = makeSdk({
+      getSessionInfo: vi.fn(async () => sessionInfo({ lastModified })),
+      getSessionMessages: vi.fn(async () => transcript),
+    });
+    const liveRegistry = makeRegistry([owner()]);
+    const { runtime } = createRuntime({ sdk, publishEvent, liveRegistry, livePollMs: 5, liveFollowWindowMs: 40 });
+    const texts = () => publishEvent.mock.calls.map(([e]) => e.payload)
+      .filter((p) => p.type === 'message.part.updated').map((p) => p.properties.part.text);
+    const write = (uuid, text) => {
+      transcript = [...transcript, { type: 'assistant', uuid, timestamp: '2026-09-23T00:00:01.000Z', message: { id: `api_${uuid}`, role: 'assistant', content: [{ type: 'text', text }] } }];
+      lastModified += 1;
+    };
+
+    await runtime.getMessages({ sessionID: 'sess-1', directory: '/repo/project' });
+    // Shown for longer than the window: the keep-alive holds the follow.
+    const keepAlive = setInterval(() => { void runtime.keepFollowing({ sessionID: 'sess-1', directory: '/repo/project' }); }, 10);
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    write('a1', 'sigue en vivo');
+    await vi.waitFor(() => expect(texts()).toContain('sigue en vivo'));
+    clearInterval(keepAlive);
+
+    // Nobody shows it: the follow lapses and nothing more is published.
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    write('a2', 'mientras dormia');
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(texts()).not.toContain('mientras dormia');
+
+    // Shown again: it catches up on what it missed.
+    await runtime.keepFollowing({ sessionID: 'sess-1', directory: '/repo/project' });
+    await vi.waitFor(() => expect(texts()).toContain('mientras dormia'));
+    await runtime.shutdownAll();
+  });
+
   it('follows the transcript while another process writes it, publishing only what changed', async () => {
     const publishEvent = vi.fn();
     let lastModified = 100;
