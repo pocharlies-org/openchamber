@@ -19,8 +19,6 @@ import type { UsageProviderGroup, UsageLimitRow } from '@/components/usage/usage
  * `kilocode` / `kilo-code` are the same Kilo Gateway account as `kilo`.
  */
 const QUOTA_PROVIDER_ALIASES = new Map<string, string>([
-  ['openai', 'codex'],
-  ['chatgpt', 'codex'],
   ['anthropic', 'claude'],
   ['claude-code', 'claude'],
   ['gemini', 'google'],

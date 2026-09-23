@@ -12,7 +12,7 @@
 
 import os from 'os';
 import path from 'path';
-import { mapClaudeSessionMessages, deriveClaudeTitle } from './claude-transcript.js';
+import { mapClaudeSessionMessages, deriveClaudeTitle, toolResultText } from './claude-transcript.js';
 
 const BACKEND_ID = 'claude';
 const PROVIDER_ID = 'claude';
@@ -49,6 +49,12 @@ const EFFORT_OPTIONS = Object.freeze([
   { id: 'high', label: 'High' },
   { id: 'max', label: 'Max' },
 ]);
+
+// Stream deltas that grow a part live, keyed by the Anthropic delta type.
+const STREAM_DELTA_KINDS = Object.freeze({
+  text_delta: { partType: 'text', field: 'text' },
+  thinking_delta: { partType: 'reasoning', field: 'thinking' },
+});
 
 const DEFAULT_MODEL_CATALOG = Object.freeze([
   { id: 'sonnet', label: 'Sonnet' },
@@ -577,6 +583,10 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     const abortController = new AbortController();
     runs.set(sessionId, { abortController, directory });
     setBusyStatus(sessionId, directory, { type: 'busy' });
+    // The turn is accepted from here on: every later failure is reported as a
+    // `session.error` event, so an HTTP caller can be answered now instead of
+    // being held open for the whole turn.
+    input.onStarted?.();
 
     // One OpenChamber message per Claude API message id; the CLI emits several
     // API messages per turn (one per tool round), so ids must not be reused.
@@ -625,6 +635,35 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
       });
     };
 
+    // The CLI delivers each content block of an API message as its own SDK
+    // `assistant` message, always at content index 0, while the stream events
+    // that preceded it carried the block's real index. The finished block
+    // therefore settles the part its deltas already built instead of opening
+    // a second one keyed by index 0, which would render the text twice.
+    const settledPartIds = new Set();
+    const settleBlockPart = (apiMessageId, type, text) => {
+      const messageId = `msg_${apiMessageId}`;
+      const finalText = typeof text === 'string' ? text : '';
+      for (const part of streamingParts.values()) {
+        if (part.messageID !== messageId || part.type !== type || settledPartIds.has(part.id)) continue;
+        if (part.text.trim() !== finalText.trim()) continue;
+        part.text = finalText;
+        settledPartIds.add(part.id);
+        emitStreamingPart(part.id);
+        return;
+      }
+      let index = 0;
+      while (streamingParts.has(`${messageId}_${type}_${index}`)) index += 1;
+      const part = ensureStreamingPart(apiMessageId, index, type, finalText);
+      settledPartIds.add(part.id);
+      emitStreamingPart(part.id);
+    };
+
+    // Tool calls stay open until the CLI hands back their `tool_result`, which
+    // arrives as a `user` message in the same stream: the card closes live
+    // instead of waiting for the transcript to be re-read after the turn.
+    const toolParts = new Map();
+
     try {
       const executable = await resolveExecutable();
       const query = sdk.query({
@@ -664,18 +703,51 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
             currentApiMessageId = typeof event.message?.id === 'string' ? event.message.id : null;
             continue;
           }
-          if (event?.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
+          const deltaKind = event?.type === 'content_block_delta'
+            ? STREAM_DELTA_KINDS[event.delta?.type]
+            : undefined;
+          if (deltaKind) {
             const apiMessageId = currentApiMessageId || `turn-${Date.now()}`;
             const index = typeof event.index === 'number' ? event.index : 0;
-            ensureStreamingPart(apiMessageId, index, 'text', event.delta.text || '');
+            const delta = event.delta[deltaKind.field] || '';
+            ensureStreamingPart(apiMessageId, index, deltaKind.partType, delta);
             emitEvent(directory, {
               type: 'message.part.delta',
               properties: {
                 sessionID: sessionId,
                 messageID: `msg_${apiMessageId}`,
-                partID: `${`msg_${apiMessageId}`}_text_${index}`,
+                partID: `msg_${apiMessageId}_${deltaKind.partType}_${index}`,
                 field: 'text',
-                delta: event.delta.text || '',
+                delta,
+              },
+            });
+          }
+          continue;
+        }
+
+        if (message?.type === 'user') {
+          const content = Array.isArray(message.message?.content) ? message.message.content : [];
+          for (const block of content) {
+            if (block?.type !== 'tool_result' || typeof block.tool_use_id !== 'string') continue;
+            const toolPart = toolParts.get(block.tool_use_id);
+            if (!toolPart) continue;
+            toolParts.delete(block.tool_use_id);
+            const output = toolResultText(block.content);
+            const failed = block.is_error === true;
+            emitEvent(directory, {
+              type: 'message.part.updated',
+              properties: {
+                part: {
+                  ...toolPart,
+                  state: {
+                    status: failed ? 'error' : 'completed',
+                    input: toolPart.state.input,
+                    output,
+                    error: failed ? (output || 'Tool call failed') : undefined,
+                    time: { start: toolPart.state.time.start, end: Date.now() },
+                  },
+                },
+                directory,
               },
             });
           }
@@ -689,13 +761,16 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
           const content = Array.isArray(message.message?.content) ? message.message.content : [];
           content.forEach((block, index) => {
             if (block?.type === 'text') {
-              ensureStreamingPart(apiMessageId, index, 'text', block.text || '');
-              emitStreamingPart(`${`msg_${apiMessageId}`}_text_${index}`);
+              settleBlockPart(apiMessageId, 'text', block.text || '');
+              return;
+            }
+            if (block?.type === 'thinking') {
+              if (typeof block.thinking === 'string' && block.thinking.length > 0) {
+                settleBlockPart(apiMessageId, 'reasoning', block.thinking);
+              }
               return;
             }
             if (block?.type === 'tool_use') {
-              // Results are only known once the transcript is re-read, so the
-              // live part stays 'running' until the post-turn refresh.
               const messageId = `msg_${apiMessageId}`;
               const callId = typeof block.id === 'string' ? block.id : `${messageId}_tool_${index}`;
               emitEvent(directory, {
@@ -713,23 +788,26 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
                   directory,
                 },
               });
+              // Keyed by call id, not content index: every block arrives at
+              // index 0, so parallel calls of one API message would overwrite
+              // each other's card.
+              const toolPart = {
+                id: `${messageId}_tool_${callId}`,
+                sessionID: sessionId,
+                messageID: messageId,
+                type: 'tool',
+                callID: callId,
+                tool: typeof block.name === 'string' ? block.name : 'tool',
+                state: {
+                  status: 'running',
+                  input: block.input && typeof block.input === 'object' ? block.input : undefined,
+                  time: { start: Date.now() },
+                },
+              };
+              toolParts.set(callId, toolPart);
               emitEvent(directory, {
                 type: 'message.part.updated',
-                properties: {
-                  part: {
-                    id: `${messageId}_tool_${index}`,
-                    sessionID: sessionId,
-                    messageID: messageId,
-                    type: 'tool',
-                    callID: callId,
-                    tool: typeof block.name === 'string' ? block.name : 'tool',
-                    state: {
-                      status: 'running',
-                      input: block.input && typeof block.input === 'object' ? block.input : undefined,
-                    },
-                  },
-                  directory,
-                },
+                properties: { part: toolPart, directory },
               });
             }
           });
