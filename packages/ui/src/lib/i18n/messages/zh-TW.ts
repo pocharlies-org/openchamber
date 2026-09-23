@@ -1606,6 +1606,7 @@ export const dict: Record<I18nKey, string> = {
   'chat.claudeLive.title.desktop': '已在 Claude Desktop 中開啟',
   'chat.claudeLive.title.other': '已在其他應用程式中開啟',
   'chat.claudeLive.description': '那邊正在寫入。要在這裡繼續，OpenChamber 會先在那邊關閉它，再在這裡恢復。',
+  'chat.claudeLive.descriptionAttached': '已連線：你在這裡輸入的內容會送到那個工作階段，它會在那邊和這裡同時回覆。',
   'chat.claudeLive.actions.takeOver': '接管',
   'chat.claudeLive.actions.openRemote': '在 claude.ai 中開啟',
   'chat.claudeLive.toast.takeOverFailed': '無法接管此工作階段',

@@ -1630,6 +1630,7 @@ export const dict = {
   'chat.claudeLive.title.desktop': 'Open in Claude Desktop',
   'chat.claudeLive.title.other': 'Open in another app',
   'chat.claudeLive.description': 'It is being written there. To continue here, OpenChamber closes it there and resumes it.',
+  'chat.claudeLive.descriptionAttached': 'Connected: what you write here goes to that session, and it answers there and here.',
   'chat.claudeLive.actions.takeOver': 'Take over',
   'chat.claudeLive.actions.openRemote': 'Open in claude.ai',
   'chat.claudeLive.toast.takeOverFailed': 'Could not take the session over',

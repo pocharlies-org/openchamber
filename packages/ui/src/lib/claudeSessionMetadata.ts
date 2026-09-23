@@ -7,8 +7,9 @@ import { getSessionMetadata } from '@/lib/sessionReviewMetadata';
  * session metadata (server/lib/claude/runtime.js `withLiveState`).
  *
  * `liveElsewhere` means another CLI process — a terminal, VS Code, Claude
- * Desktop — is writing the transcript: OpenChamber shows it live but cannot
- * write to it until it takes it over. `remoteControlUrl` is the session's
+ * Desktop — is writing the transcript: OpenChamber shows it live and, when it
+ * is linked to claude.ai (`attachable`), writes to it through that link as
+ * Claude Desktop does; otherwise only after taking it over. `remoteControlUrl` is the session's
  * claude.ai link, whoever holds it.
  */
 export type ClaudeLiveOwnerKind = 'terminal' | 'vscode' | 'desktop' | 'other';
@@ -17,6 +18,8 @@ export type ClaudeLiveElsewhere = {
   kind: ClaudeLiveOwnerKind;
   name: string;
   busy: boolean;
+  /** Linked to claude.ai: OpenChamber writes to it through that link. */
+  attachable: boolean;
 };
 
 export type ClaudeLiveState = {
@@ -37,10 +40,12 @@ const liveElsewhereSchema = z.object({
   entrypoint: z.string().catch(''),
   name: z.string().catch(''),
   status: z.string().catch('idle'),
-}).transform(({ entrypoint, name, status }): ClaudeLiveElsewhere => ({
+  attachable: z.boolean().catch(false),
+}).transform(({ entrypoint, name, status, attachable }): ClaudeLiveElsewhere => ({
   kind: isKnownEntrypoint(entrypoint) ? OWNER_KINDS[entrypoint] : 'other',
   name,
   busy: status === 'busy',
+  attachable,
 }));
 
 // Only a claude.ai link is ever rendered as one.

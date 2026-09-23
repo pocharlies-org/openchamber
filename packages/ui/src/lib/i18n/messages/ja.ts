@@ -1635,6 +1635,7 @@ export const dict: Record<I18nKey, string> = {
   'chat.claudeLive.title.desktop': 'Claude Desktop で開いています',
   'chat.claudeLive.title.other': '別のアプリで開いています',
   'chat.claudeLive.description': 'そちらで書き込み中です。ここで続けるには、OpenChamber がそちらを閉じて再開します。',
+  'chat.claudeLive.descriptionAttached': '接続済み：ここで書いた内容はそのセッションに送られ、あちらとこちらの両方に返答します。',
   'chat.claudeLive.actions.takeOver': '引き継ぐ',
   'chat.claudeLive.actions.openRemote': 'claude.ai で開く',
   'chat.claudeLive.toast.takeOverFailed': 'セッションを引き継げませんでした',

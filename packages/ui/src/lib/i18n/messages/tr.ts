@@ -1592,6 +1592,7 @@ export const dict = {
   'chat.claudeLive.title.desktop': 'Claude Desktop\'ta açık',
   'chat.claudeLive.title.other': 'Başka bir uygulamada açık',
   'chat.claudeLive.description': 'Orada yazılıyor. Burada devam etmek için OpenChamber onu orada kapatıp sürdürür.',
+  'chat.claudeLive.descriptionAttached': 'Bağlandı: burada yazdıklarınız o oturuma gider; o da orada ve burada yanıt verir.',
   'chat.claudeLive.actions.takeOver': 'Devral',
   'chat.claudeLive.actions.openRemote': 'claude.ai\'da aç',
   'chat.claudeLive.toast.takeOverFailed': 'Oturum devralınamadı',

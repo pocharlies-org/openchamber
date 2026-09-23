@@ -205,6 +205,10 @@ const sendPromptError = (res, error) => {
     res.status(409).json({ error: error.message, code: error.code, owner: { entrypoint, name, status, pid } });
     return;
   }
+  if (error?.code === 'CLAUDE_REMOTE_ATTACH_FAILED') {
+    res.status(502).json({ error: error.message, code: error.code });
+    return;
+  }
   res.status(500).json({ error: error?.message || 'Failed to prompt' });
 };
 

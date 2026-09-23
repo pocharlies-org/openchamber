@@ -1429,6 +1429,7 @@ export const dict = {
   'chat.claudeLive.title.desktop': 'In Claude Desktop geöffnet',
   'chat.claudeLive.title.other': 'In einer anderen App geöffnet',
   'chat.claudeLive.description': 'Dort wird gerade geschrieben. Um hier weiterzumachen, schließt OpenChamber sie dort und setzt sie fort.',
+  'chat.claudeLive.descriptionAttached': 'Verbunden: Was du hier schreibst, geht an diese Sitzung, und sie antwortet dort und hier.',
   'chat.claudeLive.actions.takeOver': 'Übernehmen',
   'chat.claudeLive.actions.openRemote': 'In claude.ai öffnen',
   'chat.claudeLive.toast.takeOverFailed': 'Die Sitzung konnte nicht übernommen werden',

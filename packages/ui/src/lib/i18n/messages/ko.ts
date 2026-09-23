@@ -1632,6 +1632,7 @@ export const dict: Record<I18nKey, string> = {
   'chat.claudeLive.title.desktop': 'Claude Desktop에서 열려 있음',
   'chat.claudeLive.title.other': '다른 앱에서 열려 있음',
   'chat.claudeLive.description': '그곳에서 작성 중입니다. 여기서 계속하려면 OpenChamber가 그곳을 닫고 이어서 진행합니다.',
+  'chat.claudeLive.descriptionAttached': '연결됨: 여기에 쓴 내용은 그 세션으로 전달되고, 그곳과 여기에서 함께 답합니다.',
   'chat.claudeLive.actions.takeOver': '제어 가져오기',
   'chat.claudeLive.actions.openRemote': 'claude.ai에서 열기',
   'chat.claudeLive.toast.takeOverFailed': '세션 제어를 가져오지 못했습니다',
