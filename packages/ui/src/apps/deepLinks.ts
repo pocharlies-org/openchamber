@@ -14,6 +14,12 @@ import { isLinkIdentifier } from '@/lib/router/messageFocus';
 
 const DEEP_LINK_SCHEME = 'openchamber';
 
+// A build signed under another bundle id registers its own `openchamber-<suffix>` scheme so
+// it does not fight the official app over `openchamber://` (iOS picks either at random when
+// two apps claim a scheme). Its widgets emit that scheme; push payloads and pasted links
+// still carry the base one, so both are accepted.
+const DEEP_LINK_PROTOCOL = new RegExp(`^${DEEP_LINK_SCHEME}(?:-[a-z0-9.+-]+)?:$`);
+
 export type SessionsFilter = 'all' | 'attention' | 'recent';
 export type ViewTarget = 'files' | 'mcp' | 'instances' | 'update';
 
@@ -61,7 +67,7 @@ export function parseDeepLink(raw: string | null | undefined): DeepLinkIntent | 
     return null;
   }
 
-  if (url.protocol !== `${DEEP_LINK_SCHEME}:`) {
+  if (!DEEP_LINK_PROTOCOL.test(url.protocol)) {
     return null;
   }
 
