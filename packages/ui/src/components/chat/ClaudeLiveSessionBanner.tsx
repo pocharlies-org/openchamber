@@ -25,9 +25,10 @@ type ClaudeLiveSessionBannerProps = {
  * Where a Claude Code session is live besides this window.
  *
  * Open in another process (a terminal, VS Code, Claude Desktop): the
- * transcript follows live here, but only one process may write it, so the
- * composer offers to take it over — the other process is closed and this one
- * resumes it. Linked to claude.ai: a link to continue it from there or the
+ * transcript follows live here. Linked to claude.ai, the composer writes to it
+ * through that link and that process answers, as Claude Desktop does. Either
+ * way it can be taken over — the other process is closed and this one resumes
+ * it. Linked to claude.ai: a link to continue it from there or the
  * Claude app.
  */
 export const ClaudeLiveSessionBanner = memo(({ sessionId, directory }: ClaudeLiveSessionBannerProps) => {
@@ -84,14 +85,14 @@ export const ClaudeLiveSessionBanner = memo(({ sessionId, directory }: ClaudeLiv
     <div className="pb-2 w-full px-1">
       <div className="rounded-xl border border-border/60 bg-[var(--surface-elevated)] text-[var(--surface-elevated-foreground)] shadow-sm overflow-hidden">
         <div className="flex w-full items-center gap-2 px-3 py-2 text-left">
-          <Icon name="lock" className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+          <Icon name={liveElsewhere.attachable ? 'lock-unlock' : 'lock'} className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
           <div className="min-w-0 flex-1">
             <span className="typography-ui-label font-medium text-foreground">
               {t(TITLE_KEYS[liveElsewhere.kind])}
               {liveElsewhere.busy ? <BusyDots /> : null}
             </span>
             <div className="typography-meta text-muted-foreground">
-              {t('chat.claudeLive.description')}
+              {t(liveElsewhere.attachable ? 'chat.claudeLive.descriptionAttached' : 'chat.claudeLive.description')}
             </div>
           </div>
           {remoteLink}
