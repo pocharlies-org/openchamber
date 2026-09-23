@@ -294,7 +294,7 @@ export const createClaudeSurface = (dependencies = {}) => {
       const requestedModel = typeof body.model?.modelID === 'string' ? body.model.modelID.trim() : '';
       // `prompt_async` answers once the turn is accepted, as OpenCode's does;
       // the turn itself streams over the event channel. Only a rejection
-      // before acceptance (empty input, session already running, backend
+      // before acceptance (empty input, session held by another process, backend
       // unavailable) can still become this request's error response.
       let answered = false;
       const answer = (send) => {

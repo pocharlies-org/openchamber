@@ -126,11 +126,44 @@ describe('claude session process', () => {
     await proc.close();
   });
 
-  it('refuses a second prompt while a turn is running', async () => {
-    const { proc } = createProcess();
+  it('queues a prompt sent during a turn and answers it as the next turn', async () => {
+    const { proc, sdk, statuses, events } = createProcess();
     const first = proc.send([{ type: 'text', text: 'one' }]);
-    await expect(proc.send([{ type: 'text', text: 'two' }])).rejects.toThrow(/already running/);
-    await first;
+    const second = proc.send([{ type: 'text', text: 'two' }]);
+
+    await expect(first).resolves.toEqual({ ok: true });
+    await expect(second).resolves.toEqual({ ok: true });
+
+    expect(sdk.query).toHaveBeenCalledTimes(1);
+    expect(statuses).toEqual(['busy', 'idle', 'busy', 'idle']);
+    expect(textParts(events).map((part) => part.text).filter(Boolean)).toEqual(['answer 1', 'answer 2']);
+    await proc.close();
+  });
+
+  it('ends a prompt the CLI folded into the running turn together with that turn', async () => {
+    const bundle = makeInteractiveSdk();
+    // A CLI that takes every queued prompt into the turn already running.
+    bundle.sdk.query = vi.fn(({ prompt }) => {
+      const output = createChannel();
+      (async () => {
+        const iterator = prompt[Symbol.asyncIterator]();
+        const one = (await iterator.next()).value;
+        const two = (await iterator.next()).value;
+        output.push({ ...one, isReplay: true });
+        output.push({ ...two, isReplay: true });
+        output.push({ type: 'assistant', message: { id: 'api_1', content: [{ type: 'text', text: 'both' }] } });
+        output.push({ type: 'result', is_error: false });
+      })();
+      const handle = Object.assign(output, { interrupt: vi.fn(async () => {}), close: vi.fn(() => output.end()) });
+      bundle.handles.push(handle);
+      return handle;
+    });
+    const { proc, statuses } = createProcess({ sdkBundle: bundle });
+
+    const first = proc.send([{ type: 'text', text: 'one' }]);
+    const second = proc.send([{ type: 'text', text: 'two' }]);
+    await expect(Promise.all([first, second])).resolves.toEqual([{ ok: true }, { ok: true }]);
+    expect(statuses).toEqual(['busy', 'idle']);
     await proc.close();
   });
 
