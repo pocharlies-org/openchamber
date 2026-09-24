@@ -24,6 +24,7 @@ import { ComposerAttachmentControls } from './ComposerAttachmentControls';
 import { FocusModeButton } from './FocusModeButton';
 import { PermissionAutoAcceptButton } from './PermissionAutoAcceptButton';
 import { ComposerMetricsSurface } from './ComposerMetricsSurface';
+import { ComposerCacheTimer } from './ComposerCacheTimer';
 
 const MemoModelControls = React.memo(ModelControls);
 const MemoComposerDictation = React.memo(ComposerDictation);
@@ -159,6 +160,7 @@ export function ComposerFooter(props: ComposerFooterProps) {
                             <SessionGoalObjectiveCounter length={messageLength} />
                         </div>
                         <div className="flex items-center min-w-0 gap-x-1 justify-end">
+                            <ComposerCacheTimer sessionId={currentSessionId} directory={directory} />
                             <ComposerMetricsSurface
                                 isMobile
                                 sessionId={currentSessionId}
@@ -253,6 +255,7 @@ export function ComposerFooter(props: ComposerFooterProps) {
                             placement="footer"
                             className="max-w-[22rem] flex-[1_1_12rem] justify-end"
                         />
+                        <ComposerCacheTimer sessionId={currentSessionId} directory={directory} />
                         <MemoModelControls className={cn('flex-1 min-w-0 justify-end')} />
                         <MemoComposerDictation
                             radius={chatInputRadius}
