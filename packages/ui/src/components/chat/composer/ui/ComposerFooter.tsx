@@ -27,6 +27,7 @@ import { PermissionAutoAcceptButton } from './PermissionAutoAcceptButton';
 import type { PermissionMode } from '@/stores/utils/permissionAutoAccept';
 import type { BtwSelection } from '@/stores/useBtwStore';
 import { ComposerMetricsSurface } from './ComposerMetricsSurface';
+import { ComposerCacheTimer } from './ComposerCacheTimer';
 
 const MemoModelControls = React.memo(ModelControls);
 const MemoComposerDictation = React.memo(ComposerDictation);
@@ -183,6 +184,7 @@ export function ComposerFooter(props: ComposerFooterProps) {
                             {!isBtw ? <SessionGoalObjectiveCounter length={messageLength} /> : null}
                         </div>
                         <div className="flex items-center min-w-0 gap-x-1 justify-end">
+                            <ComposerCacheTimer sessionId={currentSessionId} directory={directory} />
                             <ComposerMetricsSurface
                                 isMobile
                                 sessionId={currentSessionId}
@@ -280,6 +282,7 @@ export function ComposerFooter(props: ComposerFooterProps) {
                             placement="footer"
                             className="max-w-[22rem] flex-[1_1_12rem] justify-end"
                         />
+                        <ComposerCacheTimer sessionId={currentSessionId} directory={directory} />
                         {parallelRun ? <div className="flex-1" /> : isBtw ? <ModelControls className="flex-1 min-w-0 justify-end" sessionId={modelSessionId ?? null} selection={btwSelection} /> : <MemoModelControls className={cn('flex-1 min-w-0 justify-end')} onRunInParallel={onRunInParallel} />}
                         {!isBtw ? <MemoComposerDictation
                             radius={chatInputRadius}
