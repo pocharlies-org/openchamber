@@ -1,0 +1,1019 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import nodeCrypto from 'crypto';
+
+import { createClaudeBackendRuntime } from './runtime.js';
+
+const HOME = '/home/test';
+const OVERLAY_FILE = '/state/claude-sessions.json';
+const SETTINGS_FILE = `${HOME}/.claude/settings.json`;
+const EXECUTABLE = '/usr/bin/claude';
+
+const makeFs = ({ settings, overlay } = {}) => {
+  const files = new Map();
+  if (settings !== undefined) files.set(SETTINGS_FILE, JSON.stringify(settings));
+  if (overlay !== undefined) files.set(OVERLAY_FILE, JSON.stringify(overlay));
+  const missing = () => Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+
+  return {
+    files,
+    readFile: vi.fn(async (target) => {
+      if (files.has(target)) return files.get(target);
+      throw missing();
+    }),
+    writeFile: vi.fn(async (target, data) => {
+      files.set(target, data);
+    }),
+    mkdir: vi.fn(async () => {}),
+    access: vi.fn(async (target) => {
+      if (target === EXECUTABLE) return;
+      throw missing();
+    }),
+  };
+};
+
+const makeQuery = (messages, extra = {}) => {
+  const query = (async function* stream() {
+    for (const message of messages) yield message;
+  })();
+  query.interrupt = vi.fn(async () => {});
+  return Object.assign(query, extra);
+};
+
+const makeSdk = (overrides = {}) => ({
+  listSessions: vi.fn(async () => []),
+  getSessionMessages: vi.fn(async () => []),
+  getSessionInfo: vi.fn(async () => null),
+  renameSession: vi.fn(async () => {}),
+  deleteSession: vi.fn(async () => {}),
+  forkSession: vi.fn(async () => ({ sessionId: 'forked-1' })),
+  query: vi.fn(() => makeQuery([])),
+  ...overrides,
+});
+
+const sessionInfo = (overrides = {}) => ({
+  sessionId: 'sess-1',
+  customTitle: '',
+  summary: 'summarised work',
+  firstPrompt: 'first prompt',
+  cwd: '/repo/project',
+  gitBranch: 'main',
+  createdAt: 1000,
+  lastModified: 2000,
+  ...overrides,
+});
+
+const createRuntime = ({ sdk, fs, ...rest } = {}) => {
+  const sdkObject = sdk || makeSdk();
+  const runtime = createClaudeBackendRuntime({
+    crypto: nodeCrypto,
+    fsPromises: fs || makeFs(),
+    publishEvent: vi.fn(),
+    homeDir: HOME,
+    overlayFilePath: OVERLAY_FILE,
+    claudeExecutable: EXECUTABLE,
+    sdkLoader: async () => sdkObject,
+    ...rest,
+  });
+  return { runtime, sdk: sdkObject };
+};
+
+describe('claude backend availability', () => {
+  it('is available when the SDK exposes the session API', async () => {
+    const { runtime } = createRuntime();
+    await expect(runtime.ensureAvailable()).resolves.toBe(true);
+    expect(runtime.isAvailable()).toBe(true);
+  });
+
+  it('is unavailable when the SDK cannot be loaded', async () => {
+    const { runtime } = createRuntime({
+      sdkLoader: async () => {
+        throw new Error('Cannot find module');
+      },
+    });
+    await expect(runtime.ensureAvailable()).resolves.toBe(false);
+  });
+
+  it('is unavailable when the SDK lacks session APIs', async () => {
+    const { runtime } = createRuntime({ sdkLoader: async () => ({ query: () => {} }) });
+    await expect(runtime.ensureAvailable()).resolves.toBe(false);
+  });
+});
+
+describe('claude backend listSessions', () => {
+  it('maps SDK session info to harness sessions', async () => {
+    const { runtime } = createRuntime({
+      sdk: makeSdk({ listSessions: vi.fn(async () => [sessionInfo()]) }),
+    });
+
+    const sessions = await runtime.listSessions({ directory: '/repo/project' });
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]).toMatchObject({
+      id: 'sess-1',
+      title: 'summarised work',
+      directory: '/repo/project',
+      backendId: 'claude',
+      time: { created: 1000, updated: 2000 },
+    });
+    expect(sessions[0].metadata.gitBranch).toBe('main');
+  });
+
+  it('prefers customTitle over summary', async () => {
+    const { runtime } = createRuntime({
+      sdk: makeSdk({ listSessions: vi.fn(async () => [sessionInfo({ customTitle: ' Named ' })]) }),
+    });
+    const [session] = await runtime.listSessions({});
+    expect(session.title).toBe('Named');
+  });
+
+  it('sorts newest first and honours limit', async () => {
+    const { runtime } = createRuntime({
+      sdk: makeSdk({
+        listSessions: vi.fn(async () => [
+          sessionInfo({ sessionId: 'old', lastModified: 100 }),
+          sessionInfo({ sessionId: 'new', lastModified: 900 }),
+          sessionInfo({ sessionId: 'mid', lastModified: 500 }),
+        ]),
+      }),
+    });
+    const sessions = await runtime.listSessions({ limit: 2 });
+    expect(sessions.map((session) => session.id)).toEqual(['new', 'mid']);
+  });
+
+  it('hides overlay-archived sessions unless asked for them', async () => {
+    const { runtime } = createRuntime({
+      sdk: makeSdk({ listSessions: vi.fn(async () => [sessionInfo({ sessionId: 'a' }), sessionInfo({ sessionId: 'b' })]) }),
+      fs: makeFs({ overlay: { archived: { a: 123 } } }),
+    });
+
+    const active = await runtime.listSessions({ archived: false });
+    expect(active.map((session) => session.id)).toEqual(['b']);
+
+    const archived = await runtime.listSessions({ archived: true });
+    expect(archived.map((session) => session.id)).toEqual(['a']);
+    expect(archived[0].time.archived).toBe(123);
+  });
+
+  it('serves a second call from cache within the TTL', async () => {
+    const listSessions = vi.fn(async () => [sessionInfo()]);
+    const { runtime } = createRuntime({ sdk: makeSdk({ listSessions }) });
+
+    await runtime.listSessions({});
+    await runtime.listSessions({});
+    expect(listSessions).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns empty and logs nothing fatal when the SDK throws', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { runtime } = createRuntime({
+      sdk: makeSdk({ listSessions: vi.fn(async () => { throw new Error('EACCES'); }) }),
+    });
+    await expect(runtime.listSessions({})).resolves.toEqual([]);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+});
+
+describe('claude backend getMessages', () => {
+  const transcript = [
+    { type: 'user', uuid: 'u1', timestamp: new Date(1000).toISOString(), message: { role: 'user', content: 'hello' } },
+    {
+      type: 'assistant',
+      uuid: 'a1',
+      timestamp: new Date(2000).toISOString(),
+      message: { id: 'msg_a', role: 'assistant', model: 'claude-sonnet-4-5', content: [{ type: 'text', text: 'hi there' }] },
+    },
+  ];
+
+  it('maps SDK messages into {info, parts} records', async () => {
+    const { runtime } = createRuntime({
+      sdk: makeSdk({ getSessionMessages: vi.fn(async () => transcript) }),
+    });
+
+    const records = await runtime.getMessages({ sessionID: 'sess-1' });
+    expect(records.map((record) => record.info.role)).toEqual(['user', 'assistant']);
+    expect(records[1].parts[0].text).toBe('hi there');
+    expect(records[1].info.providerID).toBe('claude');
+  });
+
+  it('applies limit by keeping the newest records', async () => {
+    const { runtime } = createRuntime({
+      sdk: makeSdk({ getSessionMessages: vi.fn(async () => transcript) }),
+    });
+    const records = await runtime.getMessages({ sessionID: 'sess-1', limit: 1 });
+    expect(records).toHaveLength(1);
+    expect(records[0].info.role).toBe('assistant');
+  });
+
+  it('returns empty when the SDK cannot read the transcript', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { runtime } = createRuntime({
+      sdk: makeSdk({ getSessionMessages: vi.fn(async () => { throw new Error('missing'); }) }),
+    });
+    await expect(runtime.getMessages({ sessionID: 'nope' })).resolves.toEqual([]);
+    warn.mockRestore();
+  });
+});
+
+describe('claude backend createSession', () => {
+  it('returns a uuid session and stages the title for the first turn', async () => {
+    const fs = makeFs();
+    const { runtime } = createRuntime({ fs });
+
+    const session = await runtime.createSession({ directory: '/repo/project', title: 'My task' });
+    expect(session.id).toMatch(/^[0-9a-f-]{36}$/);
+    expect(session.title).toBe('My task');
+    expect(session.directory).toBe('/repo/project');
+
+    const overlay = JSON.parse(fs.files.get(OVERLAY_FILE));
+    expect(overlay.pendingTitles[session.id]).toBe('My task');
+  });
+
+  it('does not write an overlay file when no title is given', async () => {
+    const fs = makeFs();
+    const { runtime } = createRuntime({ fs });
+    await runtime.createSession({ directory: '/repo/project' });
+    expect(fs.writeFile).not.toHaveBeenCalled();
+  });
+});
+
+describe('claude backend promptAsync', () => {
+  const textDelta = (id, index, text) => ({
+    type: 'stream_event',
+    event: { type: 'content_block_delta', index, delta: { type: 'text_delta', text } },
+  });
+
+  it('starts a brand-new session with sessionId and streams deltas', async () => {
+    const sdk = makeSdk({
+      query: vi.fn(() => makeQuery([
+        { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg_a' } } },
+        textDelta('msg_a', 0, 'hel'),
+        textDelta('msg_a', 0, 'lo'),
+        { type: 'result', is_error: false },
+      ])),
+    });
+    const publishEvent = vi.fn();
+    const { runtime } = createRuntime({ sdk, publishEvent });
+
+    await expect(runtime.promptAsync({
+      sessionID: 'sess-new',
+      directory: '/repo/project',
+      parts: [{ type: 'text', text: 'hi' }],
+    })).resolves.toEqual({ ok: true });
+
+    const options = sdk.query.mock.calls[0][0].options;
+    expect(options.sessionId).toBe('sess-new');
+    expect(options.resume).toBeUndefined();
+    expect(options.pathToClaudeCodeExecutable).toBe(EXECUTABLE);
+    expect(options.settingSources).toEqual(['user', 'project', 'local']);
+    expect(options.includePartialMessages).toBe(true);
+
+    const deltas = publishEvent.mock.calls
+      .map(([event]) => event.payload)
+      .filter((payload) => payload.type === 'message.part.delta');
+    expect(deltas.map((payload) => payload.properties.delta)).toEqual(['hel', 'lo']);
+    expect(deltas[0].properties.partID).toBe('msg_msg_a_text_0');
+
+    // The part must exist before deltas reference it.
+    const partOpens = publishEvent.mock.calls
+      .map(([event]) => event.payload)
+      .filter((payload) => payload.type === 'message.part.updated');
+    expect(partOpens.length).toBeGreaterThan(0);
+
+    const statuses = publishEvent.mock.calls
+      .map(([event]) => event.payload)
+      .filter((payload) => payload.type === 'session.status');
+    expect(statuses.map((payload) => payload.properties.status.type)).toEqual(['busy', 'idle']);
+  });
+
+  it('resumes once a transcript exists', async () => {
+    const sdk = makeSdk({
+      getSessionInfo: vi.fn(async () => sessionInfo()),
+      query: vi.fn(() => makeQuery([{ type: 'result', is_error: false }])),
+    });
+    const { runtime } = createRuntime({ sdk });
+
+    await runtime.promptAsync({
+      sessionID: 'sess-1',
+      directory: '/repo/project',
+      parts: [{ type: 'text', text: 'continue' }],
+    });
+
+    const options = sdk.query.mock.calls[0][0].options;
+    expect(options.resume).toBe('sess-1');
+    expect(options.sessionId).toBeUndefined();
+  });
+
+  it('applies a pending title after the first turn', async () => {
+    const fs = makeFs({ overlay: { archived: {}, pendingTitles: { 'sess-new': 'Staged name' } } });
+    const sdk = makeSdk({ query: vi.fn(() => makeQuery([{ type: 'result', is_error: false }])) });
+    const { runtime } = createRuntime({ sdk, fs });
+
+    await runtime.promptAsync({
+      sessionID: 'sess-new',
+      directory: '/repo/project',
+      parts: [{ type: 'text', text: 'go' }],
+    });
+
+    expect(sdk.renameSession).toHaveBeenCalledWith('sess-new', 'Staged name', { dir: '/repo/project' });
+    expect(JSON.parse(fs.files.get(OVERLAY_FILE)).pendingTitles).toEqual({});
+  });
+
+  it('sends attachments as image blocks', async () => {
+    const sdk = makeSdk({ query: vi.fn(() => makeQuery([{ type: 'result', is_error: false }])) });
+    const { runtime } = createRuntime({ sdk });
+
+    await runtime.promptAsync({
+      sessionID: 'sess-1',
+      parts: [
+        { type: 'text', text: 'look' },
+        { type: 'file', url: 'data:image/png;base64,AAAA', mime: 'image/png' },
+      ],
+    });
+
+    // The prompt is a stream that stays open for the next turn: read the
+    // first message rather than draining it.
+    const prompt = sdk.query.mock.calls[0][0].prompt;
+    const first = await prompt[Symbol.asyncIterator]().next();
+    expect(first.done).toBe(false);
+    expect(first.value.message.content).toEqual([
+      { type: 'text', text: 'look' },
+      { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } },
+    ]);
+  });
+
+  it('rejects an empty turn', async () => {
+    const { runtime } = createRuntime();
+    await expect(runtime.promptAsync({ sessionID: 'sess-1', parts: [] })).rejects.toThrow(/empty input/);
+  });
+
+  it('queues a second prompt in the same process instead of refusing it', async () => {
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    const sdk = makeSdk({
+      query: vi.fn(() => makeQuery([(async () => { await gate; return { type: 'result', is_error: false }; })()])),
+    });
+    const { runtime } = createRuntime({ sdk });
+
+    const first = runtime.promptAsync({ sessionID: 'sess-1', parts: [{ type: 'text', text: 'a' }] });
+    await vi.waitFor(() => expect(runtime.getStatusSnapshot({})).resolves.toHaveProperty('sess-1'));
+
+    const onStarted = vi.fn();
+    const second = runtime.promptAsync({ sessionID: 'sess-1', parts: [{ type: 'text', text: 'b' }], onStarted });
+    await vi.waitFor(() => expect(onStarted).toHaveBeenCalled());
+    // Never a second writer on the transcript.
+    expect(sdk.query).toHaveBeenCalledTimes(1);
+
+    release();
+    await first;
+    // This fake CLI exits after one turn without taking the queued prompt.
+    await expect(second).rejects.toThrow(/exited before taking the prompt/);
+  });
+
+  it('emits session.error and still goes idle when the run fails', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const publishEvent = vi.fn();
+    const sdk = makeSdk({
+      query: vi.fn(() => makeQuery([{ type: 'result', is_error: true, result: 'credit balance' }])),
+    });
+    const { runtime } = createRuntime({ sdk, publishEvent });
+
+    await runtime.promptAsync({ sessionID: 'sess-1', parts: [{ type: 'text', text: 'hi' }] });
+
+    const errors = publishEvent.mock.calls
+      .map(([event]) => event.payload)
+      .filter((payload) => payload.type === 'session.error');
+    expect(errors[0].properties.error.message).toBe('credit balance');
+    warn.mockRestore();
+  });
+});
+
+describe('claude backend abortSession', () => {
+  it('interrupts and aborts a running turn', async () => {
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    const query = makeQuery([(async () => { await gate; return { type: 'result', is_error: false }; })()]);
+    const sdk = makeSdk({ query: vi.fn(() => query) });
+    const { runtime } = createRuntime({ sdk });
+
+    const running = runtime.promptAsync({ sessionID: 'sess-1', parts: [{ type: 'text', text: 'hi' }] });
+    await vi.waitFor(() => expect(sdk.query).toHaveBeenCalled());
+
+    await expect(runtime.abortSession({ sessionID: 'sess-1' })).resolves.toBe(true);
+    expect(query.interrupt).toHaveBeenCalled();
+    // The run slot is released even though the fake stream cannot observe the abort.
+    expect(await runtime.getStatusSnapshot({})).toEqual({});
+
+    release();
+    await running;
+  });
+
+  it('is a no-op for an unknown session', async () => {
+    const { runtime } = createRuntime();
+    await expect(runtime.abortSession({ sessionID: 'unknown' })).resolves.toBe(true);
+  });
+});
+
+describe('claude backend updateSession', () => {
+  it('renames through the SDK', async () => {
+    const sdk = makeSdk({
+      listSessions: vi.fn(async () => [sessionInfo()]),
+      renameSession: vi.fn(async () => {}),
+    });
+    const { runtime } = createRuntime({ sdk });
+
+    const session = await runtime.updateSession({ sessionID: 'sess-1', title: 'Renamed' });
+    expect(sdk.renameSession).toHaveBeenCalledWith('sess-1', 'Renamed', {});
+    expect(session.title).toBe('Renamed');
+  });
+
+  it('stages the title when the rename fails', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const fs = makeFs();
+    const sdk = makeSdk({
+      listSessions: vi.fn(async () => [sessionInfo()]),
+      renameSession: vi.fn(async () => { throw new Error('no transcript yet'); }),
+    });
+    const { runtime } = createRuntime({ sdk, fs });
+
+    await runtime.updateSession({ sessionID: 'sess-1', title: 'Renamed' });
+    expect(JSON.parse(fs.files.get(OVERLAY_FILE)).pendingTitles['sess-1']).toBe('Renamed');
+    warn.mockRestore();
+  });
+
+  it('archives and unarchives through the overlay', async () => {
+    const fs = makeFs();
+    const sdk = makeSdk({ listSessions: vi.fn(async () => [sessionInfo()]) });
+    const { runtime } = createRuntime({ sdk, fs });
+
+    const archived = await runtime.updateSession({ sessionID: 'sess-1', time: { archived: 555 } });
+    expect(archived.time.archived).toBe(555);
+    expect(JSON.parse(fs.files.get(OVERLAY_FILE)).archived['sess-1']).toBe(555);
+
+    const active = await runtime.updateSession({ sessionID: 'sess-1', time: { archived: null } });
+    expect(active.time.archived).toBeUndefined();
+    expect(JSON.parse(fs.files.get(OVERLAY_FILE)).archived).toEqual({});
+  });
+});
+
+describe('claude backend deleteSession', () => {
+  it('deletes through the SDK and clears overlay state', async () => {
+    const fs = makeFs({ overlay: { archived: { 'sess-1': 1 }, pendingTitles: { 'sess-1': 'x' } } });
+    const sdk = makeSdk({ deleteSession: vi.fn(async () => {}) });
+    const { runtime } = createRuntime({ sdk, fs });
+
+    await expect(runtime.deleteSession({ sessionID: 'sess-1' })).resolves.toBe(true);
+    expect(sdk.deleteSession).toHaveBeenCalledWith('sess-1', {});
+    const overlay = JSON.parse(fs.files.get(OVERLAY_FILE));
+    expect(overlay.archived).toEqual({});
+    expect(overlay.pendingTitles).toEqual({});
+  });
+
+  it('reports false when the SDK cannot delete and nothing was staged', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const sdk = makeSdk({ deleteSession: vi.fn(async () => { throw new Error('ENOENT'); }) });
+    const { runtime } = createRuntime({ sdk });
+    await expect(runtime.deleteSession({ sessionID: 'sess-x' })).resolves.toBe(false);
+    warn.mockRestore();
+  });
+});
+
+describe('claude backend control surface', () => {
+  it('reads the model catalog and defaults from settings.json', async () => {
+    const fs = makeFs({
+      settings: {
+        model: 'qwen38-flash-next',
+        effortLevel: 'max',
+        modelPicker: {
+          options: [
+            { model: 'opus[1m]', label: 'Opus 5' },
+            { model: 'qwen38-flash-next', label: 'Qwen (local)', description: 'via LiteLLM' },
+          ],
+        },
+      },
+    });
+    const { runtime } = createRuntime({ fs });
+
+    const surface = await runtime.getControlSurface();
+    expect(surface.modelSelector.options.map((option) => option.id))
+      .toEqual(['opus[1m]', 'qwen38-flash-next']);
+    expect(surface.modelSelector.defaultOptionId).toBe('qwen38-flash-next');
+    expect(surface.effortSelector.defaultOptionId).toBe('max');
+    expect(surface.modeSelector.items.map((item) => item.id)).toEqual(['default', 'plan', 'acceptEdits']);
+    expect(surface.modeSelector.items.find((item) => item.isDefault).id).toBe('default');
+  });
+
+  it('falls back to a static catalog without settings', async () => {
+    const { runtime } = createRuntime();
+    const surface = await runtime.getControlSurface();
+    expect(surface.modelSelector.options.map((option) => option.id)).toEqual(['sonnet', 'opus', 'haiku']);
+    expect(surface.effortSelector.defaultOptionId).toBe('high');
+  });
+});
+
+describe('claude backend status and events', () => {
+  it('reports running sessions as busy per directory', async () => {
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    const sdk = makeSdk({
+      query: vi.fn(() => makeQuery([(async () => { await gate; return { type: 'result', is_error: false }; })()])),
+    });
+    const { runtime } = createRuntime({ sdk });
+
+    const running = runtime.promptAsync({
+      sessionID: 'sess-1', directory: '/repo/project', parts: [{ type: 'text', text: 'hi' }],
+    });
+    await vi.waitFor(() => expect(sdk.query).toHaveBeenCalled());
+
+    expect(await runtime.getStatusSnapshot({ directory: '/repo/project' })).toEqual({ 'sess-1': { type: 'busy' } });
+    expect(await runtime.getStatusSnapshot({ directory: '/other' })).toEqual({});
+
+    release();
+    await running;
+    expect(await runtime.getStatusSnapshot({})).toEqual({});
+  });
+
+  it('writes events only to clients of the matching directory', async () => {
+    const makeRes = (chunks) => ({
+      write: vi.fn((chunk) => chunks.push(chunk)),
+      on: vi.fn(),
+      off: vi.fn(),
+    });
+
+    const chunksA = [];
+    const chunksB = [];
+    const sdk = makeSdk({
+      query: vi.fn(() => makeQuery([
+        { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg_a' } } },
+        { type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'x' } } },
+        { type: 'result', is_error: false },
+      ])),
+    });
+    const { runtime } = createRuntime({ sdk });
+    const removeA = runtime.addEventClient(makeRes(chunksA), '/repo/project');
+    runtime.addEventClient(makeRes(chunksB), '/elsewhere');
+
+    await runtime.promptAsync({
+      sessionID: 'sess-1', directory: '/repo/project', parts: [{ type: 'text', text: 'hi' }],
+    });
+
+    const parsed = (chunks) => chunks.map((chunk) => JSON.parse(chunk.replace(/^data: /, '').trim()));
+
+    expect(parsed(chunksA).some((payload) => payload.type === 'message.part.delta')).toBe(true);
+    // Message traffic is directory-scoped, while session lifecycle events are
+    // broadcast to every client (same contract as the OpenCode event stream).
+    expect(parsed(chunksB).every((payload) => payload.type.startsWith('session.'))).toBe(true);
+    expect(parsed(chunksB).length).toBeGreaterThan(0);
+    expect(typeof removeA).toBe('function');
+  });
+});
+
+describe('claude backend shutdownAll', () => {
+  it('interrupts every running turn', async () => {
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    const query = makeQuery([(async () => { await gate; return { type: 'result', is_error: false }; })()]);
+    const sdk = makeSdk({ query: vi.fn(() => query) });
+    const { runtime } = createRuntime({ sdk });
+
+    const running = runtime.promptAsync({ sessionID: 'sess-1', parts: [{ type: 'text', text: 'hi' }] });
+    await vi.waitFor(() => expect(sdk.query).toHaveBeenCalled());
+
+    await runtime.shutdownAll();
+    expect(query.interrupt).toHaveBeenCalled();
+    expect(await runtime.getStatusSnapshot({})).toEqual({});
+
+    release();
+    await running.catch(() => {});
+  });
+});
+
+describe('claude backend live turn rendering', () => {
+  const payloadsOf = (publishEvent) => publishEvent.mock.calls.map(([event]) => event.payload);
+  const partUpdates = (publishEvent) => payloadsOf(publishEvent)
+    .filter((payload) => payload.type === 'message.part.updated')
+    .map((payload) => payload.properties.part);
+
+  it('streams thinking deltas into a reasoning part', async () => {
+    const sdk = makeSdk({
+      query: vi.fn(() => makeQuery([
+        { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg_a' } } },
+        { type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'pien' } } },
+        { type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'so' } } },
+        { type: 'result', is_error: false },
+      ])),
+    });
+    const publishEvent = vi.fn();
+    const { runtime } = createRuntime({ sdk, publishEvent });
+
+    await runtime.promptAsync({ sessionID: 'sess-1', parts: [{ type: 'text', text: 'hi' }] });
+
+    const deltas = payloadsOf(publishEvent).filter((payload) => payload.type === 'message.part.delta');
+    expect(deltas.map((payload) => payload.properties.delta)).toEqual(['pien', 'so']);
+    expect(deltas[0].properties.partID).toBe('msg_msg_a_reasoning_0');
+    expect(partUpdates(publishEvent).some((part) => part.id === 'msg_msg_a_reasoning_0' && part.type === 'reasoning'))
+      .toBe(true);
+  });
+
+  it('settles the streamed text part with the finished block instead of rendering it twice', async () => {
+    // The CLI sends each finished block as its own assistant message at
+    // content index 0, while its deltas carried the real block index (1).
+    const sdk = makeSdk({
+      query: vi.fn(() => makeQuery([
+        { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg_a' } } },
+        { type: 'stream_event', event: { type: 'content_block_delta', index: 1, delta: { type: 'text_delta', text: 'O' } } },
+        { type: 'stream_event', event: { type: 'content_block_delta', index: 1, delta: { type: 'text_delta', text: 'K' } } },
+        { type: 'assistant', message: { id: 'msg_a', content: [{ type: 'text', text: 'OK' }] } },
+        { type: 'result', is_error: false },
+      ])),
+    });
+    const publishEvent = vi.fn();
+    const { runtime } = createRuntime({ sdk, publishEvent });
+
+    await runtime.promptAsync({ sessionID: 'sess-1', parts: [{ type: 'text', text: 'hi' }] });
+
+    const textParts = partUpdates(publishEvent).filter((part) => part.type === 'text' && part.messageID === 'msg_msg_a');
+    expect(new Set(textParts.map((part) => part.id))).toEqual(new Set(['msg_msg_a_text_1']));
+    expect(textParts.at(-1).text).toBe('OK');
+  });
+
+  it('closes a tool card live when its tool_result arrives', async () => {
+    const sdk = makeSdk({
+      query: vi.fn(() => makeQuery([
+        { type: 'assistant', message: { id: 'msg_a', content: [{ type: 'tool_use', id: 'call_1', name: 'Bash', input: { command: 'pwd' } }] } },
+        { type: 'assistant', message: { id: 'msg_a', content: [{ type: 'tool_use', id: 'call_2', name: 'Read', input: { file_path: '/x' } }] } },
+        { type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'call_1', content: '/repo' }] } },
+        { type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'call_2', content: 'nope', is_error: true }] } },
+        { type: 'result', is_error: false },
+      ])),
+    });
+    const publishEvent = vi.fn();
+    const { runtime } = createRuntime({ sdk, publishEvent });
+
+    await runtime.promptAsync({ sessionID: 'sess-1', parts: [{ type: 'text', text: 'hi' }] });
+
+    const tools = partUpdates(publishEvent).filter((part) => part.type === 'tool');
+    // Parallel calls of one API message keep separate cards.
+    expect(new Set(tools.map((part) => part.id)).size).toBe(2);
+    const last = (callID) => tools.filter((part) => part.callID === callID).at(-1);
+    expect(last('call_1').state).toMatchObject({ status: 'completed', output: '/repo', input: { command: 'pwd' } });
+    expect(last('call_1').state.time.end).toBeGreaterThanOrEqual(last('call_1').state.time.start);
+    expect(last('call_2').state).toMatchObject({ status: 'error', error: 'nope' });
+  });
+
+  it('reports acceptance through onStarted before the turn finishes', async () => {
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    const sdk = makeSdk({
+      query: vi.fn(() => makeQuery([(async () => { await gate; return { type: 'result', is_error: false }; })()])),
+    });
+    const { runtime } = createRuntime({ sdk });
+    const onStarted = vi.fn();
+
+    const running = runtime.promptAsync({ sessionID: 'sess-1', parts: [{ type: 'text', text: 'hi' }], onStarted });
+    await vi.waitFor(() => expect(onStarted).toHaveBeenCalledTimes(1));
+
+    release();
+    await running;
+    expect(onStarted).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not report acceptance for a turn rejected up front', async () => {
+    const { runtime } = createRuntime();
+    const onStarted = vi.fn();
+    await expect(runtime.promptAsync({ sessionID: 'sess-1', parts: [], onStarted })).rejects.toThrow(/empty input/);
+    expect(onStarted).not.toHaveBeenCalled();
+  });
+});
+
+describe('claude backend live processes', () => {
+  // A CLI that stays up across prompts: answers each one and closes the turn.
+  const interactiveQuery = () => vi.fn(({ prompt }) => {
+    const queued = [];
+    const waiting = [];
+    let ended = false;
+    const push = (value) => {
+      const next = waiting.shift();
+      if (next) next({ value, done: false });
+      else queued.push(value);
+    };
+    const end = () => {
+      ended = true;
+      for (const next of waiting.splice(0)) next({ value: undefined, done: true });
+    };
+    (async () => {
+      for await (const message of prompt) {
+        push({ ...message, isReplay: true });
+        push({ type: 'result', is_error: false });
+      }
+      end();
+    })();
+    return {
+      [Symbol.asyncIterator]: () => ({
+        next: () => {
+          if (queued.length > 0) return Promise.resolve({ value: queued.shift(), done: false });
+          if (ended) return Promise.resolve({ value: undefined, done: true });
+          return new Promise((resolve) => waiting.push(resolve));
+        },
+      }),
+      interrupt: vi.fn(async () => {}),
+      close: vi.fn(end),
+      setModel: vi.fn(async () => {}),
+      setPermissionMode: vi.fn(async () => {}),
+      enableRemoteControl: vi.fn(async () => ({ session_url: 'https://claude.ai/code/session_x', bridge_session_id: 'cse_x' })),
+    };
+  });
+
+  it('reuses the session process for the next turn', async () => {
+    const sdk = makeSdk({ query: interactiveQuery() });
+    const { runtime } = createRuntime({ sdk });
+
+    await runtime.promptAsync({ sessionID: 'sess-1', parts: [{ type: 'text', text: 'one' }] });
+    await runtime.promptAsync({ sessionID: 'sess-1', parts: [{ type: 'text', text: 'two' }] });
+
+    expect(sdk.query).toHaveBeenCalledTimes(1);
+    expect(sdk.query.mock.calls[0][0].options.extraArgs).toEqual({ 'replay-user-messages': null });
+    await runtime.shutdownAll();
+  });
+
+  it('starts a new process when the effort changes', async () => {
+    const sdk = makeSdk({ query: interactiveQuery() });
+    const { runtime } = createRuntime({ sdk });
+
+    await runtime.promptAsync({ sessionID: 'sess-1', parts: [{ type: 'text', text: 'one' }], variant: 'low' });
+    await runtime.promptAsync({ sessionID: 'sess-1', parts: [{ type: 'text', text: 'two' }], variant: 'max' });
+
+    expect(sdk.query).toHaveBeenCalledTimes(2);
+    expect(sdk.query.mock.calls[1][0].options.effort).toBe('max');
+    await runtime.shutdownAll();
+  });
+
+  it('links the process to Remote Control with a first-party base URL and advertises the link', async () => {
+    const sdk = makeSdk({
+      query: interactiveQuery(),
+      listSessions: vi.fn(async () => [sessionInfo()]),
+    });
+    const { runtime } = createRuntime({
+      sdk,
+      remoteControl: { enabled: true, baseUrl: 'https://api.anthropic.com' },
+    });
+
+    await runtime.promptAsync({ sessionID: 'sess-1', directory: '/repo/project', parts: [{ type: 'text', text: 'hi' }] });
+
+    const options = sdk.query.mock.calls[0][0].options;
+    expect(options.settings).toEqual({ env: { ANTHROPIC_BASE_URL: 'https://api.anthropic.com' } });
+    const handle = sdk.query.mock.results[0].value;
+    expect(handle.enableRemoteControl).toHaveBeenCalledWith(true, 'summarised work');
+
+    await vi.waitFor(async () => {
+      const [session] = await runtime.listSessions({ directory: '/repo/project' });
+      expect(session.metadata.remoteControl).toEqual({ url: 'https://claude.ai/code/session_x' });
+    });
+    await runtime.shutdownAll();
+  });
+
+  it('closes the longest-idle process to make room, never a busy one', async () => {
+    const sdk = makeSdk({ query: interactiveQuery() });
+    const { runtime } = createRuntime({ sdk, maxConcurrentRuns: 1 });
+
+    await runtime.promptAsync({ sessionID: 'sess-1', parts: [{ type: 'text', text: 'one' }] });
+    await runtime.promptAsync({ sessionID: 'sess-2', parts: [{ type: 'text', text: 'two' }] });
+
+    const first = sdk.query.mock.results[0].value;
+    expect(first.close).toHaveBeenCalled();
+    expect(sdk.query).toHaveBeenCalledTimes(2);
+    await runtime.shutdownAll();
+  });
+});
+
+describe('claude backend sessions live in another process', () => {
+  const owner = (overrides = {}) => ({
+    pid: 4242,
+    sessionId: 'sess-1',
+    cwd: '/repo/project',
+    entrypoint: 'claude-vscode',
+    name: 'k8s-93',
+    status: 'busy',
+    bridgeSessionId: 'session_01REMOTE',
+    updatedAt: 1,
+    ...overrides,
+  });
+
+  const makeRegistry = (owners) => {
+    const state = { owners: new Map(owners.map((o) => [o.sessionId, o])) };
+    return {
+      state,
+      read: vi.fn(async ({ ignoreParentPid } = {}) => new Map([...state.owners]
+        .filter(([, o]) => ignoreParentPid === undefined || o.ppid !== ignoreParentPid))),
+      stop: vi.fn(async (o) => { state.owners.delete(o.sessionId); return true; }),
+    };
+  };
+
+  it('refuses to resume a session another process is writing', async () => {
+    const sdk = makeSdk();
+    const liveRegistry = makeRegistry([owner()]);
+    const { runtime } = createRuntime({ sdk, liveRegistry, livePollMs: 0 });
+
+    await expect(runtime.promptAsync({ sessionID: 'sess-1', parts: [{ type: 'text', text: 'hi' }] }))
+      .rejects.toMatchObject({ code: 'CLAUDE_SESSION_LIVE_ELSEWHERE', owner: { pid: 4242 } });
+    expect(sdk.query).not.toHaveBeenCalled();
+  });
+
+  it('writes to a session live elsewhere through its claude.ai bridge, without a second process', async () => {
+    const sdk = makeSdk({ getSessionInfo: vi.fn(async () => sessionInfo()) });
+    const liveRegistry = makeRegistry([owner()]);
+    const remoteAttach = { send: vi.fn(async () => {}), closeAll: vi.fn() };
+    const { runtime } = createRuntime({ sdk, liveRegistry, remoteAttach, livePollMs: 5 });
+
+    const onStarted = vi.fn();
+    await runtime.promptAsync({ sessionID: 'sess-1', directory: '/repo/project', parts: [{ type: 'text', text: 'hola' }], onStarted });
+
+    expect(remoteAttach.send).toHaveBeenCalledWith('session_01REMOTE', [{ type: 'text', text: 'hola' }]);
+    expect(onStarted).toHaveBeenCalled();
+    expect(sdk.query).not.toHaveBeenCalled();
+    expect(liveRegistry.stop).not.toHaveBeenCalled();
+    await vi.waitFor(async () => {
+      const session = await runtime.getSession({ sessionID: 'sess-1', directory: '/repo/project' });
+      expect(session.metadata.liveElsewhere.attachable).toBe(true);
+    });
+    await runtime.shutdownAll();
+    expect(remoteAttach.closeAll).toHaveBeenCalled();
+  });
+
+  it('still refuses a live session that is not linked to claude.ai', async () => {
+    const sdk = makeSdk();
+    const liveRegistry = makeRegistry([owner({ bridgeSessionId: '' })]);
+    const remoteAttach = { send: vi.fn(async () => {}), closeAll: vi.fn() };
+    const { runtime } = createRuntime({ sdk, liveRegistry, remoteAttach, livePollMs: 0 });
+
+    await expect(runtime.promptAsync({ sessionID: 'sess-1', parts: [{ type: 'text', text: 'hi' }] }))
+      .rejects.toMatchObject({ code: 'CLAUDE_SESSION_LIVE_ELSEWHERE' });
+    expect(remoteAttach.send).not.toHaveBeenCalled();
+    expect(sdk.query).not.toHaveBeenCalled();
+  });
+
+  it('takes a session over: stops the owner, then resumes it here and reattaches its claude.ai link', async () => {
+    const enableRemoteControl = vi.fn(async () => ({ session_url: 'https://claude.ai/code/session_01REMOTE' }));
+    const sdk = makeSdk({
+      getSessionInfo: vi.fn(async () => sessionInfo()),
+      query: vi.fn(() => Object.assign(makeQuery([]), { enableRemoteControl })),
+    });
+    const liveRegistry = makeRegistry([owner()]);
+    const { runtime } = createRuntime({
+      sdk, liveRegistry, livePollMs: 0, remoteControl: { enabled: true },
+    });
+
+    await runtime.takeOverSession({ sessionID: 'sess-1' });
+
+    expect(liveRegistry.stop).toHaveBeenCalledWith(expect.objectContaining({ pid: 4242 }));
+    const options = sdk.query.mock.calls[0][0].options;
+    expect(options.resume).toBe('sess-1');
+    expect(options.cwd).toBe('/repo/project');
+    await vi.waitFor(() => expect(enableRemoteControl).toHaveBeenCalledWith(
+      true, 'summarised work', { reattachSessionId: 'session_01REMOTE' },
+    ));
+  });
+
+  it('does not resume when the owner will not exit', async () => {
+    const sdk = makeSdk();
+    const liveRegistry = { ...makeRegistry([owner()]), stop: vi.fn(async () => false) };
+    const { runtime } = createRuntime({ sdk, liveRegistry, livePollMs: 0 });
+
+    await expect(runtime.takeOverSession({ sessionID: 'sess-1' })).rejects.toThrow(/did not exit/);
+    expect(sdk.query).not.toHaveBeenCalled();
+  });
+
+  it('publishes the foreign owner, its busy state and its claude.ai link', async () => {
+    const publishEvent = vi.fn();
+    const sdk = makeSdk({ listSessions: vi.fn(async () => [sessionInfo()]) });
+    const liveRegistry = makeRegistry([owner()]);
+    const { runtime } = createRuntime({ sdk, publishEvent, liveRegistry, livePollMs: 5 });
+
+    await runtime.listSessions({ directory: '/repo/project' });
+    await vi.waitFor(async () => {
+      const [session] = await runtime.listSessions({ directory: '/repo/project' });
+      expect(session.metadata.liveElsewhere).toEqual({ entrypoint: 'claude-vscode', name: 'k8s-93', status: 'busy', pid: 4242, attachable: false });
+      expect(session.metadata.remoteControl).toEqual({ url: 'https://claude.ai/code/session_01REMOTE' });
+    });
+    expect(await runtime.getStatusSnapshot({ directory: '/repo/project' })).toEqual({ 'sess-1': { type: 'busy' } });
+    const statuses = publishEvent.mock.calls.map(([e]) => e.payload).filter((p) => p.type === 'session.status');
+    expect(statuses.at(-1).properties.status.type).toBe('busy');
+
+    // The owner goes idle, then exits: both are published.
+    liveRegistry.state.owners.set('sess-1', owner({ status: 'idle' }));
+    await vi.waitFor(() => expect(
+      publishEvent.mock.calls.map(([e]) => e.payload).filter((p) => p.type === 'session.status').at(-1).properties.status.type,
+    ).toBe('idle'));
+    liveRegistry.state.owners.delete('sess-1');
+    await vi.waitFor(async () => {
+      const [session] = await runtime.listSessions({ directory: '/repo/project' });
+      expect(session.metadata?.liveElsewhere).toBeUndefined();
+    });
+    await runtime.shutdownAll();
+  });
+
+  it('yields its own process when someone else resumes the session on top of it', async () => {
+    const publishEvent = vi.fn();
+    const close = vi.fn();
+    const sdk = makeSdk({
+      getSessionInfo: vi.fn(async () => sessionInfo()),
+      query: vi.fn(() => makeQuery([
+        { type: 'result', is_error: false, session_id: 'sess-1' },
+        new Promise(() => {}),
+      ], { close })),
+    });
+    const liveRegistry = makeRegistry([]);
+    const { runtime } = createRuntime({ sdk, publishEvent, liveRegistry, livePollMs: 5, selfPid: 100 });
+
+    await runtime.promptAsync({ sessionID: 'sess-1', directory: '/repo/project', parts: [{ type: 'text', text: 'hi' }] });
+    // Our own CLI child is in the registry too: it is not a foreign writer.
+    liveRegistry.state.owners.set('sess-1', owner({ entrypoint: 'sdk-ts', pid: 555, ppid: 100, status: 'idle' }));
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(close).not.toHaveBeenCalled();
+
+    // VS Code resumes it on top of ours: ours closes, the session is followed.
+    liveRegistry.state.owners.set('sess-1', owner({ pid: 4242, ppid: 1, status: 'busy' }));
+    await vi.waitFor(() => expect(close).toHaveBeenCalled());
+    await vi.waitFor(async () => {
+      const session = await runtime.getSession({ sessionID: 'sess-1', directory: '/repo/project' });
+      expect(session.metadata.liveElsewhere).toMatchObject({ entrypoint: 'claude-vscode', pid: 4242 });
+    });
+    await runtime.shutdownAll();
+  });
+
+  it('keeps following while the front end still shows the session, and catches up after a lapse', async () => {
+    const publishEvent = vi.fn();
+    let lastModified = 100;
+    let transcript = [
+      { type: 'user', uuid: 'u1', timestamp: '2026-09-23T00:00:00.000Z', message: { role: 'user', content: 'hola' } },
+    ];
+    const sdk = makeSdk({
+      getSessionInfo: vi.fn(async () => sessionInfo({ lastModified })),
+      getSessionMessages: vi.fn(async () => transcript),
+    });
+    const liveRegistry = makeRegistry([owner()]);
+    const { runtime } = createRuntime({ sdk, publishEvent, liveRegistry, livePollMs: 5, liveFollowWindowMs: 40 });
+    const texts = () => publishEvent.mock.calls.map(([e]) => e.payload)
+      .filter((p) => p.type === 'message.part.updated').map((p) => p.properties.part.text);
+    const write = (uuid, text) => {
+      transcript = [...transcript, { type: 'assistant', uuid, timestamp: '2026-09-23T00:00:01.000Z', message: { id: `api_${uuid}`, role: 'assistant', content: [{ type: 'text', text }] } }];
+      lastModified += 1;
+    };
+
+    await runtime.getMessages({ sessionID: 'sess-1', directory: '/repo/project' });
+    // Shown for longer than the window: the keep-alive holds the follow.
+    const keepAlive = setInterval(() => { void runtime.keepFollowing({ sessionID: 'sess-1', directory: '/repo/project' }); }, 10);
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    write('a1', 'sigue en vivo');
+    await vi.waitFor(() => expect(texts()).toContain('sigue en vivo'));
+    clearInterval(keepAlive);
+
+    // Nobody shows it: the follow lapses and nothing more is published.
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    write('a2', 'mientras dormia');
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(texts()).not.toContain('mientras dormia');
+
+    // Shown again: it catches up on what it missed.
+    await runtime.keepFollowing({ sessionID: 'sess-1', directory: '/repo/project' });
+    await vi.waitFor(() => expect(texts()).toContain('mientras dormia'));
+    await runtime.shutdownAll();
+  });
+
+  it('follows the transcript while another process writes it, publishing only what changed', async () => {
+    const publishEvent = vi.fn();
+    let lastModified = 100;
+    let transcript = [
+      { type: 'user', uuid: 'u1', timestamp: '2026-09-23T00:00:00.000Z', message: { role: 'user', content: 'hola' } },
+    ];
+    const sdk = makeSdk({
+      getSessionInfo: vi.fn(async () => sessionInfo({ lastModified })),
+      getSessionMessages: vi.fn(async () => transcript),
+    });
+    const liveRegistry = makeRegistry([owner()]);
+    const { runtime } = createRuntime({ sdk, publishEvent, liveRegistry, livePollMs: 5 });
+
+    const first = await runtime.getMessages({ sessionID: 'sess-1', directory: '/repo/project' });
+    expect(first).toHaveLength(1);
+    await vi.waitFor(() => expect(sdk.getSessionInfo).toHaveBeenCalled());
+
+    transcript = [
+      ...transcript,
+      { type: 'assistant', uuid: 'a1', timestamp: '2026-09-23T00:00:01.000Z', message: { id: 'api_1', role: 'assistant', content: [{ type: 'text', text: 'desde VS Code' }] } },
+    ];
+    lastModified = 200;
+
+    await vi.waitFor(() => {
+      const texts = publishEvent.mock.calls
+        .map(([e]) => e.payload)
+        .filter((p) => p.type === 'message.part.updated')
+        .map((p) => p.properties.part.text);
+      expect(texts).toContain('desde VS Code');
+    });
+    // The user message did not change, so it is not re-published.
+    const userEchoes = publishEvent.mock.calls
+      .map(([e]) => e.payload)
+      .filter((p) => p.type === 'message.part.updated' && p.properties.part.text === 'hola');
+    expect(userEchoes).toHaveLength(0);
+    await runtime.shutdownAll();
+  });
+});

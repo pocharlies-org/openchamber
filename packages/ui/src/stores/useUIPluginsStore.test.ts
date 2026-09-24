@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test';
-import { BUILTIN_SIDE_CHAT_UI_PLUGIN, BUILTIN_STREAM_METRICS_UI_PLUGIN } from '@/lib/uiPlugins';
+import { BUILTIN_STREAM_METRICS_UI_PLUGIN } from '@/lib/uiPlugins';
 
 const originalFetch = globalThis.fetch;
 const originalConsoleError = console.error;
@@ -8,7 +8,6 @@ mock.module('@/lib/runtime-fetch', () => ({
 }));
 
 const {
-  findEnabledSideConversationContribution,
   findEnabledComposerMetricsContributions,
   isUIPluginEnabled,
   useUIPluginsStore,
@@ -23,7 +22,7 @@ describe('useUIPluginsStore', () => {
   beforeEach(() => {
     console.error = mock(() => undefined);
     useUIPluginsStore.setState({
-      catalog: [BUILTIN_SIDE_CHAT_UI_PLUGIN, BUILTIN_STREAM_METRICS_UI_PLUGIN],
+      catalog: [BUILTIN_STREAM_METRICS_UI_PLUGIN],
       disabledPluginIds: [],
       isLoading: false,
       loadError: false,
@@ -36,9 +35,9 @@ describe('useUIPluginsStore', () => {
   });
 
   test('loads and validates the server catalog', async () => {
-    globalThis.fetch = mock(async () => response({ plugins: [BUILTIN_SIDE_CHAT_UI_PLUGIN] })) as unknown as typeof fetch;
+    globalThis.fetch = mock(async () => response({ plugins: [BUILTIN_STREAM_METRICS_UI_PLUGIN] })) as unknown as typeof fetch;
     expect(await useUIPluginsStore.getState().loadCatalog()).toBe(true);
-    expect(useUIPluginsStore.getState().catalog[0]?.id).toBe(BUILTIN_SIDE_CHAT_UI_PLUGIN.id);
+    expect(useUIPluginsStore.getState().catalog[0]?.id).toBe(BUILTIN_STREAM_METRICS_UI_PLUGIN.id);
     expect(useUIPluginsStore.getState().loadError).toBe(false);
   });
 
@@ -52,19 +51,9 @@ describe('useUIPluginsStore', () => {
 
   test('rejects malformed catalogs without partially replacing valid entries', async () => {
     const previousCatalog = useUIPluginsStore.getState().catalog;
-    globalThis.fetch = mock(async () => response({ plugins: [BUILTIN_SIDE_CHAT_UI_PLUGIN, { schemaVersion: 1 }] })) as unknown as typeof fetch;
+    globalThis.fetch = mock(async () => response({ plugins: [BUILTIN_STREAM_METRICS_UI_PLUGIN, { schemaVersion: 1 }] })) as unknown as typeof fetch;
     expect(await useUIPluginsStore.getState().loadCatalog()).toBe(false);
     expect(useUIPluginsStore.getState().catalog).toBe(previousCatalog);
-  });
-
-  test('enablement controls contribution lookup without mutating the catalog', () => {
-    useUIPluginsStore.getState().setPluginEnabled(BUILTIN_SIDE_CHAT_UI_PLUGIN.id, false);
-    const state = useUIPluginsStore.getState();
-    expect(isUIPluginEnabled(state, BUILTIN_SIDE_CHAT_UI_PLUGIN.id)).toBe(false);
-    expect(findEnabledSideConversationContribution(state, 'btw')).toBeNull();
-    expect(state.catalog).toHaveLength(2);
-    useUIPluginsStore.getState().setPluginEnabled(BUILTIN_SIDE_CHAT_UI_PLUGIN.id, true);
-    expect(findEnabledSideConversationContribution(useUIPluginsStore.getState(), 'side')).not.toBeNull();
   });
 
   test('stream metrics is enabled by default and can be disabled per client', () => {
@@ -77,7 +66,7 @@ describe('useUIPluginsStore', () => {
 
   test('a stale catalog response cannot overwrite a newer runtime response', async () => {
     let resolveFirst: ((response: Response) => void) | undefined;
-    const alternate = structuredClone(BUILTIN_SIDE_CHAT_UI_PLUGIN);
+    const alternate = structuredClone(BUILTIN_STREAM_METRICS_UI_PLUGIN);
     alternate.id = '@example/new-runtime';
     globalThis.fetch = mock(() => {
       if (!resolveFirst) {
@@ -89,13 +78,13 @@ describe('useUIPluginsStore', () => {
     const staleRequest = useUIPluginsStore.getState().loadCatalog();
     const currentRequest = useUIPluginsStore.getState().loadCatalog();
     expect(await currentRequest).toBe(true);
-    resolveFirst?.(response({ plugins: [BUILTIN_SIDE_CHAT_UI_PLUGIN] }));
+    resolveFirst?.(response({ plugins: [BUILTIN_STREAM_METRICS_UI_PLUGIN] }));
     expect(await staleRequest).toBe(false);
     expect(useUIPluginsStore.getState().catalog[0]?.id).toBe(alternate.id);
   });
 
   test('malformed persisted enablement fails open instead of breaking contribution lookup', () => {
     const malformed = { ...useUIPluginsStore.getState(), disabledPluginIds: null } as unknown as Parameters<typeof isUIPluginEnabled>[0];
-    expect(isUIPluginEnabled(malformed, BUILTIN_SIDE_CHAT_UI_PLUGIN.id)).toBe(true);
+    expect(isUIPluginEnabled(malformed, BUILTIN_STREAM_METRICS_UI_PLUGIN.id)).toBe(true);
   });
 });

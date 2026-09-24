@@ -8,6 +8,22 @@ import { registerWalkthroughRoutes } from './routes.js';
 
 const SOURCE = { kind: 'working-tree', scope: 'all' };
 
+// Espera un HECHO, no al reloj. Las esperas de 20 ms que habia aqui eran
+// suposiciones sobre cuanto tarda una peticion HTTP en llegar a su handler, y
+// bajo carga la suposicion es falsa: `releaseJob` solo existe DESPUES de que
+// `generateWalkthrough` corra, asi que llamarlo antes revienta con
+// `releaseJob is not a function`. Ese es el flake de este fichero -- falla solo
+// dentro de la suite completa y pasa en aislado, que es la firma de una
+// suposicion temporal, no de un bug.
+const waitFor = async (condition, what, { timeoutMs = 10_000, everyMs = 5 } = {}) => {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (condition()) return;
+    await new Promise((r) => setTimeout(r, everyMs));
+  }
+  throw new Error(`timed out after ${timeoutMs}ms waiting for: ${what}`);
+};
+
 describe('walkthrough routes', () => {
   let server;
   let base;
@@ -59,7 +75,7 @@ describe('walkthrough routes', () => {
 
   it('answers a generation request that nobody interrupted', async () => {
     const pending = generate();
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await waitFor(() => releaseJob !== undefined, 'the generate request to reach the service');
     releaseJob();
 
     const body = await (await pending).json();
@@ -70,8 +86,12 @@ describe('walkthrough routes', () => {
   it('delivers the result to a client that reconnected after a refresh', async () => {
     const controller = new AbortController();
     generate(controller.signal).catch(() => {});
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await waitFor(() => job !== null, 'the generation job to start');
     controller.abort();
+    // Esta espera SE QUEDA. Lo que hay que esperar aqui es que el servidor note
+    // la desconexion, y eso no es observable desde el test: no hay bandera que
+    // mirar. Una espera falsa sobre una condicion que ya es cierta daria una
+    // sensacion de rigor sin comprarla.
     await new Promise((resolve) => setTimeout(resolve, 20));
 
     // The reloaded page sees work in progress and re-attaches to it.
@@ -81,6 +101,11 @@ describe('walkthrough routes', () => {
     expect(read.generating).toBe(true);
 
     const reattached = generate();
+    // Tambien se queda, y por lo contrario: aqui `releaseJob` YA esta definido
+    // de la llamada anterior (generateWalkthrough devuelve el job existente sin
+    // reasignarlo), asi que esperar por el seria vacuo. Lo que habria que
+    // esperar es que la peticion reenganchada llegue al handler, y eso no se ve
+    // desde fuera.
     await new Promise((resolve) => setTimeout(resolve, 20));
     releaseJob();
 
@@ -113,7 +138,7 @@ describe('walkthrough routes', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ directory: '/repo', source: SOURCE, language: 'ja' }),
     });
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await waitFor(() => releaseJob !== undefined, 'the generate request to reach the service');
     releaseJob();
     await pending;
 
@@ -130,7 +155,7 @@ describe('walkthrough routes', () => {
 
   it('cancels through its own endpoint rather than a dropped connection', async () => {
     generate().catch(() => {});
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await waitFor(() => job !== null, 'the generation job to start');
 
     const response = await fetch(`${base}/api/walkthrough/cancel`, {
       method: 'POST',

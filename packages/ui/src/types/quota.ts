@@ -1,6 +1,5 @@
 export type QuotaProviderId =
   | 'openai'
-  | 'codex'
   | 'cursor'
   | 'claude'
   | 'github-copilot'
@@ -46,6 +45,8 @@ export interface ProviderResult {
   ok: boolean;
   configured: boolean;
   error?: string;
+  /** Subscription tier reported by the provider, when it exposes one. */
+  planLabel?: string | null;
   usage: ProviderUsage | null;
   fetchedAt: number;
 }

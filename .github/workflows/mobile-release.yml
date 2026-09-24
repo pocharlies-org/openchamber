@@ -189,6 +189,17 @@ jobs:
     if: inputs.build_ios
     runs-on: macos-26
     needs: resolve-version
+    env:
+      # A fork signs with its own Apple team, where com.openchamber.app is not
+      # available: set the repository variable IOS_BUNDLE_ID and the build
+      # rewrites the bundle ids and App Group at build time, so the committed
+      # project keeps upstream's ids and merges from upstream stay clean.
+      IOS_BUNDLE_ID: ${{ vars.IOS_BUNDLE_ID || 'com.openchamber.app' }}
+      # Such a build must not register openchamber:// too — with two apps
+      # claiming it iOS opens either one. IOS_URL_SCHEME (openchamber-<suffix>,
+      # the form deepLinks.ts accepts) replaces it in Info.plist and in the
+      # widget/Control Center URLs.
+      IOS_URL_SCHEME: ${{ vars.IOS_URL_SCHEME || 'openchamber' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -254,6 +265,49 @@ jobs:
       - name: Prepare mobile assets
         run: bun run mobile:sync
 
+      - name: Apply iOS bundle id
+        if: env.IOS_BUNDLE_ID != 'com.openchamber.app'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Substring rewrite: the app id, both extension ids
+          # (<id>.OpenChamberWidget, <id>.OpenChamberNotificationService) and the
+          # App Group (group.<id>) all derive from the one base id.
+          grep -rlF --exclude-dir=Pods 'com.openchamber.app' . | while IFS= read -r file; do
+            sed -i '' "s/com\.openchamber\.app/${IOS_BUNDLE_ID}/g" "$file"
+            echo "rewrote $file"
+          done
+          if grep -rF --exclude-dir=Pods 'com.openchamber.app' .; then
+            echo "Upstream bundle id still present after rewrite."
+            exit 1
+          fi
+        working-directory: ${{ env.IOS_PROJECT_DIR }}
+
+      - name: Apply iOS URL scheme
+        if: env.IOS_BUNDLE_ID != 'com.openchamber.app' || env.IOS_URL_SCHEME != 'openchamber'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$IOS_URL_SCHEME" == 'openchamber' ]]; then
+            echo "IOS_BUNDLE_ID is overridden but IOS_URL_SCHEME is not: the app would claim openchamber:// alongside the official one."
+            exit 1
+          fi
+          if [[ ! "$IOS_URL_SCHEME" =~ ^openchamber-[a-z0-9.+-]+$ ]]; then
+            echo "IOS_URL_SCHEME must look like openchamber-<suffix> (lowercase), got: $IOS_URL_SCHEME"
+            exit 1
+          fi
+          /usr/libexec/PlistBuddy -c "Set :CFBundleURLTypes:0:CFBundleURLSchemes:0 $IOS_URL_SCHEME" App/Info.plist
+          grep -rlF --include='*.swift' --exclude-dir=Pods '"openchamber://' . | while IFS= read -r file; do
+            sed -i '' "s|\"openchamber://|\"${IOS_URL_SCHEME}://|g" "$file"
+            echo "rewrote $file"
+          done
+          if grep -rF --include='*.swift' --exclude-dir=Pods '"openchamber://' .; then
+            echo "openchamber:// still emitted after rewrite."
+            exit 1
+          fi
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleURLTypes' App/Info.plist
+        working-directory: ${{ env.IOS_PROJECT_DIR }}
+
       - name: Set TestFlight entitlement and versions
         shell: bash
         env:
@@ -277,17 +331,17 @@ jobs:
           const releaseBlockPattern = /\n\t\t[^\n]+ \/\* Release \*\/ = \{\n\t\t\tisa = XCBuildConfiguration;[\s\S]*?\n\t\t\tname = Release;\n\t\t\};/g;
           const replacements = [
             {
-              bundle: 'com.openchamber.app',
+              bundle: process.env.IOS_BUNDLE_ID,
               profile: process.env.IOS_APP_PROFILE_NAME,
               uuid: process.env.IOS_APP_PROFILE_UUID,
             },
             {
-              bundle: 'com.openchamber.app.OpenChamberWidget',
+              bundle: `${process.env.IOS_BUNDLE_ID}.OpenChamberWidget`,
               profile: process.env.IOS_WIDGET_PROFILE_NAME,
               uuid: process.env.IOS_WIDGET_PROFILE_UUID,
             },
             {
-              bundle: 'com.openchamber.app.OpenChamberNotificationService',
+              bundle: `${process.env.IOS_BUNDLE_ID}.OpenChamberNotificationService`,
               profile: process.env.IOS_NSE_PROFILE_NAME,
               uuid: process.env.IOS_NSE_PROFILE_UUID,
             },
@@ -363,11 +417,11 @@ jobs:
             <string>manual</string>
             <key>provisioningProfiles</key>
             <dict>
-              <key>com.openchamber.app</key>
+              <key>$IOS_BUNDLE_ID</key>
               <string>$IOS_APP_PROFILE_NAME</string>
-              <key>com.openchamber.app.OpenChamberWidget</key>
+              <key>$IOS_BUNDLE_ID.OpenChamberWidget</key>
               <string>$IOS_WIDGET_PROFILE_NAME</string>
-              <key>com.openchamber.app.OpenChamberNotificationService</key>
+              <key>$IOS_BUNDLE_ID.OpenChamberNotificationService</key>
               <string>$IOS_NSE_PROFILE_NAME</string>
             </dict>
             <key>uploadSymbols</key>

@@ -238,11 +238,11 @@ const findResolvedSiblingEntry = (
  * instead of a single key: the entry being actively watched/refreshed may be
  * keyed by a concrete remote while the 'auto' entry goes stale.
  */
-export const getFreshestPrStatusForBranch = (
+const getFreshestPrEntryForBranch = (
   entries: Record<string, PrStatusEntry>,
   directory: string,
   branch: string,
-): GitHubPullRequestStatus | null => {
+): PrStatusEntry | null => {
   const runtimeKey = getRuntimeKey();
   let best: PrStatusEntry | null = null;
   for (const [key, entry] of Object.entries(entries)) {
@@ -260,7 +260,15 @@ export const getFreshestPrStatusForBranch = (
       best = entry;
     }
   }
-  return best?.status ?? null;
+  return best;
+};
+
+export const getFreshestPrStatusForBranch = (
+  entries: Record<string, PrStatusEntry>,
+  directory: string,
+  branch: string,
+): GitHubPullRequestStatus | null => {
+  return getFreshestPrEntryForBranch(entries, directory, branch)?.status ?? null;
 };
 
 const getKeysBySignature = (entries: Record<string, PrStatusEntry>, signature: string): string[] => {
@@ -359,15 +367,22 @@ const toPersistedEntry = (entry: PrStatusEntry): PersistedPrStatusEntry => ({
   resolvedRemoteName: entry.resolvedRemoteName ?? entry.status?.resolvedRemoteName ?? null,
 });
 
-const hydrateEntry = (entry: PersistedPrStatusEntry | undefined): PrStatusEntry => ({
-  ...createEntry(),
-  status: entry?.status ?? null,
-  isInitialStatusResolved: entry?.isInitialStatusResolved ?? false,
-  lastRefreshAt: entry?.lastRefreshAt ?? 0,
-  lastDiscoveryPollAt: entry?.lastDiscoveryPollAt ?? 0,
-  identity: entry?.identity ?? null,
-  resolvedRemoteName: entry?.resolvedRemoteName ?? entry?.status?.resolvedRemoteName ?? null,
-});
+const hydrateEntry = (entry: PersistedPrStatusEntry | undefined): PrStatusEntry => {
+  // A persisted closed/merged PR is restored so the panel keeps showing the
+  // branch's PR history across a reload. It is never treated as live authority:
+  // `lastDiscoveryPollAt` is reset so the watcher revalidates it immediately and
+  // an open PR (or an authoritative empty result) replaces it.
+  const hasTerminalPr = isTerminalPrState(entry?.status?.pr?.state);
+  return {
+    ...createEntry(),
+    status: entry?.status ?? null,
+    isInitialStatusResolved: entry?.isInitialStatusResolved ?? false,
+    lastRefreshAt: entry?.lastRefreshAt ?? 0,
+    lastDiscoveryPollAt: hasTerminalPr ? 0 : (entry?.lastDiscoveryPollAt ?? 0),
+    identity: entry?.identity ?? null,
+    resolvedRemoteName: entry?.resolvedRemoteName ?? entry?.status?.resolvedRemoteName ?? null,
+  };
+};
 
 const boundEntries = (entries: Record<string, PrStatusEntry>): Record<string, PrStatusEntry> => {
   const all = Object.entries(entries);
@@ -472,6 +487,9 @@ export const useGitHubPrStatusStore = create<GitHubPrStatusStore>()(
             if (!entry || entry.watchers <= 0) {
               return;
             }
+            // Bootstrap retries only help discovery before any PR is known.
+            // Once a PR is cached — open or historical — the discovery interval
+            // owns revalidation.
             if (entry.status?.pr) {
               return;
             }
@@ -496,7 +514,11 @@ export const useGitHubPrStatusStore = create<GitHubPrStatusStore>()(
           }
 
           const hasPr = Boolean(entry.status?.pr);
-          if (!hasPr) {
+          // A closed/merged PR is history, not live status. It stays on the
+          // discovery cadence like a branch with no PR at all, so a newer open
+          // PR — or an authoritative empty result — replaces it on its own.
+          const isTerminal = isTerminalPrState(entry.status?.pr?.state);
+          if (!hasPr || isTerminal) {
             const now = Date.now();
             if (now - entry.lastDiscoveryPollAt < PR_DISCOVERY_INTERVAL_MS) {
               return;
@@ -517,10 +539,6 @@ export const useGitHubPrStatusStore = create<GitHubPrStatusStore>()(
               };
             });
             void get().refresh(key, { force: true, silent: true, markInitialResolved: true });
-            return;
-          }
-
-          if (isTerminalPrState(entry.status?.pr?.state)) {
             return;
           }
 
@@ -941,23 +959,39 @@ const summarySignature = (s: PrVisualSummary): string =>
 const PR_SUMMARY_CACHE_MAX_ENTRIES = 300;
 const prSummaryCacheByKey = new Map<string, { sig: string; summary: PrVisualSummary }>();
 
+const getCachedPrSummary = (cacheKey: string, entry: PrStatusEntry | null | undefined): PrVisualSummary | null => {
+  const summary = entry ? deriveSummary(entry) : null;
+  if (!summary) {
+    prSummaryCacheByKey.delete(cacheKey);
+    return null;
+  }
+
+  const sig = summarySignature(summary);
+  const cached = prSummaryCacheByKey.get(cacheKey);
+  if (cached?.sig === sig) return cached.summary;
+
+  if (!cached && prSummaryCacheByKey.size >= PR_SUMMARY_CACHE_MAX_ENTRIES) {
+    const oldestKey = prSummaryCacheByKey.keys().next().value;
+    if (oldestKey !== undefined) prSummaryCacheByKey.delete(oldestKey);
+  }
+  prSummaryCacheByKey.set(cacheKey, { sig, summary });
+  return summary;
+};
+
 export const usePrVisualSummary = (key: string | null): PrVisualSummary | null => {
   return useGitHubPrStatusStore((state) => {
     if (!key) return null;
-    const entry = state.entries[key];
-    const summary = entry ? deriveSummary(entry) : null;
-    if (!summary) {
-      prSummaryCacheByKey.delete(key);
-      return null;
-    }
-    const sig = summarySignature(summary);
-    const cached = prSummaryCacheByKey.get(key);
-    if (cached && cached.sig === sig) return cached.summary;
-    if (!cached && prSummaryCacheByKey.size >= PR_SUMMARY_CACHE_MAX_ENTRIES) {
-      const oldestKey = prSummaryCacheByKey.keys().next().value;
-      if (oldestKey !== undefined) prSummaryCacheByKey.delete(oldestKey);
-    }
-    prSummaryCacheByKey.set(key, { sig, summary });
-    return summary;
+    return getCachedPrSummary(key, state.entries[key]);
+  });
+};
+
+export const useFreshestPrVisualSummaryForBranch = (
+  directory: string | null,
+  branch: string | null,
+): PrVisualSummary | null => {
+  const cacheKey = directory && branch ? JSON.stringify(['branch', getRuntimeKey(), directory, branch]) : null;
+  return useGitHubPrStatusStore((state) => {
+    if (!directory || !branch || !cacheKey) return null;
+    return getCachedPrSummary(cacheKey, getFreshestPrEntryForBranch(state.entries, directory, branch));
   });
 };

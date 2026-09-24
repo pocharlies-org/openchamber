@@ -2,7 +2,6 @@ import React from 'react';
 import type { Part } from '@opencode-ai/sdk/v2';
 import { MarkdownRenderer } from '../../MarkdownRenderer';
 import type { StreamPhase, ToolPopupContent } from '../types';
-import type { ContentChangeReason } from '@/hooks/useChatAutoFollow';
 import { useStreamingTextThrottle } from '../../hooks/useStreamingTextThrottle';
 import { resolveAssistantDisplayText, shouldRenderAssistantText } from './assistantTextVisibility';
 import { streamPerfCount, streamPerfObserve } from '@/stores/utils/streamDebug';
@@ -17,9 +16,7 @@ interface AssistantTextPartProps {
     messageId: string;
     streamPhase: StreamPhase;
     chatRenderMode?: 'sorted' | 'live';
-    onContentChange?: (reason?: ContentChangeReason, messageId?: string) => void;
     onShowPopup?: (content: ToolPopupContent) => void;
-    enableMarkdownImages?: boolean;
 }
 
 const AssistantTextPart: React.FC<AssistantTextPartProps> = ({
@@ -28,7 +25,6 @@ const AssistantTextPart: React.FC<AssistantTextPartProps> = ({
     streamPhase,
     chatRenderMode = 'live',
     onShowPopup,
-    enableMarkdownImages = false,
 }) => {
     // Use part directly from props — parent provides the latest version from the store.
     // No store subscription here to avoid re-render cascade from unrelated delta events.
@@ -103,7 +99,6 @@ const AssistantTextPart: React.FC<AssistantTextPartProps> = ({
                 disableStreamAnimation={chatRenderMode === 'sorted'}
                 variant={part.type === 'reasoning' ? 'reasoning' : 'assistant'}
                 enableFileReferences={isFinalized}
-                enableLocalImages={enableMarkdownImages && !isStreaming && part.type === 'text'}
                 onShowPopup={onShowPopup}
             />
         </div>

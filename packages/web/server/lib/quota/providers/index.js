@@ -7,8 +7,7 @@
 
 import { buildResult } from '../utils/index.js';
 
-import * as claude from './claude.js';
-import * as codex from './codex.js';
+import * as claude from './claude/index.js';
 import * as copilot from './copilot.js';
 import * as crof from './crof.js';
 import * as cursor from './cursor.js';
@@ -34,12 +33,6 @@ const registry = {
     providerName: claude.providerName,
     isConfigured: claude.isConfigured,
     fetchQuota: claude.fetchQuota
-  },
-  codex: {
-    providerId: codex.providerId,
-    providerName: codex.providerName,
-    isConfigured: codex.isConfigured,
-    fetchQuota: codex.fetchQuota
   },
   crof: {
     providerId: crof.providerId,
@@ -151,6 +144,9 @@ const registry = {
   }
 };
 
+const pendingFetches = new Map();
+
+
 export const listConfiguredQuotaProviders = () => {
   const configured = [];
 
@@ -167,7 +163,7 @@ export const listConfiguredQuotaProviders = () => {
   return configured;
 };
 
-export const fetchQuotaForProvider = async (providerId) => {
+const fetchQuotaForProviderUncoalesced = async (providerId) => {
   const provider = registry[providerId];
 
   if (!provider) {
@@ -193,10 +189,20 @@ export const fetchQuotaForProvider = async (providerId) => {
   }
 };
 
+export const fetchQuotaForProvider = (providerId) => {
+  const existing = pendingFetches.get(providerId);
+  if (existing) return existing;
+
+  const pending = fetchQuotaForProviderUncoalesced(providerId).finally(() => {
+    if (pendingFetches.get(providerId) === pending) pendingFetches.delete(providerId);
+  });
+  pendingFetches.set(providerId, pending);
+  return pending;
+};
+
 export const fetchClaudeQuota = claude.fetchQuota;
 export const fetchOpenaiQuota = openai.fetchQuota;
 export const fetchGoogleQuota = google.fetchGoogleQuota;
-export const fetchCodexQuota = codex.fetchQuota;
 export const fetchCursorQuota = cursor.fetchQuota;
 export const fetchDeepseekQuota = deepseek.fetchQuota;
 export const fetchCopilotQuota = copilot.fetchQuota;

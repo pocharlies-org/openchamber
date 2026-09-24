@@ -1,3 +1,6 @@
+import http from 'node:http';
+import https from 'node:https';
+
 import { createProxyMiddleware } from 'http-proxy-middleware';
 
 import {
@@ -6,10 +9,101 @@ import {
   shouldForwardProxyResponseHeader,
 } from '../../proxy-headers.js';
 import { createRealpathCache } from '../path-realpath-cache.js';
+import { createProjectResolver } from '../claude/routes.js';
 import { DEFAULT_UPSTREAM_STALL_TIMEOUT_MS } from '../event-stream/upstream-reader.js';
 import { recordStartupPerformance } from './startup-performance.js';
 
 const DEFAULT_SSE_HEARTBEAT_INTERVAL_MS = 20_000;
+
+const OPENCODE_AGENT_KEEP_ALIVE_MS = 30_000;
+// Node's own default. A lower cap evicts pooled sockets under concurrency,
+// which reintroduces exactly the per-request connection churn this agent
+// exists to prevent (measured: at 64 concurrent requests, a cap of 32 left
+// 303 sockets in TIME_WAIT versus 0 at 256).
+const OPENCODE_AGENT_MAX_FREE_SOCKETS = 256;
+// Evicts idle free sockets from our side. Without it the only thing that
+// retires an idle pooled socket is the upstream closing it. Note this is
+// distinct from `keepAliveMsecs`, which is the TCP keep-alive probe delay.
+const OPENCODE_AGENT_IDLE_TIMEOUT_MS = 60_000;
+
+const OPENCODE_AGENT_OPTIONS = {
+  keepAlive: true,
+  keepAliveMsecs: OPENCODE_AGENT_KEEP_ALIVE_MS,
+  maxSockets: Infinity,
+  maxFreeSockets: OPENCODE_AGENT_MAX_FREE_SOCKETS,
+  timeout: OPENCODE_AGENT_IDLE_TIMEOUT_MS,
+};
+
+const isHttpsProxyTarget = (target) => {
+  if (typeof target !== 'string') {
+    return false;
+  }
+  try {
+    return new URL(target).protocol === 'https:';
+  } catch {
+    return /^https:/i.test(target.trim());
+  }
+};
+
+/**
+ * Agent for proxied OpenCode API requests.
+ *
+ * When no agent is supplied, `http-proxy` falls back to `agent: false`, which
+ * both disables connection pooling and forces `Connection: close` on every
+ * proxied request (http-proxy/lib/http-proxy/common.js). That consumes one
+ * ephemeral port per request, and sustained traffic can exhaust the host's
+ * ephemeral port range — after which every process on the machine fails to
+ * open outbound connections with EADDRNOTAVAIL.
+ *
+ * The agent must match the target scheme: http-proxy dispatches through
+ * `https.request` when `target.protocol === 'https:'`
+ * (http-proxy/lib/http-proxy/passes/web-incoming.js), and an `http.Agent`
+ * would open a plaintext socket to a TLS port. External servers may be
+ * configured over https via `OPENCODE_HOST` (see env-config.js), so derive the
+ * agent class from the resolved target.
+ *
+ * `maxSockets: Infinity` preserves the unbounded concurrency of `agent: false`,
+ * so this changes connection reuse only, not request throughput.
+ */
+export const createOpenCodeProxyAgent = (target) => (
+  isHttpsProxyTarget(target)
+    ? new https.Agent(OPENCODE_AGENT_OPTIONS)
+    : new http.Agent(OPENCODE_AGENT_OPTIONS)
+);
+
+/**
+ * Lazily resolves the proxy agent, memoized per scheme.
+ *
+ * The scheme cannot be decided at registration time: `setupProxy()` runs before
+ * `bootstrapOpenCodeAtStartup()` (startup-pipeline-runtime.js), so on a cold
+ * start `state.openCodePort` is still null, `buildOpenCodeUrl()` throws
+ * (network-runtime.js) and `resolveProxyTarget()` falls back to the http
+ * loopback default. An external server configured over https via
+ * `OPENCODE_HOST` only becomes visible on `state.openCodeBaseUrl` after
+ * bootstrap completes.
+ *
+ * http-proxy-middleware rebuilds its per-request options with
+ * `Object.assign({}, this.proxyOptions)` inside `prepareProxyRequest`, which
+ * invokes getters, so exposing `agent` as a getter defers resolution to request
+ * time. Memoizing per scheme keeps a single shared pool per scheme rather than
+ * allocating an agent per request.
+ */
+const createOpenCodeProxyAgentResolver = (resolveTarget) => {
+  const agents = new Map();
+
+  return () => {
+    const target = resolveTarget();
+    const scheme = isHttpsProxyTarget(target) ? 'https:' : 'http:';
+    let agent = agents.get(scheme);
+    if (!agent) {
+      // Construct through the shared factory rather than inline, so both
+      // schemes are built from OPENCODE_AGENT_OPTIONS by the same code path.
+      agent = createOpenCodeProxyAgent(target);
+      agents.set(scheme, agent);
+    }
+    return agent;
+  };
+};
 
 export const createDirectoryQueryCanonicalizer = ({ realpath, ...cacheOptions } = {}) => {
   const realpathCache = createRealpathCache({ fallbackOnError: true, realpath, ...cacheOptions });
@@ -193,6 +287,7 @@ export const registerOpenCodeProxy = (app, deps) => {
     SSE_HEARTBEAT_INTERVAL_MS = DEFAULT_SSE_HEARTBEAT_INTERVAL_MS,
     SSE_UPSTREAM_STALL_TIMEOUT_MS = DEFAULT_UPSTREAM_STALL_TIMEOUT_MS,
     getSseUpstreamStallTimeoutMs = () => SSE_UPSTREAM_STALL_TIMEOUT_MS,
+    claudeSurface = null,
   } = deps;
 
   if (app.get('opencodeProxyConfigured')) {
@@ -285,15 +380,22 @@ export const registerOpenCodeProxy = (app, deps) => {
   // and direct fetch helpers use. This avoids split-brain state where /health
   // succeeds against an external host but /api/* still proxies to 127.0.0.1.
   const resolveProxyTarget = () => {
-    try {
-      const resolved = normalizeProxyTarget(buildOpenCodeUrl('/', ''));
-      if (resolved) {
-        return resolved;
+    const runtimeState = getRuntime();
+
+    // `buildOpenCodeUrl` throws while the port is unknown, and the port is
+    // nulled on several runtime paths (health-check failure, failed restart),
+    // not just cold start. Checking first keeps a degraded OpenCode from
+    // making every proxied request pay for a thrown-and-caught exception.
+    if (runtimeState.openCodePort) {
+      try {
+        const resolved = normalizeProxyTarget(buildOpenCodeUrl('/', ''));
+        if (resolved) {
+          return resolved;
+        }
+      } catch {
       }
-    } catch {
     }
 
-    const runtimeState = getRuntime();
     const externalBase = normalizeProxyTarget(runtimeState.openCodeBaseUrl);
     if (externalBase) {
       return externalBase;
@@ -740,6 +842,19 @@ export const registerOpenCodeProxy = (app, deps) => {
           return res.status(504).json({ error: 'OpenCode session list timed out' });
         }
 
+        const claudeSessions = claudeSurface
+          ? await claudeSurface.listClaudeSessions(null).catch((error) => {
+              console.log(`[SessionMerge] Claude session list failed: ${error?.message ?? error}`);
+              return [];
+            })
+          : [];
+        for (const session of claudeSessions) {
+          if (session?.id && !seen.has(session.id)) {
+            seen.add(session.id);
+            extraSessions.push(session);
+          }
+        }
+
         const merged = [...(globalSessions || []), ...extraSessions];
         merged.sort((a, b) => {
           const aTime = a && typeof a.time_updated === 'number' ? a.time_updated : 0;
@@ -755,6 +870,84 @@ export const registerOpenCodeProxy = (app, deps) => {
     });
   }
 
+  // Claude Code sessions ride the same list the sidebar already renders. The
+  // cross-directory merge above is Windows-only, so this is registered on every
+  // platform and only when the Claude surface is wired up.
+  if (claudeSurface && process.platform !== 'win32') {
+    // Both list endpoints the front end reads — `/api/session` and the
+    // experimental one that feeds the global store — must carry Claude
+    // sessions, or the sidebar renders a list that never contained them.
+    const mergeClaudeIntoSessionList = async (req, res, next, upstreamPath) => {
+      const requestedDirectory = typeof req.query?.directory === 'string' ? req.query.directory : null;
+      // Pagination is OpenCode's; Claude sessions join the first page only, so
+      // a cursor walk never sees them twice or loses them between pages.
+      if (req.query?.cursor) return next();
+      try {
+        const result = await fetchSessionListPayload(upstreamPath, { req, timeoutMs: 10000 });
+        if (!result.upstream.ok || !Array.isArray(result.payload)) return next();
+        // The sidebar admits a session only when its directory is one of the
+        // directories the front end treats as a project — `settings.json`
+        // projects plus their worktrees — so Claude transcripts are attributed
+        // to the project that contains them. OpenCode's own `/project` list is
+        // a different set and must not be used here.
+        let knownProjects = [];
+        try {
+          const settingsPath = path.join(os.homedir(), '.config', 'openchamber', 'settings.json');
+          const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+          knownProjects = (settings.projects || [])
+            .map((project) => (typeof project?.path === 'string' ? project.path.trim() : ''))
+            .filter(Boolean)
+            .map((worktree, index) => ({ id: `project-${index}`, worktree }));
+        } catch {
+        }
+        const resolveProject = createProjectResolver(knownProjects);
+        const wantsArchived = req.query?.archived === 'true';
+        const wantsRoots = req.query?.roots !== 'false';
+        const allClaude = await claudeSurface
+          .listClaudeSessions(null, resolveProject, { archived: wantsArchived, roots: wantsRoots })
+          .catch((error) => {
+            console.log(`[SessionMerge] Claude session list failed: ${error?.message ?? error}`);
+            return [];
+          });
+        const claudeSessions = requestedDirectory === null
+          ? allClaude
+          : allClaude.filter((session) => {
+              const dir = session.metadata?.claude?.directory || '';
+              const root = requestedDirectory.replace(/\/$/, '');
+              return dir === requestedDirectory || dir.startsWith(`${root}/`);
+            });
+        const seen = new Set(result.payload.map((s) => s?.id).filter(Boolean));
+        const extra = claudeSessions.filter((s) => s?.id && !seen.has(s.id));
+        if (extra.length === 0) return next();
+        const merged = [...result.payload, ...extra];
+        merged.sort((a, b) => (b?.time?.updated ?? 0) - (a?.time?.updated ?? 0));
+        return res.json(sanitizeSessionListPayload(merged));
+      } catch (error) {
+        console.log(`[SessionMerge] Claude merge failed: ${error?.message ?? error}`);
+        return next();
+      }
+    };
+
+    app.get('/api/session', (req, res, next) => {
+      const requestedDirectory = typeof req.query?.directory === 'string' ? req.query.directory : null;
+      return mergeClaudeIntoSessionList(
+        req,
+        res,
+        next,
+        requestedDirectory === null ? '/session' : `/session?directory=${encodeURIComponent(requestedDirectory)}`,
+      );
+    });
+
+    app.get('/api/experimental/session', (req, res, next) => {
+      const params = new URLSearchParams();
+      for (const key of ['directory', 'roots', 'archived', 'limit']) {
+        if (typeof req.query?.[key] === 'string') params.set(key, req.query[key]);
+      }
+      const query = params.toString();
+      return mergeClaudeIntoSessionList(req, res, next, query ? `/experimental/session?${query}` : '/experimental/session');
+    });
+  }
+
   app.get('/api/session', (req, res, next) => {
     return forwardSanitizedSessionListRequest(req, res, next, 'session.list');
   });
@@ -766,9 +959,26 @@ export const registerOpenCodeProxy = (app, deps) => {
     return forwardSanitizedSessionListRequest(req, res, next, 'experimental.session');
   });
 
+  // Claude Code answers the same /api/session* surface for its own ids and must
+  // be registered before the generic proxy, which would otherwise forward those
+  // ids to OpenCode and 404 them.
+  if (claudeSurface) {
+    claudeSurface.register(app);
+  }
+
   // Generic proxy for non-SSE OpenCode API routes.
+  // The agent is exposed as a getter so its class is resolved per request, not
+  // at registration: the proxy is registered before OpenCode bootstraps, so an
+  // https target configured via OPENCODE_HOST is not yet visible here. Agents
+  // are memoized per scheme, so this is still one shared pool per scheme across
+  // `apiProxy` and `interactiveOAuthProxy`.
+  const resolveOpenCodeProxyAgent = createOpenCodeProxyAgentResolver(resolveProxyTarget);
+
   const createApiProxy = (timeoutMs) => createProxyMiddleware({
     target: resolveProxyTarget(),
+    get agent() {
+      return resolveOpenCodeProxyAgent();
+    },
     changeOrigin: true,
     pathRewrite: { '^/api': '' },
     timeout: timeoutMs,

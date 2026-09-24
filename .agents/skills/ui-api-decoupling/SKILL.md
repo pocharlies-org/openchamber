@@ -28,7 +28,7 @@ description: Use when creating or modifying OpenChamber shared UI data access, O
 
 | Task | Required reference |
 |---|---|
-| Iframes, downloads, raw images, object URLs, URL tokens, preview proxy/subresources | `references/browser-assets-and-auth.md` |
+| Iframes, downloads, raw images, object URLs, URL tokens | `references/browser-assets-and-auth.md` |
 | Adding runtime capabilities, VS Code behavior, Electron privilege/security, unsupported runtime behavior | `references/runtime-parity.md` |
 | Locating implementations, route registration, runtime switching, or focused tests | `references/implementation-map.md` |
 
@@ -63,7 +63,7 @@ await runtimeFetch('/api/fs/raw', { query: { path } });
 Do not immediately fetch a URL produced by `getRuntimeUrlResolver()`. Use the resolver only when the browser/realtime API itself consumes the URL:
 
 ```ts
-const iframeSrc = getRuntimeUrlResolver().authenticatedAsset('/api/preview/frame');
+const imageSrc = getRuntimeUrlResolver().authenticatedAsset('/api/fs/raw?path=diagram.png');
 const eventUrl = getRuntimeUrlResolver().sse('/api/event');
 ```
 
