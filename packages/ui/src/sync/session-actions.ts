@@ -952,6 +952,19 @@ export async function createSession(
 }
 
 /**
+ * Creates a Claude Code session through the Claude surface of the server.
+ *
+ * The server intercepts `POST /api/session` when the body carries
+ * `metadata.backend === "claude"` (lib/claude/routes.js) and answers with a
+ * `ses_ccc…` session that has no transcript yet: the first prompt spawns the
+ * live `claude` process under this directory, and with
+ * OPENCHAMBER_CLAUDE_REMOTE_CONTROL=1 that process links to claude.ai.
+ */
+export async function createClaudeSession(directory?: string | null): Promise<Session | null> {
+  return createSession(undefined, directory, { backend: "claude" })
+}
+
+/**
  * True when a caller captured a runtime key before an asynchronous mutation and
  * that runtime is no longer the active one. Callers pass `undefined` when they
  * do not participate in runtime-scoped guarding, which keeps the previous

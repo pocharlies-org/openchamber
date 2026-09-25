@@ -600,6 +600,7 @@ export const dict: Record<I18nKey, string> = {
   'sessions.sidebar.project.actions.newWorktreeEllipsis': '新しいワークツリー...',
   'sessions.sidebar.project.actions.projectMenu': 'プロジェクトメニュー',
   'sessions.sidebar.project.actions.newSession': '新しいセッション',
+  'sessions.sidebar.project.actions.newClaudeSession': '新しい Claude セッション',
   'sessions.sidebar.project.actions.closeProject': 'プロジェクトを閉じる',
   'sessions.sidebar.project.actions.edit': '編集',
   'sessions.sidebar.project.actions.newDraftSession': '新しい下書きセッション',

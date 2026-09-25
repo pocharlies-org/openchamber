@@ -600,6 +600,7 @@ export const dict: Record<I18nKey, string> = {
   'sessions.sidebar.project.actions.newWorktreeEllipsis': '新建工作树...',
   'sessions.sidebar.project.actions.projectMenu': '项目菜单',
   'sessions.sidebar.project.actions.newSession': '新建会话',
+  'sessions.sidebar.project.actions.newClaudeSession': '新建 Claude 会话',
   'sessions.sidebar.project.actions.closeProject': '关闭项目',
   'sessions.sidebar.project.actions.edit': '编辑',
   'sessions.sidebar.project.actions.newDraftSession': '新建草稿会话',
