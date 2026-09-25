@@ -1543,6 +1543,7 @@ export const dict = {
   'chat.claudeLive.actions.takeOver': 'Übernehmen',
   'chat.claudeLive.actions.takeOverAndSend': 'Übernehmen und senden',
   'chat.claudeLive.actions.openRemote': 'In claude.ai öffnen',
+  'chat.claudeLive.actions.openVSCode': 'In VS Code öffnen',
   'chat.claudeLive.toast.takeOverFailed': 'Die Sitzung konnte nicht übernommen werden',
   'chat.claudeLive.toast.sendNeedsTakeOver': 'Diese Sitzung ist in einer anderen App geöffnet, die OpenChamber nicht erreicht',
   'chat.claudeLive.remoteLinked': 'Auch auf claude.ai und in der Claude-App geöffnet',

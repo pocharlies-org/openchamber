@@ -1704,6 +1704,7 @@ export const dict: Record<I18nKey, string> = {
   'chat.claudeLive.actions.takeOver': '接管',
   'chat.claudeLive.actions.takeOverAndSend': '接管并发送',
   'chat.claudeLive.actions.openRemote': '在 claude.ai 中打开',
+  'chat.claudeLive.actions.openVSCode': '在 VS Code 中打开',
   'chat.claudeLive.toast.takeOverFailed': '无法接管该会话',
   'chat.claudeLive.toast.sendNeedsTakeOver': '此会话在另一个 OpenChamber 无法连接的应用中打开',
   'chat.claudeLive.remoteLinked': '同时在 claude.ai 和 Claude 应用中打开',

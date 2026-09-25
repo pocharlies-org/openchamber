@@ -4,7 +4,7 @@ import { Icon } from '@/components/icon/Icon';
 import { BusyDots } from '@/components/chat/message/parts/BusyDots';
 import { toast } from '@/components/ui';
 import { Button } from '@/components/ui/button';
-import { getClaudeLiveState, type ClaudeLiveOwnerKind } from '@/lib/claudeSessionMetadata';
+import { claudeVSCodeUrl, getClaudeLiveState, type ClaudeLiveOwnerKind } from '@/lib/claudeSessionMetadata';
 import { CLAUDE_FOLLOW_KEEPALIVE_MS, keepFollowingClaudeSession, takeOverClaudeSession } from '@/lib/claudeTakeOver';
 import { useI18n } from '@/lib/i18n';
 import { useSession } from '@/sync/sync-context';
@@ -29,7 +29,7 @@ type ClaudeLiveSessionBannerProps = {
  * through that link and that process answers, as Claude Desktop does. Either
  * way it can be taken over — the other process is closed and this one resumes
  * it. Linked to claude.ai: a link to continue it from there or the
- * Claude app.
+ * Claude app, and one to open it in VS Code.
  */
 export const ClaudeLiveSessionBanner = memo(({ sessionId, directory }: ClaudeLiveSessionBannerProps) => {
   const { t } = useI18n();
@@ -70,6 +70,16 @@ export const ClaudeLiveSessionBanner = memo(({ sessionId, directory }: ClaudeLiv
     </Button>
   ) : null;
 
+  const vscodeUrl = claudeVSCodeUrl(sessionId);
+  const vscodeLink = vscodeUrl ? (
+    <Button asChild type="button" variant="secondary" size="xs">
+      <a href={vscodeUrl} target="_blank" rel="noreferrer">
+        <Icon name="code" className="h-3.5 w-3.5" aria-hidden="true" />
+        {t('chat.claudeLive.actions.openVSCode')}
+      </a>
+    </Button>
+  ) : null;
+
   if (!liveElsewhere) {
     return (
       <div className="pb-2 w-full px-1">
@@ -79,6 +89,7 @@ export const ClaudeLiveSessionBanner = memo(({ sessionId, directory }: ClaudeLiv
             {t('chat.claudeLive.remoteLinked')}
           </span>
           {remoteLink}
+          {vscodeLink}
         </div>
       </div>
     );
@@ -99,6 +110,7 @@ export const ClaudeLiveSessionBanner = memo(({ sessionId, directory }: ClaudeLiv
             </div>
           </div>
           {remoteLink}
+          {vscodeLink}
           <Button
             type="button"
             variant="secondary"
