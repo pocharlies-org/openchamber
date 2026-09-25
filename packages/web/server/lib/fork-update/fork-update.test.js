@@ -83,6 +83,18 @@ describe('dispatchForkUpdate', () => {
     expect(result).toEqual({ started: true });
   });
 
+  it('runs the workflow from the pipeline repo and builds the fork trunk', async () => {
+    let sent;
+    await dispatchForkUpdate({
+      tokenOverride: 'tok',
+      fetchImpl: async (_url, init) => { sent = JSON.parse(init.body); return emptyResponse(204); },
+    });
+
+    // The top-level ref is a branch of the pipeline repo; the app ref travels as an input.
+    expect(sent.ref).toBe('main');
+    expect(sent.inputs.ref).toBe('build/v2.0.1-metrics');
+  });
+
   it('labels an expired credential instead of reporting a generic failure', async () => {
     const result = await dispatchForkUpdate({
       tokenOverride: 'tok',

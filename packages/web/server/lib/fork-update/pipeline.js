@@ -28,6 +28,12 @@ export const PIPELINE_REPO = 'pocharlies-org/openchamber-build-pocharlies';
  */
 export const FORK_UPDATE_WORKFLOW = 'build-todo.yml';
 
+/** Branch of the pipeline repo the workflow runs from (not the app ref it builds). */
+export const PIPELINE_REF = 'main';
+
+/** The fork trunk the pipeline builds and promotes. */
+export const APP_TRUNK = 'build/v2.0.1-metrics';
+
 const DISPATCH_URL = `https://api.github.com/repos/${PIPELINE_REPO}/actions/workflows/${FORK_UPDATE_WORKFLOW}/dispatches`;
 const RUNS_URL = `https://api.github.com/repos/${PIPELINE_REPO}/actions/runs`;
 
@@ -153,7 +159,7 @@ export const dispatchForkUpdate = async (input = {}) => {
   const ref = readString(input.ref);
   const surfaces = readString(input.surfaces) || 'web';
   const inputs = {
-    ref: ref || 'build/v1.22.0-metrics',
+    ref: ref || APP_TRUNK,
     surfaces,
     // The button means "update me", and an update that stops before promoting
     // leaves the user on the version they already had.
@@ -165,7 +171,7 @@ export const dispatchForkUpdate = async (input = {}) => {
     response = await githubFetch(fetchImpl, DISPATCH_URL, token, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ref: inputs.ref, inputs }),
+      body: JSON.stringify({ ref: PIPELINE_REF, inputs }),
     });
   } catch (error) {
     return { started: false, reason: 'unreachable', detail: error?.message || String(error) };
