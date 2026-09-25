@@ -1,10 +1,35 @@
 import React from 'react';
-import { getLastConversationMessage, isIncompleteAssistantTurn } from '@/lib/opencode/model';
+import { getLastConversationMessage, isIncompleteAssistantTurn, type Message } from '@/lib/opencode/model';
+import { useDurationTickerNow } from '@/hooks/useDurationTicker';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useSessionStatus, useSessionMessages, useSessionPermissions, useSessionForms } from '@/sync/sync-context';
+import { MESSAGE_ACTIVITY_STALE_MS, useStreamingStore } from '@/sync/streaming';
 
 // Mirrors OpenCode SessionStatus: busy|retry|idle.
 type SessionActivityPhase = 'idle' | 'busy' | 'retry';
+
+/**
+ * Whether a trailing assistant message with no completion still counts as
+ * work in progress. Without a session status the composer falls back to that
+ * message, and an orphaned one — the stream dropped, the server restarted
+ * before `step.ended`, an error that never closed it — would otherwise keep
+ * the session "working" (stop button, spinner) forever. It expires after
+ * `MESSAGE_ACTIVITY_STALE_MS` with no event for the message.
+ */
+export function isIncompleteAssistantWorking(
+  message: Message | undefined,
+  now: number,
+  lastUpdateAt?: number,
+): boolean {
+  if (!message || !isIncompleteAssistantTurn(message) || message.role !== 'assistant') return false;
+  if (message.error !== undefined) return false;
+  const activityAt = Math.max(
+    message.time.created,
+    message.time.streamed ?? 0,
+    typeof lastUpdateAt === 'number' && Number.isFinite(lastUpdateAt) ? lastUpdateAt : 0,
+  );
+  return now - activityAt <= MESSAGE_ACTIVITY_STALE_MS;
+}
 
 export interface SessionActivityResult {
   phase: SessionActivityPhase;
@@ -33,6 +58,20 @@ export function useSessionActivity(sessionId: string | null | undefined, directo
   const messages = useSessionMessages(sessionId ?? '', directory);
   const permissions = useSessionPermissions(sessionId ?? '', directory);
   const forms = useSessionForms(sessionId ?? '', directory);
+  // Plumbing roles are transparent here: a synthetic or switch message
+  // landing after the streaming assistant must not read as the turn ending.
+  const lastMessage = getLastConversationMessage(messages);
+  const lastAssistantId = lastMessage?.role === 'assistant' ? lastMessage.id : null;
+  const lastAssistantActivityAt = useStreamingStore(React.useCallback(
+    (state) => (lastAssistantId ? state.messageActivityAt.get(lastAssistantId) : undefined),
+    [lastAssistantId],
+  ));
+  // Only the status-less fallback needs a clock, to let an orphaned message expire.
+  const needsFallbackClock = status === undefined
+    && lastMessage?.role === 'assistant'
+    && isIncompleteAssistantTurn(lastMessage)
+    && lastMessage.error === undefined;
+  const now = useDurationTickerNow(needsFallbackClock, 5_000);
 
   return React.useMemo<SessionActivityResult>(() => {
     if (!sessionId) return IDLE_RESULT;
@@ -44,10 +83,9 @@ export function useSessionActivity(sessionId: string | null | undefined, directo
     const phase: SessionActivityPhase = (status?.type ?? 'idle') as SessionActivityPhase;
 
     // Only trust the trailing assistant message as a transient fallback while
-    // waiting for session.status/message.updated to settle.
-    // Plumbing roles are transparent here: a synthetic or switch message
-    // landing after the streaming assistant must not read as the turn ending.
-    const hasPendingAssistant = isIncompleteAssistantTurn(getLastConversationMessage(messages));
+    // waiting for session.status/message.updated to settle, and only while it
+    // keeps receiving events.
+    const hasPendingAssistant = isIncompleteAssistantWorking(lastMessage, now, lastAssistantActivityAt);
 
     const hasAuthoritativeStatus = status !== undefined;
     const statusWorking = hasAuthoritativeStatus && phase !== 'idle';
@@ -63,7 +101,7 @@ export function useSessionActivity(sessionId: string | null | undefined, directo
       isBusy: phase === 'busy' || (!statusWorking && hasPendingAssistant),
       isCooldown: false,
     };
-  }, [sessionId, status, messages, permissions, forms]);
+  }, [sessionId, status, permissions, forms, lastMessage, now, lastAssistantActivityAt]);
 }
 
 export function useCurrentSessionActivity(): SessionActivityResult {
