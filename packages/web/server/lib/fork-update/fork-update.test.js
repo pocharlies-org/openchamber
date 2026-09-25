@@ -1,3 +1,6 @@
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
 import express from 'express';
 import request from 'supertest';
 import { describe, expect, it } from 'vitest';
@@ -163,5 +166,17 @@ describe('POST /api/openchamber/fork-update/dispatch', () => {
 
     expect(response.status).toBe(409);
     expect(response.body.error).toMatch('GitHub credential');
+  });
+});
+
+describe('module linking', () => {
+  // Vitest resolves a missing named import to undefined; Node refuses to link
+  // the module and the whole server fails to start. Load it the way the
+  // server does.
+  it('loads under plain Node ESM', () => {
+    const routes = fileURLToPath(new URL('./routes.js', import.meta.url));
+    const result = spawnSync(process.execPath, ['--input-type=module', '-e', `await import(${JSON.stringify(pathToFileURL(routes).href)})`], { encoding: 'utf8' });
+    expect(result.stderr).toBe('');
+    expect(result.status).toBe(0);
   });
 });
