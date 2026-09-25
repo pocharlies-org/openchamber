@@ -1699,6 +1699,7 @@ export const dict = {
   'chat.claudeLive.actions.takeOver': 'Devral',
   'chat.claudeLive.actions.takeOverAndSend': 'Devral ve gönder',
   'chat.claudeLive.actions.openRemote': 'claude.ai\'da aç',
+  'chat.claudeLive.actions.openVSCode': 'VS Code\'da aç',
   'chat.claudeLive.toast.takeOverFailed': 'Oturum devralınamadı',
   'chat.claudeLive.toast.sendNeedsTakeOver': 'Bu oturum OpenChamber’ın erişemediği başka bir uygulamada açık',
   'chat.claudeLive.remoteLinked': 'claude.ai\'da ve Claude uygulamasında da açık',

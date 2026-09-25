@@ -1716,6 +1716,7 @@ export const dict: Record<I18nKey, string> = {
   'chat.claudeLive.actions.takeOver': 'Tomar el control',
   'chat.claudeLive.actions.takeOverAndSend': 'Tomar el control y enviar',
   'chat.claudeLive.actions.openRemote': 'Abrir en claude.ai',
+  'chat.claudeLive.actions.openVSCode': 'Abrir en VS Code',
   'chat.claudeLive.toast.takeOverFailed': 'No se pudo tomar el control de la sesión',
   'chat.claudeLive.toast.sendNeedsTakeOver': 'Esta sesión está abierta en otra app a la que OpenChamber no llega',
   'chat.claudeLive.remoteLinked': 'También abierta en claude.ai y en la app de Claude',

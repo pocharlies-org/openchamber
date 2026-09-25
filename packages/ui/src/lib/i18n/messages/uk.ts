@@ -1716,6 +1716,7 @@ export const dict: Record<I18nKey, string> = {
   'chat.claudeLive.actions.takeOver': 'Перейняти керування',
   'chat.claudeLive.actions.takeOverAndSend': 'Перехопити й надіслати',
   'chat.claudeLive.actions.openRemote': 'Відкрити в claude.ai',
+  'chat.claudeLive.actions.openVSCode': 'Відкрити у VS Code',
   'chat.claudeLive.toast.takeOverFailed': 'Не вдалося перейняти сесію',
   'chat.claudeLive.toast.sendNeedsTakeOver': 'Ця сесія відкрита в іншому застосунку, до якого OpenChamber не має доступу',
   'chat.claudeLive.remoteLinked': 'Також відкрито на claude.ai та в застосунку Claude',
