@@ -551,6 +551,13 @@ function updateSkill(skillName, updates, workingDirectory, targetPath = null) {
 }
 
 function deleteSkill(skillName, workingDirectory) {
+  // Same guard as createSkill and renameSkill. Every branch below is an
+  // fs.rmSync(recursive, force) on a path built by joining skillName onto a
+  // skills root, so a name that escapes the root ("..", an absolute path, a
+  // separator) removes a directory tree that is not a skill. Validating here
+  // costs nothing and does not depend on every caller having checked first.
+  assertValidSkillName(skillName);
+
   let deleted = false;
 
   if (workingDirectory) {
