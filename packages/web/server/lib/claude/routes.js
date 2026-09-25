@@ -221,8 +221,27 @@ export const createClaudeSurface = (dependencies = {}) => {
       : undefined,
   });
 
+  // Listing Claude sessions reads every transcript under ~/.claude/projects (GBs).
+  // The sidebar asks for one list per project at once, so without sharing one read
+  // the heap blew past V8's limit and the server crash-looped (25-09-2026).
+  // Single-flight + a short cache: concurrent and near-simultaneous callers share it.
+  const LIST_TTL_MS = 15000;
+  const listCache = new Map();
+  const sharedListSessions = (args) => {
+    const key = JSON.stringify(args);
+    const hit = listCache.get(key);
+    const now = Date.now();
+    if (hit && now - hit.at < LIST_TTL_MS) return hit.promise;
+    const promise = runtime.listSessions(args);
+    listCache.set(key, { at: now, promise });
+    promise.catch(() => listCache.delete(key));
+    return promise;
+  };
+
   const listClaudeSessions = async (directory, resolveProject = null, options = {}) => {
-    const sessions = await runtime.listSessions({
+    // Kill switch while listing is fixed to not read every transcript whole.
+    if (process.env.OPENCHAMBER_CLAUDE_LIST_DISABLED === '1') return [];
+    const sessions = await sharedListSessions({
       directory: directory || undefined,
       archived: options.archived === true,
       roots: options.roots !== false,
@@ -243,6 +262,8 @@ export const createClaudeSurface = (dependencies = {}) => {
     typeof req.query?.directory === 'string' ? req.query.directory : undefined;
 
   const register = (app) => {
+    // Kill switch (25-09-2026): the Claude routes parse whole transcripts per request.
+    if (process.env.OPENCHAMBER_CLAUDE_LIST_DISABLED === '1') return;
     app.get('/api/session/:id', (req, res, next) => {
       const sessionId = fromPublicId(req.params.id);
       if (!sessionId) return next();
