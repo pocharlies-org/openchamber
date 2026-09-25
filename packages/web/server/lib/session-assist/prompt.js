@@ -1,6 +1,18 @@
 import { excerpt } from './context.js';
 
-const MAX_PROMPT_CHARS = 32_000;
+// Over budget the oldest turns are dropped only in steps of this many: the
+// prompt goes to the session's own model, so consecutive assists on a session
+// share a token prefix and hit the backend's prefix cache. Dropping one turn at
+// a time would move the start of the transcript on every call and defeat that.
+const TURN_DROP_CHUNK = 8;
+const LANGUAGE_TURNS = 3;
+
+const toolSummary = (tools) => {
+  if (!tools?.length) return '';
+  const counts = new Map();
+  for (const name of tools) counts.set(name, (counts.get(name) ?? 0) + 1);
+  return [...counts.entries()].map(([name, n]) => (n > 1 ? `${name}×${n}` : name)).join(', ');
+};
 
 export function buildAssistSystemPrompt({ recap, suggestion }) {
   return [
@@ -11,6 +23,7 @@ export function buildAssistSystemPrompt({ recap, suggestion }) {
     recap ? 'Use the latest state of that work. Distinguish recommendations from actions already performed, and implementations from verified deployments. Retain the reported conclusion without recalculating detailed lists. Earlier unrelated topics are not part of the recap.' : '',
     suggestion ? 'suggestion is optional. Return "" when the current request is satisfied or continuing requires a user decision. Otherwise return one concise message the user could send to continue specific unfinished work they requested.' : '',
     suggestion ? 'suggestion: return an empty string if the latest request has been satisfied, the next move requires the user\'s decision, or the context does not establish unfinished requested work. Finishing is a normal outcome.' : '',
+    suggestion ? 'You are given the whole conversation, not just its end. Judge whether the request is satisfied against what the user actually asked for, not only against the latest reply.' : '',
     suggestion ? 'Otherwise write one concise, specific next message the user can send unchanged to continue the unfinished request. Use the user\'s voice addressing the agent.' : '',
     suggestion ? 'A request to analyze, explain, or recommend is satisfied by that analysis, explanation, or recommendation unless the user also asked for execution. An optional offer, an implementation plan, a caveat about untested platforms, or uncommitted work is not permission for a new task. Do not revive old requests after the user changes topic.' : '',
     'Language: all requested fields follow the latest user-authored communication, including the user\'s comments on quotes. Ignore the language of the quoted material, code, logs, assistant responses, and these instructions. For a language-neutral acknowledgment use recent user-authored communication. Keep technical names unchanged where useful.',
@@ -19,36 +32,47 @@ export function buildAssistSystemPrompt({ recap, suggestion }) {
   ].filter(Boolean).join('\n');
 }
 
-function renderTurn(turn, index, userText = turn.user.text, answerText = turn.assistant?.text ?? '') {
+function renderTurn(turn, userText = turn.user.text, answerText = turn.assistant?.text ?? '') {
+  const tools = toolSummary(turn.tools);
   return [
-    `Turn ${index + 1}${turn.complete ? '' : ' (interrupted before a final response)'}`,
+    `Turn ${turn.number}${turn.complete ? '' : ' (interrupted before a final response)'}`,
     'User message with attached context:', userText,
+    ...(tools ? [`Tools the assistant used: ${tools}`] : []),
     turn.complete ? 'Assistant final response:' : 'Assistant progress before interruption:', answerText,
   ].join('\n');
 }
 
+const renderTurns = (turns) => turns.map((turn) => renderTurn(turn)).join('\n\n---\n\n');
+
 export function buildAssistPrompt(turns, targets, charBudget) {
-  const budget = Math.min(MAX_PROMPT_CHARS, Math.floor(charBudget));
+  // The whole session is sized against the model that answers, not a fixed cap.
+  const budget = Math.floor(charBudget);
   if (!Number.isFinite(budget) || budget < 1_000 || !turns.length) return null;
   const languageBudget = Math.min(3_600, Math.floor(budget / 5));
-  const language = excerpt(turns.map((turn) => excerpt(turn.user.authored, 1_200)).filter(Boolean).join('\n'), languageBudget);
-  const header = 'Recent conversation turns, oldest first. Older turns may be omitted.\n\n';
+  // The language follows the LATEST user-authored text, not the whole session.
+  const language = excerpt(turns.slice(-LANGUAGE_TURNS).map((turn) => excerpt(turn.user.authored, 1_200)).filter(Boolean).join('\n'), languageBudget);
   const requested = [targets.recap ? 'a reminder of the recent substantive work in recap' : '', targets.suggestion ? 'an optional current next step in suggestion' : ''].filter(Boolean).join(', and ');
   const footer = `\n\n--- End of conversation evidence ---\n\nRecent user-authored communication, excluding attached quotes, oldest first:\n\n${language}\n\nReturn ${requested}.`;
-  const available = budget - header.length - footer.length;
-  const kept = turns.slice();
-  let body = kept.map((turn, i) => renderTurn(turn, i)).join('\n\n---\n\n');
-  while (body.length > available && kept.length > 1) {
-    kept.shift();
-    body = kept.map((turn, i) => renderTurn(turn, i)).join('\n\n---\n\n');
+  // Everything that varies per call (the language sample, the request) goes
+  // AFTER the transcript, so the history stays an append-only prefix.
+  const headerFor = (dropped) => (dropped > 0
+    ? `The conversation, oldest first; its first ${dropped} turns are omitted.\n\n`
+    : 'The whole conversation, oldest first, from the user\'s first message.\n\n');
+  let dropped = 0;
+  let body = renderTurns(turns);
+  while (body.length > budget - headerFor(dropped).length - footer.length && dropped < turns.length - 1) {
+    dropped = Math.min(dropped + TURN_DROP_CHUNK, turns.length - 1);
+    body = renderTurns(turns.slice(dropped));
   }
+  const header = headerFor(dropped);
+  const available = budget - header.length - footer.length;
   if (body.length > available) {
-    const turn = kept[0];
-    const textBudget = available - renderTurn(turn, 0, '', '').length;
+    const turn = turns[turns.length - 1];
+    const textBudget = available - renderTurn(turn, '', '').length;
     if (textBudget < 128) return null;
     const answer = turn.assistant?.text ?? '';
     const userBudget = Math.min(turn.user.text.length, Math.max(Math.floor(textBudget / 3), textBudget - answer.length));
-    body = renderTurn(turn, 0, excerpt(turn.user.text, userBudget), excerpt(answer, textBudget - userBudget));
+    body = renderTurn(turn, excerpt(turn.user.text, userBudget), excerpt(answer, textBudget - userBudget));
   }
   return { text: header + body + footer, language };
 }
