@@ -1,33 +1,30 @@
 /**
- * Claude Code sessions on the OpenCode HTTP surface.
+ * Claude Code sessions on the OpenCode 2 HTTP surface.
  *
  * OpenChamber's UI only knows one session shape: OpenCode's. Rather than teach
  * the UI a second backend, these routes answer the same `/api/session*` calls
- * for ids that belong to Claude Code, and `mergeClaudeSessions` folds them into
- * the list the sidebar already renders. A Claude session therefore behaves like
- * any other session: it opens, streams, aborts, renames and deletes without the
- * front end knowing where it came from.
+ * the OpenCode 2 SDK makes, for ids that belong to Claude Code, and
+ * `listClaudeSessions` gives the proxy the sessions it folds into the list the
+ * sidebar already renders. A Claude session therefore opens, streams, aborts,
+ * renames and deletes without the front end knowing where it came from.
+ * Shapes cross from the runtime's records to OpenCode 2's in v2-wire.js.
  *
- * Ids are namespaced so routing is decided by the id alone and never by a
- * lookup that could be cold. Session ids use `ses_ccc`, the prefix the front
- * end already reserves for Claude Code sessions: `resolveSessionSource`
- * (lib/sessionSourceFilter.ts) classifies a session by its id, and the sidebar's
- * source filter — and whether that filter shows up at all — follows from it.
- * Inventing a private prefix would leave 700 Claude sessions counted as
- * OpenCode ones and the filter hidden.
+ * Routing is decided by the session id alone, never by a lookup that could be
+ * cold. Session ids use `ses_ccc`, the prefix the front end already reserves
+ * for Claude Code sessions: `resolveSessionSource` (lib/sessionSourceFilter.ts)
+ * classifies a session by its id, and the sidebar's source filter — and whether
+ * that filter shows up at all — follows from it. Message ids are the runtime's
+ * own `msg_…` ids: they only mean something inside their session, and OpenCode
+ * 2 requires that prefix.
  */
 
 import { createClaudeBackendRuntime } from './runtime.js';
+import { createClaudeV2EventTranslator, pageOf, toV2Message, toV2Session } from './v2-wire.js';
 
 /** The contract the UI's source filter keys on: `ses_ccc` is a Claude Code session. */
 export const CLAUDE_SESSION_ID_PREFIX = 'ses_ccc';
 
-/** Message and part ids are namespaced too, but they are never classified as sessions. */
-export const CLAUDE_MESSAGE_ID_PREFIX = 'claude:';
-
 const toPublicId = (sessionId) => `${CLAUDE_SESSION_ID_PREFIX}${sessionId}`;
-
-const toPublicMessageId = (messageId) => (messageId ? `${CLAUDE_MESSAGE_ID_PREFIX}${messageId}` : messageId);
 
 const fromPublicId = (publicId) =>
   typeof publicId === 'string' && publicId.startsWith(CLAUDE_SESSION_ID_PREFIX)
@@ -35,49 +32,6 @@ const fromPublicId = (publicId) =>
     : null;
 
 export const isClaudeSessionId = (value) => fromPublicId(value) !== null;
-
-const isNamespacedId = (value) =>
-  value.startsWith(CLAUDE_SESSION_ID_PREFIX) || value.startsWith(CLAUDE_MESSAGE_ID_PREFIX);
-
-/**
- * Events carry the same ids the routes answer with, so the front end can match
- * a stream frame to the session it already has open. Only the id-bearing keys
- * OpenCode's events use are rewritten; everything else passes through.
- *
- * `properties.info.id` is polymorphic: a `session.*` event describes a session,
- * so its id takes the session prefix, while `message.*` events carry a message
- * id. Prefixing a session id as a message id produces an id no route answers.
- */
-export const namespaceEventIds = (payload) => {
-  if (!payload || typeof payload !== 'object') return payload;
-  const properties = payload.properties;
-  if (!properties || typeof properties !== 'object') return payload;
-
-  const isSessionEvent = String(payload.type ?? '').startsWith('session.');
-  const next = { ...payload, properties: { ...properties } };
-  const info = properties.info;
-  if (info && typeof info === 'object') {
-    const nextInfo = { ...info };
-    if (typeof nextInfo.id === 'string' && !isNamespacedId(nextInfo.id)) {
-      nextInfo.id = isSessionEvent ? toPublicId(nextInfo.id) : toPublicMessageId(nextInfo.id);
-    }
-    if (typeof nextInfo.sessionID === 'string') nextInfo.sessionID = toPublicId(nextInfo.sessionID);
-    next.properties.info = nextInfo;
-  }
-  if (typeof next.properties.sessionID === 'string') {
-    next.properties.sessionID = toPublicId(next.properties.sessionID);
-  }
-  const part = properties.part;
-  if (part && typeof part === 'object') {
-    const nextPart = { ...part };
-    if (typeof nextPart.sessionID === 'string') nextPart.sessionID = toPublicId(nextPart.sessionID);
-    if (typeof nextPart.messageID === 'string') nextPart.messageID = toPublicMessageId(nextPart.messageID);
-    next.properties.part = nextPart;
-  }
-  return next;
-};
-
-const slugFromId = (sessionId) => `claude-${String(sessionId).slice(0, 8)}`;
 
 /**
  * The OpenCode proxy forwards raw request streams and no JSON body parser is
@@ -118,41 +72,6 @@ const readJsonBody = (req) =>
     req.on('error', () => resolve({}));
   });
 
-/** OpenCode session object, from the runtime's own session record. */
-const toSessionPayload = (session, resolveProject) => {
-  const id = toPublicId(session.id);
-  const cwd = session.directory || '';
-  const project = resolveProject ? resolveProject(cwd) : null;
-  // The sidebar admits a session only when its `directory` is exactly a
-  // registered project root or an available worktree, and groups it the same
-  // way. A transcript written in a subdirectory of a project is therefore
-  // presented at that project's root, with the real working directory kept in
-  // metadata for fidelity.
-  const directory = project?.worktree ?? cwd;
-  const payload = {
-    id,
-    slug: slugFromId(session.id),
-    projectID: project?.id ?? 'global',
-    directory,
-    title: session.title || 'Untitled session',
-    agent: 'claude',
-    model: { providerID: 'anthropic', modelID: 'claude' },
-    version: '1',
-    time: session.time || { created: Date.now(), updated: Date.now() },
-    cost: 0,
-    tokens: { input: 0, output: 0, reasoning: 0 },
-    share: session.share ?? null,
-    metadata: {
-      backend: 'claude',
-      claude: { directory: cwd },
-      ...(session.metadata || {}),
-    },
-  };
-  if (project) {
-    payload.project = { id: project.id, worktree: project.worktree };
-  }
-  return payload;
-};
 /**
  * Longest-worktree match against the directories the front end treats as
  * projects. A transcript under one of them belongs to that project; anything
@@ -169,31 +88,16 @@ export const createProjectResolver = (projects) => {
   };
 };
 
-/** OpenCode message record: `{ info, parts }` keyed by the same public ids. */
-const toMessagePayload = (record, directory) => {
-  const info = {
-    ...(record.info || {}),
-    id: toPublicMessageId(record.info?.id),
-    sessionID: toPublicId(record.info?.sessionID),
-  };
-  // The timeline resolves an assistant message's turn through `parentID`, so it
-  // must cross the same id boundary as `id`; a raw harness id matches nothing.
-  if (record.info?.parentID) {
-    info.parentID = toPublicMessageId(record.info.parentID);
-  }
-  if (directory) {
-    info.path = { cwd: directory };
-  }
-  return {
-    info,
-    parts: (record.parts || []).map((part) => ({
-      ...part,
-      id: toPublicMessageId(part.id),
-      sessionID: toPublicId(part.sessionID),
-      messageID: toPublicMessageId(part.messageID),
-    })),
-  };
+
+/**
+ * OpenCode 2 answers errors as tagged bodies; the SDK turns a declared status
+ * into an error carrying `message`, so the UI shows what went wrong.
+ */
+const sendTagged = (res, status, tag, message, extra = {}) => {
+  res.status(status).json({ _tag: tag, message, ...extra });
 };
+
+const sendNotFound = (res) => sendTagged(res, 404, 'SessionNotFoundError', 'Session not found');
 
 /**
  * A prompt refused because another process holds the session is a conflict
@@ -202,122 +106,280 @@ const toMessagePayload = (record, directory) => {
 const sendPromptError = (res, error) => {
   if (error?.code === 'CLAUDE_SESSION_LIVE_ELSEWHERE') {
     const { entrypoint, name, status, pid } = error.owner || {};
-    res.status(409).json({ error: error.message, code: error.code, owner: { entrypoint, name, status, pid } });
+    sendTagged(res, 409, 'ConflictError', error.message, { code: error.code, owner: { entrypoint, name, status, pid } });
     return;
   }
   if (error?.code === 'CLAUDE_REMOTE_ATTACH_FAILED') {
-    res.status(502).json({ error: error.message, code: error.code });
+    sendTagged(res, 502, 'UnknownError', error.message, { code: error.code });
     return;
   }
-  res.status(500).json({ error: error?.message || 'Failed to prompt' });
+  sendTagged(res, 500, 'UnknownError', error?.message || 'Failed to prompt');
 };
 
+/** `?type=a,b` or `?type=a&type=b`: the message kinds a page is limited to. */
+const requestedTypes = (value) => {
+  const raw = Array.isArray(value) ? value : (typeof value === 'string' ? [value] : []);
+  const types = raw.flatMap((entry) => String(entry).split(',')).map((entry) => entry.trim()).filter(Boolean);
+  return types.length > 0 ? new Set(types) : null;
+};
+
+const positiveInteger = (value) => {
+  const parsed = Number.parseInt(String(value ?? ''), 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+};
+
+/**
+ * @param {object} dependencies runtime dependencies (runtime.js), plus:
+ * @param {(event: object) => void} [dependencies.publishEvent] receives `{ payload, directory, eventId }`
+ * @param {() => Promise<Array<{ id: string, worktree: string }>>} [dependencies.readProjects]
+ *   the directories the sidebar treats as projects (settings.json `projects`)
+ */
 export const createClaudeSurface = (dependencies = {}) => {
-  const { publishEvent, ...rest } = dependencies;
-  const runtime = createClaudeBackendRuntime({
-    ...rest,
-    publishEvent: publishEvent
-      ? (event) => publishEvent({ ...event, payload: namespaceEventIds(event?.payload) })
-      : undefined,
+  const { publishEvent, readProjects, ...rest } = dependencies;
+  const crypto = rest.crypto;
+
+  /**
+   * The last project list read, reused by the live stream so a session it
+   * announces lands in the same project the list put it in.
+   */
+  let resolveProject = createProjectResolver([]);
+  const refreshProjects = async () => {
+    if (typeof readProjects !== 'function') return resolveProject;
+    try {
+      resolveProject = createProjectResolver(await readProjects());
+    } catch (error) {
+      console.warn('[claude-backend] project list unavailable:', error?.message ?? error);
+    }
+    return resolveProject;
+  };
+
+  const toSession = (session) => toV2Session(
+    {
+      ...session,
+      id: toPublicId(session.id),
+      parentID: session.parentID ? toPublicId(session.parentID) : undefined,
+    },
+    resolveProject,
+  );
+
+  const translator = createClaudeV2EventTranslator({
+    publish: (event) => publishEvent?.({ payload: event, directory: event.location?.directory, eventId: event.id }),
+    toPublicId,
+    toSession,
+    createEventId: () => `evt_claude${typeof crypto?.randomUUID === 'function' ? crypto.randomUUID().replace(/-/g, '') : Date.now().toString(36)}`,
   });
 
-  const listClaudeSessions = async (directory, resolveProject = null, options = {}) => {
-    const sessions = await runtime.listSessions({
-      directory: directory || undefined,
-      archived: options.archived === true,
-      roots: options.roots !== false,
-    });
-    return sessions.map((session) => toSessionPayload(session, resolveProject));
+  const runtime = createClaudeBackendRuntime({
+    ...rest,
+    publishEvent: publishEvent ? ({ payload }) => translator.translate(payload) : undefined,
+  });
+
+  /**
+   * The working directory each session runs in. The UI addresses a session by
+   * its project root, but the CLI must start where the transcript was written,
+   * and a session created here has no transcript to read that from yet.
+   */
+  const workingDirectories = new Map();
+
+  /** Per-session model/agent the composer switched to (v2 selects them per session, not per prompt). */
+  const selections = new Map();
+  /** Context the composer admitted ahead of the next prompt (`session.synthetic`). */
+  const pendingContext = new Map();
+
+  const workingDirectoryOf = async (sessionId, fallback) => {
+    const known = workingDirectories.get(sessionId);
+    if (known) return known;
+    const session = await runtime.getSession({ sessionID: sessionId }).catch(() => null);
+    const directory = session?.directory || fallback || '';
+    if (directory) workingDirectories.set(sessionId, directory);
+    return directory;
   };
 
-  const requireSessionId = (req, res) => {
-    const sessionId = fromPublicId(req.params.id);
-    if (!sessionId) {
-      res.status(404).json({ error: 'Not found' });
-      return null;
-    }
-    return sessionId;
+  /**
+   * Claude sessions for the list route, as `Session.Info`. `directory` keeps
+   * those whose real working directory is at or under it.
+   */
+  const listClaudeSessions = async ({ directory = null, search = null } = {}) => {
+    await refreshProjects();
+    const [active, archived] = await Promise.all([
+      runtime.listSessions({ archived: false }),
+      runtime.listSessions({ archived: true }),
+    ]);
+    const root = typeof directory === 'string' && directory ? directory.replace(/\/$/, '') : null;
+    const needle = typeof search === 'string' && search.trim() ? search.trim().toLowerCase() : null;
+    return [...active, ...archived]
+      .filter((session) => !root || session.directory === root || String(session.directory || '').startsWith(`${root}/`))
+      .filter((session) => !needle || String(session.title || '').toLowerCase().includes(needle))
+      .map(toSession);
   };
 
-  const directoryOf = (req) =>
-    typeof req.query?.directory === 'string' ? req.query.directory : undefined;
+  const directoryOf = (req) => {
+    if (typeof req.query?.directory === 'string' && req.query.directory) return req.query.directory;
+    const header = req.get?.('x-opencode-directory');
+    return typeof header === 'string' && header ? decodeURIComponent(header) : undefined;
+  };
+
+  const readRecords = async (sessionId) => {
+    const records = await runtime.getMessages({ sessionID: sessionId });
+    return records.map(toV2Message);
+  };
 
   const register = (app) => {
     app.get('/api/session/:id', (req, res, next) => {
       const sessionId = fromPublicId(req.params.id);
       if (!sessionId) return next();
       return runtime
-        .getSession({ sessionID: sessionId, directory: directoryOf(req) })
-        .then((session) => {
-          if (!session) {
-            res.status(404).json({ error: 'Session not found' });
-            return;
-          }
-          res.json(toSessionPayload(session));
+        .getSession({ sessionID: sessionId })
+        .then(async (session) => {
+          if (!session) return sendNotFound(res);
+          await refreshProjects();
+          res.json({ data: toSession(session) });
         })
-        .catch((error) => res.status(500).json({ error: error?.message || 'Failed' }));
+        .catch((error) => sendTagged(res, 500, 'UnknownError', error?.message || 'Failed'));
     });
 
     app.get('/api/session/:id/message', (req, res, next) => {
       const sessionId = fromPublicId(req.params.id);
       if (!sessionId) return next();
-      return runtime
-        .getMessages({ sessionID: sessionId, directory: directoryOf(req) })
-        .then((records) => res.json(records.map((record) => toMessagePayload(record, directoryOf(req)))))
-        .catch((error) => res.status(500).json({ error: error?.message || 'Failed' }));
+      return readRecords(sessionId)
+        .then((messages) => {
+          const types = requestedTypes(req.query?.type);
+          const page = pageOf(types ? messages.filter((message) => types.has(message.type)) : messages, {
+            limit: positiveInteger(req.query?.limit),
+            order: req.query?.order,
+            cursor: typeof req.query?.cursor === 'string' ? req.query.cursor : undefined,
+          });
+          if (!page) return sendTagged(res, 400, 'InvalidCursorError', 'Invalid cursor');
+          res.json(page);
+        })
+        .catch((error) => sendTagged(res, 500, 'UnknownError', error?.message || 'Failed'));
+    });
+
+    app.get('/api/session/:id/message/:messageID', (req, res, next) => {
+      const sessionId = fromPublicId(req.params.id);
+      if (!sessionId) return next();
+      return readRecords(sessionId)
+        .then((messages) => {
+          const message = messages.find((entry) => entry.id === req.params.messageID);
+          if (!message) return sendTagged(res, 404, 'MessageNotFoundError', 'Message not found');
+          res.json({ data: message });
+        })
+        .catch((error) => sendTagged(res, 500, 'UnknownError', error?.message || 'Failed'));
     });
 
     app.post('/api/session', async (req, res, next) => {
       const body = await readJsonBody(req);
       const isClaude = body.metadata?.backend === 'claude' || body.agent === 'claude';
       if (!isClaude) return next();
+      const directory = body.location?.directory || body.directory || directoryOf(req);
       return runtime
-        .createSession({
-          directory: body.directory,
-          title: body.title,
-          model: body.model?.modelID,
+        .createSession({ directory, title: body.title })
+        .then(async (session) => {
+          if (session.directory) workingDirectories.set(session.id, session.directory);
+          await refreshProjects();
+          res.json({ data: toSession(session) });
         })
-        .then((session) => res.json(toSessionPayload(session)))
-        .catch((error) => res.status(500).json({ error: error?.message || 'Failed to create session' }));
+        .catch((error) => sendTagged(res, 500, 'UnknownError', error?.message || 'Failed to create session'));
     });
 
-    app.post('/api/session/:id/prompt_async', async (req, res, next) => {
+    // The composer puts a session on a model/agent before prompting; for
+    // Claude that choice rides the next prompt (model, effort, mode).
+    app.post('/api/session/:id/model', async (req, res, next) => {
       const sessionId = fromPublicId(req.params.id);
       if (!sessionId) return next();
       const body = await readJsonBody(req);
-      const parts = Array.isArray(body.parts) ? body.parts : [];
-      const hasContent = parts.some((part) => part && (part.type === 'text' || part.type === 'file'));
-      if (!hasContent) {
-        return res.status(400).json({ error: 'No text or attachment part in prompt' });
+      selections.set(sessionId, { ...selections.get(sessionId), model: body.model || undefined });
+      res.status(204).end();
+    });
+
+    app.post('/api/session/:id/agent', async (req, res, next) => {
+      const sessionId = fromPublicId(req.params.id);
+      if (!sessionId) return next();
+      const body = await readJsonBody(req);
+      selections.set(sessionId, { ...selections.get(sessionId), agent: typeof body.agent === 'string' ? body.agent : undefined });
+      res.status(204).end();
+    });
+
+    // Attached context (inline comments, terminal output) arrives as synthetic
+    // messages right before the prompt; Claude reads it as the prompt's lead.
+    app.post('/api/session/:id/synthetic', async (req, res, next) => {
+      const sessionId = fromPublicId(req.params.id);
+      if (!sessionId) return next();
+      const body = await readJsonBody(req);
+      const text = typeof body.text === 'string' ? body.text : '';
+      if (text.trim()) pendingContext.set(sessionId, [...(pendingContext.get(sessionId) || []), text]);
+      const now = Date.now();
+      res.json({
+        data: {
+          id: typeof body.id === 'string' && body.id ? body.id : `msg_${String(now).padStart(14, '0')}_context`,
+          sessionID: req.params.id,
+          time: { created: now },
+          type: 'synthetic',
+          payload: { text, ...(body.description ? { description: body.description } : {}) },
+          delivery: body.delivery || 'queue',
+        },
+      });
+    });
+
+    app.post('/api/session/:id/prompt', async (req, res, next) => {
+      const sessionId = fromPublicId(req.params.id);
+      if (!sessionId) return next();
+      const body = await readJsonBody(req);
+      const text = typeof body.text === 'string' ? body.text : '';
+      const files = Array.isArray(body.files) ? body.files : [];
+      const context = pendingContext.get(sessionId) || [];
+      const parts = [
+        ...context.map((entry) => ({ type: 'text', text: entry })),
+        ...(text ? [{ type: 'text', text }] : []),
+        ...files
+          .filter((file) => file && typeof file.uri === 'string')
+          .map((file) => ({ type: 'file', url: file.uri, filename: file.name })),
+      ];
+      if (parts.length === 0) {
+        return sendTagged(res, 400, 'InvalidRequestError', 'No text or attachment in prompt');
       }
-      // The runtime owns prompt construction (text, attachments, mode, effort),
-      // so the OpenCode body is forwarded rather than flattened here. The model
-      // the composer sends comes from OpenCode's provider list, so anything that
-      // is not a Claude model is dropped and the runtime's configured Claude
-      // model applies.
-      const requestedModel = typeof body.model?.modelID === 'string' ? body.model.modelID.trim() : '';
-      // `prompt_async` answers once the turn is accepted, as OpenCode's does;
-      // the turn itself streams over the event channel. Only a rejection
-      // before acceptance (empty input, session held by another process, backend
-      // unavailable) can still become this request's error response.
+      pendingContext.delete(sessionId);
+      const selection = selections.get(sessionId) || {};
+      // The composer's model comes from OpenCode's provider list: only a
+      // Claude model is passed on, anything else leaves the runtime's own.
+      const modelId = typeof selection.model?.id === 'string' ? selection.model.id.trim() : '';
+      const directory = await workingDirectoryOf(sessionId, directoryOf(req));
+      const now = Date.now();
+      const messageID = typeof body.id === 'string' && body.id.startsWith('msg_')
+        ? body.id
+        : `msg_${String(now).padStart(14, '0')}_000000_local`;
+      // `prompt` answers once the turn is accepted, as OpenCode's does; the
+      // turn itself streams over the event channel. Only a rejection before
+      // acceptance (session held by another process, backend unavailable) can
+      // still become this request's error response.
       let answered = false;
       const answer = (send) => {
         if (answered) return;
         answered = true;
         send();
       };
+      const accepted = () => answer(() => res.json({
+        data: {
+          id: messageID,
+          sessionID: req.params.id,
+          time: { created: now },
+          type: 'user',
+          payload: { text, ...(files.length > 0 ? { files } : {}) },
+          delivery: body.delivery || 'queue',
+        },
+      }));
       runtime
         .promptAsync({
           sessionID: sessionId,
-          directory: body.directory || directoryOf(req),
+          directory,
           parts,
-          model: requestedModel.startsWith('claude') ? body.model : undefined,
-          agent: body.agent,
-          variant: body.variant,
-          messageID: body.messageID,
-          onStarted: () => answer(() => res.status(204).end()),
+          model: modelId.startsWith('claude') ? { modelID: modelId } : undefined,
+          agent: selection.agent,
+          variant: selection.model?.variant,
+          messageID,
+          onStarted: accepted,
         })
-        .then(() => answer(() => res.status(204).end()))
+        .then(accepted)
         .catch((error) => answer(() => sendPromptError(res, error)));
     });
 
@@ -330,7 +392,7 @@ export const createClaudeSurface = (dependencies = {}) => {
       return runtime
         .keepFollowing({ sessionID: sessionId, directory: body.directory || directoryOf(req) })
         .then(() => res.status(204).end())
-        .catch((error) => res.status(500).json({ error: error?.message || 'Failed' }));
+        .catch((error) => sendTagged(res, 500, 'UnknownError', error?.message || 'Failed'));
     });
 
     // Continue here a session another process holds: that process is closed,
@@ -338,50 +400,60 @@ export const createClaudeSurface = (dependencies = {}) => {
     app.post('/api/session/:id/claude/takeover', async (req, res, next) => {
       const sessionId = fromPublicId(req.params.id);
       if (!sessionId) return next();
-      const body = await readJsonBody(req);
+      await readJsonBody(req);
+      const selection = selections.get(sessionId) || {};
+      const modelId = typeof selection.model?.id === 'string' ? selection.model.id.trim() : '';
       return runtime
         .takeOverSession({
           sessionID: sessionId,
-          directory: body.directory || directoryOf(req),
-          model: typeof body.model?.modelID === 'string' && body.model.modelID.startsWith('claude') ? body.model : undefined,
-          agent: body.agent,
-          variant: body.variant,
+          directory: await workingDirectoryOf(sessionId, directoryOf(req)),
+          model: modelId.startsWith('claude') ? { modelID: modelId } : undefined,
+          agent: selection.agent,
+          variant: selection.model?.variant,
         })
-        .then((session) => (session ? res.json(toSessionPayload(session)) : res.status(404).json({ error: 'Session not found' })))
-        .catch((error) => res.status(500).json({ error: error?.message || 'Failed to take the session over' }));
+        .then((session) => (session ? res.json({ data: toSession(session) }) : sendNotFound(res)))
+        .catch((error) => sendTagged(res, 500, 'UnknownError', error?.message || 'Failed to take the session over'));
     });
 
-    app.post('/api/session/:id/abort', (req, res, next) => {
+    app.post('/api/session/:id/interrupt', (req, res, next) => {
       const sessionId = fromPublicId(req.params.id);
       if (!sessionId) return next();
       return runtime
-        .abortSession({ sessionID: sessionId, directory: directoryOf(req) })
-        .then(() => res.json(true))
-        .catch((error) => res.status(500).json({ error: error?.message || 'Failed to abort' }));
+        .abortSession({ sessionID: sessionId })
+        .then((interrupted) => res.json({ interrupted: interrupted !== false }))
+        .catch((error) => sendTagged(res, 500, 'UnknownError', error?.message || 'Failed to interrupt'));
     });
 
     app.patch('/api/session/:id', async (req, res, next) => {
       const sessionId = fromPublicId(req.params.id);
       if (!sessionId) return next();
       const body = await readJsonBody(req);
+      // Only the title belongs to the transcript; metadata and permissions are
+      // OpenCode's and have nowhere to go for a Claude session.
+      if (typeof body.title !== 'string' || !body.title.trim()) return res.status(204).end();
       return runtime
-        .updateSession({
-          sessionID: sessionId,
-          directory: directoryOf(req),
-          title: body.title,
-          archived: body.time?.archived !== undefined ? Boolean(body.time.archived) : undefined,
-        })
-        .then((session) => res.json(toSessionPayload(session)))
-        .catch((error) => res.status(500).json({ error: error?.message || 'Failed to update' }));
+        .updateSession({ sessionID: sessionId, title: body.title })
+        .then(() => res.status(204).end())
+        .catch((error) => sendTagged(res, 500, 'UnknownError', error?.message || 'Failed to update'));
     });
 
     app.delete('/api/session/:id', (req, res, next) => {
       const sessionId = fromPublicId(req.params.id);
       if (!sessionId) return next();
       return runtime
-        .deleteSession({ sessionID: sessionId, directory: directoryOf(req) })
-        .then(() => res.json(true))
-        .catch((error) => res.status(500).json({ error: error?.message || 'Failed to delete' }));
+        .deleteSession({ sessionID: sessionId })
+        .then((removed) => (removed === false ? sendNotFound(res) : res.status(204).end()))
+        .catch((error) => sendTagged(res, 500, 'UnknownError', error?.message || 'Failed to delete'));
+    });
+
+    // Anything else OpenCode would answer for a session it does not have: a
+    // Claude session has no inbox, forms, permissions or revert to report.
+    app.all('/api/session/:id/*rest', (req, res, next) => {
+      if (!fromPublicId(req.params.id)) return next();
+      if (req.method === 'GET' && /\/(inbox|form|permission|diff)\/?$/.test(req.path)) return res.json({ data: [] });
+      if (req.method === 'POST' && /\/view\/?$/.test(req.path)) return res.status(204).end();
+      if (req.method === 'GET') return sendNotFound(res);
+      return sendTagged(res, 400, 'InvalidRequestError', 'Not supported for Claude Code sessions');
     });
 
     return runtime;
