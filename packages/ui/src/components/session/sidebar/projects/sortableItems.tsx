@@ -173,6 +173,11 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
   const suppressNextToggleRef = React.useRef(false);
   const menuInstanceKey = `project:${id}`;
   const isMenuOpen = openSidebarMenuKey === menuInstanceKey;
+  // The "+" opens a choice menu (opencode draft / Claude session) instead of
+  // jumping straight into the draft, so the tool is picked at the same click
+  // that starts the session. It shares the one-open-menu lock with the ⋯.
+  const addMenuInstanceKey = `project-add:${id}`;
+  const isAddMenuOpen = openSidebarMenuKey === addMenuInstanceKey;
   const [isContextMenuOpen, setIsContextMenuOpen] = React.useState(false);
   const isProjectPicker = Boolean(projectPickerOptions && onProjectSelect);
 
@@ -187,14 +192,6 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
         <Item onClick={onNewSession}>
           <Icon name="add" className="mr-1.5 h-4 w-4" />
           {t('sessions.sidebar.project.actions.newSession')}
-        </Item>
-      )}
-      {/* A Claude session lives in the project directory itself, so unlike the
-          opencode item above it is offered on repos too: no worktree is needed. */}
-      {showCreateButtons && !hideDirectoryControls && onNewClaudeSession && (
-        <Item onClick={onNewClaudeSession}>
-          <Icon name="claude-code" className="mr-1.5 h-4 w-4" />
-          {t('sessions.sidebar.project.actions.newClaudeSession')}
         </Item>
       )}
       {isRepo && !hideDirectoryControls && onManageWorktrees && (
@@ -408,31 +405,60 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
 
               {showCreateButtons && onNewSession ? (
                 <div className="absolute right-0.5 top-1/2 z-10 -translate-y-1/2">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onNewSession();
-                        }}
-                        className={cn(
-                          'inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 transition-opacity',
-                          alwaysShowActions ? 'opacity-100' : 'opacity-0 pointer-events-none group-hover/project:opacity-100 group-hover/project:pointer-events-auto group-focus-within/project:opacity-100 group-focus-within/project:pointer-events-auto',
-                        )}
-                        aria-label={isRepo
+                  <DropdownMenu
+                    open={isAddMenuOpen}
+                    onOpenChange={(open) => {
+                      if (open) setIsContextMenuOpen(false);
+                      setOpenSidebarMenuKey(open ? addMenuInstanceKey : null);
+                    }}
+                  >
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <DropdownMenuTrigger asChild>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                            }}
+                            className={cn(
+                              'inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 transition-opacity',
+                              isAddMenuOpen
+                                ? 'opacity-100 pointer-events-auto'
+                                : alwaysShowActions
+                                  ? 'opacity-100'
+                                  : 'opacity-0 pointer-events-none group-hover/project:opacity-100 group-hover/project:pointer-events-auto group-focus-within/project:opacity-100 group-focus-within/project:pointer-events-auto',
+                            )}
+                            aria-label={isRepo
+                              ? t('sessions.sidebar.project.actions.newDraftSession')
+                              : t('sessions.sidebar.project.actions.newSession')}
+                          >
+                            <Icon name="add" className="h-4 w-4" />
+                          </button>
+                        </DropdownMenuTrigger>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom" sideOffset={4}>
+                        <p>{isRepo
+                          ? t('sessions.sidebar.project.actions.newDraftSession')
+                          : t('sessions.sidebar.project.actions.newSession')}</p>
+                      </TooltipContent>
+                    </Tooltip>
+                    <DropdownMenuContent align="end" className="min-w-[180px]">
+                      <DropdownMenuItem onClick={() => onNewSession()}>
+                        <Icon name="add" className="mr-1.5 h-4 w-4" />
+                        {isRepo
                           ? t('sessions.sidebar.project.actions.newDraftSession')
                           : t('sessions.sidebar.project.actions.newSession')}
-                      >
-                        <Icon name="add" className="h-4 w-4" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom" sideOffset={4}>
-                      <p>{isRepo
-                        ? t('sessions.sidebar.project.actions.newDraftSession')
-                        : t('sessions.sidebar.project.actions.newSession')}</p>
-                    </TooltipContent>
-                  </Tooltip>
+                      </DropdownMenuItem>
+                      {/* A Claude session lives in the project directory itself,
+                          so it is offered on repos too: no worktree is needed. */}
+                      {onNewClaudeSession ? (
+                        <DropdownMenuItem onClick={() => onNewClaudeSession()}>
+                          <Icon name="claude-code" className="mr-1.5 h-4 w-4" />
+                          {t('sessions.sidebar.project.actions.newClaudeSession')}
+                        </DropdownMenuItem>
+                      ) : null}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
               ) : null}
             </div>
