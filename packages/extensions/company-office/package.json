@@ -1,0 +1,23 @@
+{
+  "name": "@openchamber/builtin-company-office",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "openchamber": {
+    "apiVersion": 1,
+    "contributes": {
+      "panel": {
+        "id": "openchamber-builtin-company-office",
+        "name": "Company",
+        "icon": "team",
+        "entry": "panel/index.html"
+      },
+      "page": true,
+      "capabilities": ["sessions"],
+      "service": {
+        "entry": "service/main.js",
+        "runtime": "host"
+      }
+    }
+  }
+}
