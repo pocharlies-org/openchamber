@@ -116,6 +116,7 @@ export interface SortableProjectItemProps extends ProjectIdentityProps {
   alwaysShowActions: boolean;
   onToggle: () => void;
   onNewSession: () => void;
+  onNewClaudeSession?: () => void;
   onNewWorktreeSession?: () => void;
   onManageWorktrees?: () => void;
   /** The project's isolated spaces page; absent while the feature is off, and always in VS Code. */
@@ -149,6 +150,7 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
   alwaysShowActions,
   onToggle,
   onNewSession,
+  onNewClaudeSession,
   onNewWorktreeSession,
   onManageWorktrees,
   onManageSpaces,
@@ -193,6 +195,14 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
         <Item onClick={onNewSession}>
           <Icon name="add" className="mr-1.5 h-4 w-4" />
           {t('sessions.sidebar.project.actions.newSession')}
+        </Item>
+      )}
+      {/* A Claude session lives in the project directory itself, so unlike the
+          opencode item above it is offered on repos too: no worktree is needed. */}
+      {showCreateButtons && !hideDirectoryControls && onNewClaudeSession && (
+        <Item onClick={onNewClaudeSession}>
+          <Icon name="claude-code" className="mr-1.5 h-4 w-4" />
+          {t('sessions.sidebar.project.actions.newClaudeSession')}
         </Item>
       )}
       {isRepo && !hideDirectoryControls && onManageWorktrees && (
