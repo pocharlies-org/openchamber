@@ -24,13 +24,16 @@ beforeEach(() => {
 
 describe('issue #3175 browser capture while the agent works in the background', () => {
   test('an agent browser.open creates the tab without revealing the panel', () => {
+    // Since 1edf908ce the opener goes through openAgentBrowserTab (own tab, id back
+    // to the agent), which opens it with { reveal: false }.
     expect(contextPanelSource).toContain('openAgentBrowserTab(effectiveDirectory, url)');
 
-    useUIStore.getState().openAgentBrowserTab(DIRECTORY, 'https://example.com');
+    const tabID = useUIStore.getState().openAgentBrowserTab(DIRECTORY, 'https://example.com');
 
     const panel = useUIStore.getState().contextPanelByDirectory[DIRECTORY];
     expect(panel.isOpen).toBe(false);
     expect(panel.tabs).toHaveLength(1);
+    expect(panel.tabs[0]?.id).toBe(tabID);
     expect(panel.tabs[0]?.mode).toBe('browser');
     expect(panel.tabs[0]?.targetPath).toBe('https://example.com');
   });
