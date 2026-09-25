@@ -2228,7 +2228,7 @@ export function handleEvent(
   }
 
   const activityMessageID = syncEventMessageID(payload) ?? undefined
-  if (activityMessageID && (payload.type === "message.updated" || payload.type.startsWith("message.part."))) {
+  if (activityMessageID && payload.type !== "message.removed") {
     touchMessageActivity(activityMessageID)
   }
 
