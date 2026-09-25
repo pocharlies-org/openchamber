@@ -227,9 +227,46 @@ export const createClaudeSurface = (dependencies = {}) => {
     return typeof header === 'string' && header ? decodeURIComponent(header) : undefined;
   };
 
-  const readRecords = async (sessionId) => {
-    const records = await runtime.getMessages({ sessionID: sessionId });
-    return records.map(toV2Message);
+  /**
+   * A page of messages is cut from the whole transcript, which the SDK parses
+   * in full (tens of MB for a long session). The UI walks pages back to back
+   * and opens several sessions at once, so one parse is shared by every page
+   * read within a few seconds, and only two transcripts are parsed at a time:
+   * parallel parses are what pushed the server past V8's heap on 25-09.
+   */
+  const RECORDS_TTL_MS = 10_000;
+  const MAX_CACHED_TRANSCRIPTS = 4;
+  const MAX_CONCURRENT_PARSES = 2;
+  const recordCache = new Map();
+  const parseWaiters = [];
+  let activeParses = 0;
+  const withParseSlot = async (task) => {
+    while (activeParses >= MAX_CONCURRENT_PARSES) await new Promise((resolve) => parseWaiters.push(resolve));
+    activeParses += 1;
+    try {
+      return await task();
+    } finally {
+      activeParses -= 1;
+      parseWaiters.shift()?.();
+    }
+  };
+  const readRecords = (sessionId) => {
+    const hit = recordCache.get(sessionId);
+    if (hit && Date.now() - hit.at < RECORDS_TTL_MS) return hit.promise;
+    const promise = withParseSlot(() => runtime.getMessages({ sessionID: sessionId }))
+      .then((records) => records.map(toV2Message));
+    recordCache.delete(sessionId);
+    recordCache.set(sessionId, { at: Date.now(), promise });
+    while (recordCache.size > MAX_CACHED_TRANSCRIPTS) recordCache.delete(recordCache.keys().next().value);
+    // Released when it expires, not when it is next asked for: a parsed
+    // transcript is large and nothing else frees it.
+    setTimeout(() => {
+      if (recordCache.get(sessionId)?.promise === promise) recordCache.delete(sessionId);
+    }, RECORDS_TTL_MS).unref?.();
+    promise.catch(() => {
+      if (recordCache.get(sessionId)?.promise === promise) recordCache.delete(sessionId);
+    });
+    return promise;
   };
 
   const register = (app) => {
@@ -349,6 +386,8 @@ export const createClaudeSurface = (dependencies = {}) => {
         return sendTagged(res, 400, 'InvalidRequestError', 'No text or attachment in prompt');
       }
       pendingContext.delete(sessionId);
+      // The turn changes the transcript: the next read must not be the old parse.
+      recordCache.delete(sessionId);
       const selection = selections.get(sessionId) || {};
       // The composer's model comes from OpenCode's provider list: only a
       // Claude model is passed on, anything else leaves the runtime's own.
