@@ -9,7 +9,6 @@ import {
   shouldForwardProxyResponseHeader,
 } from '../../proxy-headers.js';
 import { createRealpathCache } from '../path-realpath-cache.js';
-import { createProjectResolver } from '../claude/routes.js';
 import { DEFAULT_UPSTREAM_STALL_TIMEOUT_MS } from '../event-stream/upstream-reader.js';
 import { recordStartupPerformance } from './startup-performance.js';
 import { getWorktreeBootstrapStatus } from '../git/service.js';
@@ -744,6 +743,33 @@ export const registerOpenCodeProxy = (app, deps) => {
     return canonicalizeDirectoryQuery(requestUrl);
   };
 
+  /**
+   * Claude Code sessions ride the list the sidebar already renders. They join
+   * the first page only — pagination is OpenCode's, so a cursor walk never sees
+   * them twice or loses them between pages — and never a child listing.
+   */
+  const mergeClaudeSessions = async (req, payload) => {
+    if (!claudeSurface || req.query?.cursor || req.query?.parentID) return payload;
+    const records = sessionListRecords(payload);
+    if (!records) return payload;
+    const directory = typeof req.query?.directory === 'string' && req.query.directory
+      ? req.query.directory
+      : (req.get('x-opencode-directory') ? decodeURIComponent(req.get('x-opencode-directory')) : null);
+    const claude = await claudeSurface
+      .listClaudeSessions({ directory, search: typeof req.query?.search === 'string' ? req.query.search : null })
+      .catch((error) => {
+        console.log(`[SessionMerge] Claude session list failed: ${error?.message ?? error}`);
+        return [];
+      });
+    const seen = new Set(records.map((session) => session?.id).filter(Boolean));
+    const extra = claude.filter((session) => session?.id && !seen.has(session.id));
+    if (extra.length === 0) return payload;
+    const ascending = req.query?.order === 'asc';
+    const merged = [...records, ...extra.map((session) => sanitizeSessionListItem(session))]
+      .sort((a, b) => ((a?.time?.updated ?? 0) - (b?.time?.updated ?? 0)) * (ascending ? 1 : -1));
+    return Array.isArray(payload) ? merged : { ...payload, data: merged };
+  };
+
   const forwardSanitizedSessionListRequest = async (req, res, next, logLabel) => {
     try {
       const upstreamPath = await getRequestUpstreamPath(req);
@@ -765,7 +791,9 @@ export const registerOpenCodeProxy = (app, deps) => {
       }
 
       res.setHeader('content-type', result.contentType);
-      res.json(await overlayOwnedStateOnList(sanitizeSessionListPayload(result.payload)));
+      const sanitized = sanitizeSessionListPayload(result.payload);
+      const merged = result.upstream.ok ? await mergeClaudeSessions(req, sanitized) : sanitized;
+      res.json(await overlayOwnedStateOnList(merged));
     } catch (error) {
       if (isAbortError(error)) {
         return;
@@ -894,6 +922,13 @@ export const registerOpenCodeProxy = (app, deps) => {
       next(error);
     }
   });
+
+  // Claude Code answers the same /api/session* surface for its own ids and must
+  // be registered before the routes below and the generic proxy, which would
+  // otherwise forward those ids to OpenCode and 404 them.
+  if (claudeSurface) {
+    claudeSurface.register(app);
+  }
 
   // V2 lists sessions across directories on every platform and owns pagination.
   app.get('/api/session', (req, res, next) => {

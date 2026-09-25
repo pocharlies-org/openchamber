@@ -1107,6 +1107,17 @@ const processForwardedServerEvent = (payload, emitSyntheticEvent) => {
 const claudeSurface = createClaudeSurface({
   crypto,
   fsPromises: fs.promises,
+  // The sidebar groups a session under a registered project (settings.json);
+  // a Claude transcript is attributed to the project that contains it.
+  readProjects: async () => {
+    const settings = await readSettingsFromDisk();
+    return (Array.isArray(settings?.projects) ? settings.projects : [])
+      .map((project, index) => ({
+        id: typeof project?.id === 'string' && project.id ? project.id : `project-${index}`,
+        worktree: typeof project?.path === 'string' ? project.path.trim().replace(/\/$/, '') : '',
+      }))
+      .filter((project) => project.worktree);
+  },
   // Archive state and titles staged before a session's first turn: Claude Code
   // owns the transcripts, OpenChamber owns this overlay.
   overlayFilePath: path.join(OPENCHAMBER_DATA_DIR, 'claude-sessions.json'),

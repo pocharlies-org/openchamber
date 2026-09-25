@@ -966,10 +966,14 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     clearTimeout(idleTimers.get(sessionId));
 
     const now = Date.now();
-    const userRecordId = `msg_${String(now).padStart(14, '0')}_000000_local`;
+    // The client names its prompt so the echo replaces its optimistic copy;
+    // info and parts carry the same id or the parts belong to no message.
+    const userRecordId = typeof input.messageID === 'string' && input.messageID.trim()
+      ? input.messageID.trim()
+      : `msg_${String(now).padStart(14, '0')}_000000_local`;
     emitRecordEvents(directory, {
       info: {
-        id: typeof input.messageID === 'string' && input.messageID.trim() ? input.messageID.trim() : userRecordId,
+        id: userRecordId,
         sessionID: sessionId,
         role: 'user',
         time: { created: new Date(now).toISOString(), completed: new Date(now).toISOString() },
