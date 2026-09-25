@@ -529,6 +529,7 @@ export const dict: Record<I18nKey, string> = {
   "sessions.sidebar.project.actions.newWorktreeEllipsis": "Nuevo worktree...",
   "sessions.sidebar.project.actions.projectMenu": "Menú del proyecto",
   "sessions.sidebar.project.actions.newSession": "Nueva sesión",
+  "sessions.sidebar.project.actions.newClaudeSession": "Nueva sesión de Claude",
   "sessions.sidebar.project.actions.closeProject": "Cerrar proyecto",
   "sessions.sidebar.project.actions.edit": "Editar",
   "sessions.sidebar.project.actions.newDraftSession": "Nueva sesión de borrador",

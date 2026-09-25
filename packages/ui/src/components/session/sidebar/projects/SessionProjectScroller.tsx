@@ -17,6 +17,7 @@ import { SessionGroupSection, type SessionGroupSectionProps } from './SessionGro
 import { buildGroupRenderDescriptors, resolveSearchResultPlacement, selectRenderedProjectSections, type ProjectSection } from './sessionProjectRender';
 import { formatProjectLabel } from '../utils';
 import { useI18n } from '@/lib/i18n';
+import { createClaudeSession } from '@/sync/session-actions';
 import type { ProjectSortOrder } from '@/stores/useSessionDisplayStore';
 import { streamPerfCount } from '@/stores/utils/streamDebug';
 import { Icon } from '@/components/icon/Icon';
@@ -336,6 +337,11 @@ function SessionProjectScrollerComponent(props: Props): React.ReactNode {
                       selectedProjectId: projectKey,
                       directoryOverride: project.normalizedPath,
                     });
+                  }}
+                  onNewClaudeSession={() => {
+                    if (projectKey !== model.activeProjectId) actions.setActiveProjectIdOnly(projectKey);
+                    if (view.mobileVariant) actions.setSessionSwitcherOpen(false);
+                    void createClaudeSession(project.normalizedPath);
                   }}
                   onNewWorktreeSession={() => {
                     if (projectKey !== model.activeProjectId) actions.setActiveProjectIdOnly(projectKey);

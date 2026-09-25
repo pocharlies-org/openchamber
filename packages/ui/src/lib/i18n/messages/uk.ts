@@ -529,6 +529,7 @@ export const dict: Record<I18nKey, string> = {
   "sessions.sidebar.project.actions.newWorktreeEllipsis": "Нове worktree...",
   "sessions.sidebar.project.actions.projectMenu": "Меню проєкту",
   "sessions.sidebar.project.actions.newSession": "Нова сесія",
+  "sessions.sidebar.project.actions.newClaudeSession": "Нова сесія Claude",
   "sessions.sidebar.project.actions.closeProject": "Закрити проєкт",
   "sessions.sidebar.project.actions.edit": "Редагувати",
   "sessions.sidebar.project.actions.newDraftSession": "Нова чернетка сесії",
