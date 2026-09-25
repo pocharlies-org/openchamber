@@ -12,8 +12,8 @@
  * rebase our stack onto upstream, run the gates, and deploy only if they turn
  * green. This module is the only place that knows the pipeline's coordinates.
  */
-import { getGitHubAuth } from '../github/auth.js';
-import { getGhCliToken, isGhCliDisabled } from '../github/gh-cli-credential.js';
+import { getGitHubAuth, isGhCliDisabled } from '../github/auth.js';
+import { getGhCliToken } from '../github/gh-cli-credential.js';
 
 export const PIPELINE_REPO = 'pocharlies-org/openchamber-build-pocharlies';
 
