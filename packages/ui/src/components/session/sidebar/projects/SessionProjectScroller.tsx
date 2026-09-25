@@ -14,6 +14,7 @@ import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
 import { Button } from '@/components/ui/button';
 import { formatDirectoryName, formatPathForDisplay } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n';
+import { createClaudeSession } from '@/sync/session-actions';
 import { requestDirectoryAccess } from '@/lib/desktop';
 import { sessionEvents } from '@/lib/sessionEvents';
 import { CHAT_DRAFT_PROJECT_ID } from '@/lib/chatDirectories';
@@ -292,6 +293,16 @@ function SessionProjectScrollerComponent({ model, view, actions }: Props): React
             setSessionSwitcherOpen: actions.setSessionSwitcherOpen,
           });
           actions.openNewSessionDraft({ selectedProjectId: project.id, directoryOverride: project.normalizedPath });
+        }}
+        onNewClaudeSession={() => {
+          prepareSessionProjectAction({
+            projectId: project.id,
+            mobileVariant: view.mobileVariant,
+            closeMobileSwitcher: true,
+            setActiveProjectIdOnly: actions.setActiveProjectIdOnly,
+            setSessionSwitcherOpen: actions.setSessionSwitcherOpen,
+          });
+          void createClaudeSession(project.normalizedPath);
         }}
         onNewWorktreeSession={() => {
           prepareSessionProjectAction({
