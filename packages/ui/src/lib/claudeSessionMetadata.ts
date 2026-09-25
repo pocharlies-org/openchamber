@@ -62,3 +62,17 @@ export const getClaudeLiveState = (session: Session | null | undefined): ClaudeL
     remoteControlUrl: remoteControl.success ? remoteControl.data.url : null,
   };
 };
+
+const CLAUDE_SESSION_PREFIX = 'ses_ccc';
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Link that opens a Claude Code session in the Claude Code VS Code extension
+ * (its `/open` URI handler). The transcript lives on the machine that wrote it,
+ * so it resolves in a VS Code window connected there with the project open.
+ */
+export const claudeVSCodeUrl = (sessionId: string | null | undefined): string | null => {
+  if (!sessionId?.startsWith(CLAUDE_SESSION_PREFIX)) return null;
+  const uuid = sessionId.slice(CLAUDE_SESSION_PREFIX.length);
+  return UUID.test(uuid) ? `vscode://anthropic.claude-code/open?session=${uuid}` : null;
+};
