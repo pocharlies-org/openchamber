@@ -510,6 +510,7 @@ export const dict = {
   'sessions.sidebar.project.actions.newWorktreeEllipsis': 'Yeni worktree...',
   'sessions.sidebar.project.actions.projectMenu': 'Proje menüsü',
   'sessions.sidebar.project.actions.newSession': 'Yeni session',
+  'sessions.sidebar.project.actions.newClaudeSession': 'Yeni Claude oturumu',
   'sessions.sidebar.project.actions.edit': 'Düzenle',
   'sessions.sidebar.project.actions.closeProject': 'Projeyi kapat',
   'sessions.sidebar.project.actions.newDraftSession': 'Yeni taslak session',
