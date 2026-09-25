@@ -13,6 +13,8 @@ import {
   RiFolderAddLine,
 } from '@remixicon/react';
 import type { Session } from '@/lib/opencode/model';
+import { SESSION_SOURCE_FILTERS, SESSION_SOURCE_LABEL_KEYS } from '@/lib/sessionSourceFilter';
+import { useMobileSessionSourceFilter } from './useMobileSessionSourceFilter';
 import {
   DndContext,
   type DragEndEvent,
@@ -857,13 +859,15 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
     return children;
   }, [sessions]);
 
+  const { showSourceFilter, sourceFilter, setSourceFilter, filteredSessions } = useMobileSessionSourceFilter(sessions);
+
   // Managed Chats (sessions under ~/.config/openchamber/chats) are not owned
   // by any registered project; they get their own section above the project
   // tree, the same split the desktop sidebar makes. Temporary /btw forks are
   // dropped here as well.
   const { projectSessions, chatSessions } = React.useMemo(
-    () => partitionSidebarSessions(sessions, false),
-    [sessions],
+    () => partitionSidebarSessions(filteredSessions, false),
+    [filteredSessions],
   );
   const sessionOwnership = React.useMemo(() => createSessionOwnershipIndex(
     projectSessions,
@@ -1282,7 +1286,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
   const searchSessionMatches = React.useMemo(() => {
     if (!normalizedQuery) return [] as Session[];
     return orderSessionsByLifecycleScopes(
-      sessions.filter((session) => {
+      filteredSessions.filter((session) => {
         // Subsessions are implementation noise in a flat search list — only
         // top-level sessions are searchable.
         if (getParentId(session)) return false;
@@ -1293,7 +1297,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
       pinnedSessionIds,
       sessionOrderRanks,
     );
-  }, [normalizedQuery, pinnedSessionIds, projectsMeta, sessionOrderRanks, sessionOwnership, sessions]);
+  }, [filteredSessions, normalizedQuery, pinnedSessionIds, projectsMeta, sessionOrderRanks, sessionOwnership]);
 
   const searchProjectMatches = React.useMemo<ProjectMeta[]>(() => {
     if (!normalizedQuery) return [];
@@ -1472,6 +1476,29 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
               placeholder={t('mobile.sessions.search.placeholder')}
               clearLabel={t('mobile.sessions.clearSearchAria')}
             />
+            {/* One tap on touch, not hidden in a dropdown: a chip row under the
+                search box, the same four-way choice as the header button. */}
+            {showSourceFilter ? (
+              <div className="mt-2 flex gap-1.5 overflow-x-auto pb-0.5" role="group" aria-label={t('sessions.sidebar.header.sourceFilter.label')}>
+                {SESSION_SOURCE_FILTERS.map((source) => (
+                  <button
+                    key={source}
+                    type="button"
+                    aria-pressed={sourceFilter === source}
+                    onClick={() => setSourceFilter(source)}
+                    style={{ touchAction: 'manipulation' }}
+                    className={cn(
+                      'shrink-0 rounded-full px-3 py-1.5 typography-ui-label transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+                      sourceFilter === source
+                        ? 'bg-primary text-primary-foreground'
+                        : 'bg-interactive-hover text-muted-foreground',
+                    )}
+                  >
+                    {t(SESSION_SOURCE_LABEL_KEYS[source])}
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </div>
           {projectsMeta.length === 0 && chatSessions.length === 0 ? (
             <MobileSessionsEmpty
