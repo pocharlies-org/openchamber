@@ -242,3 +242,22 @@ describe('reading a Claude session through the OpenCode 2 routes', () => {
     expect((await request(app).post('/api/session/ses_cccsess-1/interrupt')).body).toEqual({ interrupted: true });
   });
 });
+
+describe('OPENCHAMBER_CLAUDE_LIST_DISABLED kill switch', () => {
+  it('registers no Claude routes and lists no Claude sessions', async () => {
+    const previous = process.env.OPENCHAMBER_CLAUDE_LIST_DISABLED;
+    process.env.OPENCHAMBER_CLAUDE_LIST_DISABLED = '1';
+    try {
+      const app = express();
+      const surface = createClaudeSurface({});
+      surface.register(app);
+      app.use((req, res) => res.status(418).end());
+      const res = await request(app).get('/api/session/ses_ccc00000000-0000-0000-0000-000000000000/message');
+      expect(res.status).toBe(418);
+      expect(await surface.listClaudeSessions(null)).toEqual([]);
+    } finally {
+      if (previous === undefined) delete process.env.OPENCHAMBER_CLAUDE_LIST_DISABLED;
+      else process.env.OPENCHAMBER_CLAUDE_LIST_DISABLED = previous;
+    }
+  });
+});

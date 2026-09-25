@@ -33,6 +33,9 @@ const fromPublicId = (publicId) =>
 
 export const isClaudeSessionId = (value) => fromPublicId(value) !== null;
 
+/** `OPENCHAMBER_CLAUDE_LIST_DISABLED=1` turns the whole surface off: no routes, no sessions in the list. */
+const claudeSurfaceDisabled = () => process.env.OPENCHAMBER_CLAUDE_LIST_DISABLED === '1';
+
 /**
  * The OpenCode proxy forwards raw request streams and no JSON body parser is
  * mounted globally, so these routes read their own body.
@@ -199,7 +202,12 @@ export const createClaudeSurface = (dependencies = {}) => {
    * Claude sessions for the list route, as `Session.Info`. `directory` keeps
    * those whose real working directory is at or under it.
    */
-  const listClaudeSessions = async ({ directory = null, search = null } = {}) => {
+  const listClaudeSessions = async (options = {}) => {
+    // Kill switch (25-09-2026): listing reads every transcript under
+    // ~/.claude/projects (GBs); production runs with it on until listing stops
+    // reading them whole.
+    if (claudeSurfaceDisabled()) return [];
+    const { directory = null, search = null } = options || {};
     await refreshProjects();
     const [active, archived] = await Promise.all([
       runtime.listSessions({ archived: false }),
@@ -225,6 +233,8 @@ export const createClaudeSurface = (dependencies = {}) => {
   };
 
   const register = (app) => {
+    // Kill switch (25-09-2026): the Claude routes parse whole transcripts per request.
+    if (claudeSurfaceDisabled()) return runtime;
     app.get('/api/session/:id', (req, res, next) => {
       const sessionId = fromPublicId(req.params.id);
       if (!sessionId) return next();
