@@ -13,6 +13,7 @@ export {
   fetchGoogleQuota,
   fetchCursorQuota,
   fetchDeepseekQuota,
+  fetchHyperQuota,
   fetchCopilotQuota,
   fetchCopilotAddonQuota,
   fetchKimiQuota,

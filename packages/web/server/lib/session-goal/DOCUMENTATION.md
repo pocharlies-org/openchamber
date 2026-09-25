@@ -70,6 +70,17 @@ before touching the filesystem). Rationale: metadata rides every
   objective fitting, inline fallback, metadata creation, and the synthetic
   first-turn reminder shared by scheduled tasks and CLI-created sessions.
 
+- Forks: OpenCode copies the source metadata into a fork, goal included.
+  The UI fork paths (`forkAfterMessage`, `forkFromMessage`, `/fork`) then copy
+  the objective file to the fork's id, or inline the text when that write
+  fails (`packages/ui/src/lib/sessionForkInheritance.ts`). The copy re-reads
+  the fork's goal id first and is skipped when the user armed a new goal on
+  the fork meanwhile. Forks made through `POST /api/openchamber/sessions/:id/fork`
+  (CLI, scheduled tasks) get the same repair server-side before the prompt is
+  dispatched (`openchamber-sessions/fork-inheritance.js`); UI forks call
+  OpenCode directly, so both implementations exist. `/btw` forks drop the goal
+  with the rest of the inherited namespace.
+
 ## Flow
 
 1. `createSessionGoalRuntime` subscribes to the global SSE hub (same pattern
@@ -81,13 +92,19 @@ before touching the filesystem). Rationale: metadata rides every
    a goal on an idle session emits no status transition.
 3. On fire (`tick`), gated by the `sessionGoalEnabled` setting:
    - fetch session (skip sub-agent sessions), require an `active` goal;
-   - authoritative live-activity check after the quiet window: re-read the
-     session status map, bail if the parent resumed, then list direct child
-     sessions and bail while any child is `busy`/`retry`. A background
-     subagent leaves its parent idle, then injects its result into the parent
-     when done; that parent `busy` → `idle` cycle re-arms the loop without
-     polling. Status/children fetch failure is unknown, not empty, so it skips
-     the audit and retries after another quiet window;
+   - authoritative live-activity check after the quiet window: re-read
+     `/api/session/active`, bail if the parent resumed; then list the
+     parent's subagent sessions through `GET /api/session?parentID=` (cursor
+     paged) and bail while any of them is active. A status or children fetch
+     failure is unknown, not empty, so it skips the audit and retries after
+     another quiet window;
+     both reads live in `../opencode/session-activity.js`, shared with the
+     notification runtime;
+   - messages come from `/api/session/:id/message` as v2's flat records
+     (`type`, `content[]`, `model`, `finish`, `tokens`); `toLoopMessage`
+     projects them into the `{ info, parts }` view the rest of the tick reads,
+     and a completed `compaction` record plays v1's `summary: true` assistant
+     turn. Other plumbing roles are dropped from the view;
    - quiescence check via the message tail (trailing user message or
      unfinished assistant reply → bail; the next idle transition re-arms);
    - token accounting as a SNAPSHOT of the latest completed assistant turn:
@@ -108,13 +125,26 @@ before touching the filesystem). Rationale: metadata rides every
      stop), with a tick-side safety net. Messages sent while paused leave
      the goal alone; Resume re-arms the loop, and resuming over an aborted
      tail skips the audit and goes straight to a continuation nudge;
-   - terminal checks, cheapest first: assistant turn error → `blocked`;
-     `tokensUsed >= tokenBudget` → `budgetLimited`;
-     `turnsUsed >= MAX_AUTO_TURNS` (20) → `blocked`;
-   - if the latest message is a compaction summary, skip the audit and
-     continue unconditionally — running into the context window mid-work is
-     by definition "in progress, not finished" (the summary is a retelling,
-     not evidence, and must not be judged);
+    - terminal checks, cheapest first: assistant turn error → `blocked`;
+      `tokensUsed >= tokenBudget` → `budgetLimited`;
+      `turnsUsed >= MAX_AUTO_TURNS` (20) → `blocked`;
+    - error classification is independent of `finish`: `MessageAbortedError`
+      keeps the pause/resume behavior; only a `finish: "length"` with no
+      error, or `MessageOutputLengthError`, is an in-progress truncation that
+      skips the audit and continues. Any other non-null error wins over a
+      length finish and blocks with its non-empty `error.name`, or
+      `assistant turn failed` when unnamed;
+    - length recovery is bounded separately from the token budget and
+      auto-continuation cap: the first truncation permits one continuation, but
+      a second consecutive completed, non-summary assistant turn that is also
+      truncated settles the goal as `blocked` (`repeated output truncation`).
+      The consecutive state is derived from the loaded message history, not
+      persisted, using `info.time.created` chronology rather than message IDs.
+      Summary messages are not agent turns; an ordinary completed assistant
+      turn naturally breaks the consecutive condition. Explicit Resume grants
+      one new recovery attempt over the same transcript; the continuation
+      consumes that permission, so another truncation blocks again. Resume
+      does not bypass assistant errors or the token budget;
    - otherwise, small-model audit of the objective + the last assistant turn
      only — no conversation history and no continuation prompts
      (`restrictToPreferredProvider`, session's own provider/model preferred):
@@ -130,9 +160,10 @@ before touching the filesystem). Rationale: metadata rides every
      loop blind to the turn cap;
    - continue: persist accounting + `turnsUsed` first (a crash after the
      write just waits for the next idle tick; the reverse could double-send),
-     re-check the tail, then `POST /session/:id/prompt_async` with the
-     continuation prompt using the last assistant message's
-     provider/model/agent — the goal spends the session's own subscription.
+     re-check the tail, then `POST /api/session/:id/prompt` with the
+     continuation prompt. v2 keeps the model and agent on the session, so the
+     prompt runs on what the session already uses; nothing is re-selected —
+     the goal spends the session's own subscription.
 4. Settling (`complete`/`blocked`/`budgetLimited`) fires the injected
    `emitGoalNotification` so the user hears about it even with the UI closed:
    desktop + UI broadcast + the standard push fanout (web-push with full
@@ -177,10 +208,11 @@ sees only that final turn, so the report is its evidence.
 
 Scheduled tasks can run as goals: `execution.goalEnabled` (+ optional
 `execution.goalTokenBudget`) on a task makes the scheduled-tasks runtime
-stamp `metadata.openchamber.goal` onto the fresh session (objective = the
-expanded task prompt, or the argument-expanded command template for a slash
-command) and attach the goal-mode intro part to normal prompts.
-The loop here picks it up from session events like any other goal.
+write the goal into OpenChamber's session metadata store through the
+`persistSessionGoal` seam `server/index.js` hands it (objective = the expanded
+task prompt; v2 `CommandInfo` carries no template, so a slash command's
+objective is its raw invocation) and attach the goal-mode intro part to normal
+prompts. The store write is what arms the loop (`notifyGoalChanged`).
 
 ## CLI-created goals
 
@@ -207,7 +239,7 @@ ordering used by create and scheduled goals.
 - Web-server feature: VS Code (extension-only) renders goal state via
   `session.updated` but does not run the loop.
 - A goal on a session with no assistant reply yet starts after the first
-  user exchange completes (no provider/model to continue with before that).
+  user exchange completes (there is no reply to audit before that).
 - `tokensUsed` only counts completed assistant messages seen within the
   40-message fetch window per tick; extremely long busy stretches between
   idles undercount (acceptable: budget is a guardrail, not billing).

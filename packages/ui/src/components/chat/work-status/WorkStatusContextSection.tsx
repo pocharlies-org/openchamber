@@ -4,7 +4,7 @@ import { Icon } from '@/components/icon/Icon';
 import { useSkillsStore } from '@/stores/useSkillsStore';
 import { useMcpStore } from '@/stores/useMcpStore';
 import { useSession } from '@/sync/sync-context';
-import { getLinkedIssues, canOpenLinearIssueInContextPanel } from '@/lib/linkedIssues';
+import { getLinkedIssues, canOpenLinearIssueInContextPanel, isGuestPull } from '@/lib/linkedIssues';
 import { fetchSessionKnowledgeSummary, setSessionProjectContextPin, type SessionKnowledgeSummary } from '@/lib/sessionKnowledgeApi';
 import { useProjectContextStore } from '@/stores/useProjectContextStore';
 import { useAgentMemoryStore } from '@/stores/useAgentMemoryStore';
@@ -15,6 +15,7 @@ import { resolveProjectContextId } from '@/lib/projectContextApi';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { useMobileAppActions } from '@/apps/mobileAppContext';
 import { useLinearAuthStore } from '@/stores/useLinearAuthStore';
+import { useConfigStore } from '@/stores/useConfigStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { WorkStatusCollapsibleSection, WorkStatusRow, WorkStatusValue } from './WorkStatusPrimitives';
 import { useReportWorkStatusPresence } from './presenceContext';
@@ -61,9 +62,15 @@ export const WorkStatusContextSection: React.FC<Props> = ({ sessionId, directory
   // here: `loadSkills` already gates its own fetch, and wrapping it again
   // would hold a second slot idle for the length of the first.
   const loadSkills = useSkillsStore((state) => state.loadSkills);
+  // `isConnected` is a dependency, not a gate: skills are discovered on the
+  // connected instance and their caches are dropped when instances switch, so
+  // the count has to be asked for again once the new instance is up. Two
+  // instances can hold the same project path, which leaves `directory`
+  // unchanged across a switch.
+  const isConnected = useConfigStore((state) => state.isConnected);
   React.useEffect(() => {
     void loadSkills();
-  }, [directory, loadSkills]);
+  }, [directory, isConnected, loadSkills]);
 
   /**
    * What this session carries. Read from the server
@@ -168,7 +175,7 @@ export const WorkStatusContextSection: React.FC<Props> = ({ sessionId, directory
   // context, so counting it here contradicts the MCP section right above,
   // which shows the same servers switched off.
   const mcpCount = React.useMemo(
-    () => Object.values(mcpStatus ?? {}).filter((entry) => entry?.status === 'connected').length,
+    () => Object.values(mcpStatus ?? {}).filter((entry) => entry?.status.status === 'connected').length,
     [mcpStatus],
   );
 
@@ -184,8 +191,14 @@ export const WorkStatusContextSection: React.FC<Props> = ({ sessionId, directory
   // The heading names what is distinctive about this session when there is
   // something — an attached thread — and falls back to the ambient counts
   // when there is not. `1 · 33 · 2` said nothing without opening the section.
-  const issueCount = linked.filter((entry) => entry.kind === 'issue' || entry.kind === 'linear').length;
-  const prCount = linked.filter((entry) => entry.kind === 'pull').length;
+  const issueCount = linked.filter((entry) => (
+    entry.kind === 'issue'
+    || entry.kind === 'linear'
+    || (entry.kind === 'guest' && !isGuestPull(entry))
+  )).length;
+  const prCount = linked.filter((entry) => (
+    entry.kind === 'pull' || (entry.kind === 'guest' && isGuestPull(entry))
+  )).length;
   const summaryParts: string[] = [];
   if (issueCount > 0) {
     summaryParts.push(issueCount === 1
@@ -228,11 +241,17 @@ export const WorkStatusContextSection: React.FC<Props> = ({ sessionId, directory
       {linked.map((entry) => (
         <WorkStatusRow
           key={entry.id}
-          leading={entry.authorAvatarUrl ? (
+          leading={'authorAvatarUrl' in entry && entry.authorAvatarUrl ? (
             <img src={entry.authorAvatarUrl} alt="" className="size-4 shrink-0 rounded-full" loading="lazy" />
           ) : (
             <Icon
-              name={entry.kind === 'pull' ? 'git-pull-request' : entry.kind === 'linear' ? 'linear' : 'error-warning'}
+              name={entry.kind === 'pull' || (entry.kind === 'guest' && isGuestPull(entry))
+                ? 'git-pull-request'
+                : entry.kind === 'linear'
+                  ? 'linear'
+                  : entry.kind === 'guest'
+                    ? 'attachment-2'
+                    : 'error-warning'}
               className="size-4 shrink-0 text-muted-foreground"
             />
           )}
@@ -243,10 +262,12 @@ export const WorkStatusContextSection: React.FC<Props> = ({ sessionId, directory
           onClick={() => openLinkedIssue(entry)}
           ariaLabel={entry.kind === 'linear'
             ? t('chat.workStatus.linkedIssues.openLinear', { identifier: entry.identifier })
-            : t('chat.workStatus.linkedIssues.open', { number: entry.number })}
+            : entry.kind === 'guest'
+              ? t('chat.workStatus.linkedIssues.openGuest', { id: entry.identifier })
+              : t('chat.workStatus.linkedIssues.open', { number: entry.number })}
           value={(
             <WorkStatusValue tone="muted">
-              {entry.kind === 'linear' ? entry.identifier : `#${entry.number}`}
+              {entry.kind === 'linear' || entry.kind === 'guest' ? entry.identifier : `#${entry.number}`}
             </WorkStatusValue>
           )}
         />

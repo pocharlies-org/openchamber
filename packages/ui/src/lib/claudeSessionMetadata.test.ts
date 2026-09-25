@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import type { Session } from '@opencode-ai/sdk/v2';
+import type { Session } from '@/lib/opencode/model';
 import { getClaudeLiveState } from './claudeSessionMetadata';
 
 const session = (metadata: Record<string, object>): Session => ({
@@ -11,7 +11,7 @@ const session = (metadata: Record<string, object>): Session => ({
   version: '1',
   time: { created: 1, updated: 1 },
   metadata,
-} as Session);
+} as unknown as Session);
 
 describe('getClaudeLiveState', () => {
   test('reads a session open in VS Code and working', () => {

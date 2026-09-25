@@ -1,4 +1,5 @@
-import type { Event, Message, Part } from '@opencode-ai/sdk/v2/client';
+import type { SyncEvent as Event } from '@/lib/opencode/events';
+import type { Message, Part } from '@/lib/opencode/model';
 import { subscribeRuntimeEndpointWillChange } from '@/lib/runtime-switch';
 
 export type StreamMetricStatus = 'live' | 'completed' | 'cancelled' | 'error';
@@ -188,14 +189,16 @@ export class StreamMetricsTracker {
     const key = identityKey(identity);
     const existing = this.metrics.get(key);
     if (existing?.status === 'live') return;
-    if (existing?.assistantMessageId === message.id && existing.exact) return;
+    if (existing && existing.assistantMessageId === message.id && existing.exact) return;
 
     const now = this.now();
     const metric: MutableMetric = {
       ...identity,
       directory: normalizeDirectory(identity.directory),
-      turnId: `loaded:${message.parentID}`,
-      userMessageId: message.parentID,
+      // OpenCode 2 assistant messages carry no parentID: the loaded turn is keyed
+      // by its own assistant message.
+      turnId: `loaded:${message.id}`,
+      userMessageId: null,
       assistantMessageId: message.id,
       acceptedAt: null,
       firstVisibleAt: null,
@@ -203,11 +206,11 @@ export class StreamMetricsTracker {
       status: message.error ? 'error' : 'completed',
       exact: true,
       tokens: {
-        input: message.tokens.input,
-        output: message.tokens.output,
-        reasoning: message.tokens.reasoning,
-        cacheRead: message.tokens.cache.read,
-        cacheWrite: message.tokens.cache.write,
+        input: message.tokens?.input ?? 0,
+        output: message.tokens?.output ?? 0,
+        reasoning: message.tokens?.reasoning ?? 0,
+        cacheRead: message.tokens?.cache?.read ?? 0,
+        cacheWrite: message.tokens?.cache?.write ?? 0,
       },
       characters: 0,
       bytes: 0,
@@ -260,8 +263,10 @@ export class StreamMetricsTracker {
       };
       this.metrics.set(key, metric);
     }
-    if (!metric || metric.processedEventIds.has(event.id)) return;
-    metric.processedEventIds.add(event.id);
+    // OpenCode 1 events carried an id; OpenCode 2 sync events may not. Dedupe when present.
+    const eventId = (event as { id?: string }).id;
+    if (!metric || (eventId && metric.processedEventIds.has(eventId))) return;
+    if (eventId) metric.processedEventIds.add(eventId);
     if (metric.processedEventIds.size > MAX_EVENT_IDS_PER_TURN) {
       const oldest = metric.processedEventIds.values().next().value as string | undefined;
       if (oldest) metric.processedEventIds.delete(oldest);
@@ -274,7 +279,8 @@ export class StreamMetricsTracker {
     if (event.type === 'message.updated') {
       const message = event.properties.info;
       if (isAssistantMessage(message)) {
-        if (metric.userMessageId && message.parentID !== metric.userMessageId && metric.assistantMessageId !== message.id) return;
+        // No parentID in OpenCode 2: the first assistant message after the send is the turn's.
+        if (metric.assistantMessageId && metric.assistantMessageId !== message.id) return;
         metric.assistantMessageId = message.id;
         metric.modelId = message.modelID;
         metric.providerId = message.providerID;
@@ -309,12 +315,18 @@ export class StreamMetricsTracker {
       if (metric.assistantMessageId && event.properties.messageID !== metric.assistantMessageId) return;
       metric.assistantMessageId ??= event.properties.messageID;
       changed = this.applyDelta(metric, event.properties.partID, event.properties.field, event.properties.delta) || changed;
-      if ((event.properties.field === 'text' || event.properties.field === 'reasoning') && event.properties.delta.length > 0) {
+      if ((event.properties.field === 'text' || event.properties.field === 'raw') && event.properties.delta.length > 0) {
         changed = this.markFirstVisible(metric, now) || changed;
       }
-    } else if (event.type === 'message.part.removed') {
+    } else if (event.type === 'message.parts.replaced') {
+      // OpenCode 2 replaces a message's parts wholesale instead of removing one:
+      // drop what is gone, then count the new set like individual updates.
       if (metric.assistantMessageId && event.properties.messageID !== metric.assistantMessageId) return;
-      changed = this.removePart(metric, event.properties.partID) || changed;
+      const keep = new Set(event.properties.parts.map((part) => part.id));
+      for (const partId of [...metric.parts.keys()]) {
+        if (!keep.has(partId)) changed = this.removePart(metric, partId) || changed;
+      }
+      for (const part of event.properties.parts) changed = this.applyPart(metric, part) || changed;
     } else if (event.type === 'message.removed') {
       if (!metric.assistantMessageId || event.properties.messageID === metric.assistantMessageId) {
         this.remove(key);

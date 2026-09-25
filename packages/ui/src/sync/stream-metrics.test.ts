@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import type { Event, Message, Part } from '@opencode-ai/sdk/v2/client';
+import type { SyncEvent as Event } from '@/lib/opencode/events';
+import type { Message, Part } from '@/lib/opencode/model';
 import {
   getLatestCompletedAssistantMessage,
   StreamMetricsTracker,
@@ -337,8 +338,9 @@ describe('StreamMetricsTracker', () => {
     tracker.ingest(identity.runtimeKey, identity.directory, partUpdated('evt_3', textPart('hello world')));
     tracker.ingest(identity.runtimeKey, identity.directory, {
       id: 'evt_4',
-      type: 'message.part.removed',
-      properties: { sessionID: identity.sessionId, messageID: 'msg_assistant_1', partID: 'prt_2' },
+      // OpenCode 2 replaces the parts wholesale: the reasoning part (prt_2) is gone.
+      type: 'message.parts.replaced',
+      properties: { sessionID: identity.sessionId, messageID: 'msg_assistant_1', parts: [textPart('hello world')] },
     } as Event);
     tracker.flush();
     expectMetric(tracker.getSnapshot(identity), { characters: 11, bytes: 11, tokens: { output: 3 } });

@@ -4,9 +4,10 @@ import { useConfigStore } from '@/stores/useConfigStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useSelectionStore } from '@/sync/selection-store';
 import { getAgentDisplayName } from './mobileControlsUtils';
-import { getAgentColor } from '@/lib/agentColors';
 import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import { useAllLiveSessions } from '@/sync/sync-context';
+import { useAgentColors } from '@/hooks/useAgentColors';
+import { isAutoModel } from '@/lib/routing/autoModel';
 
 interface MobileAgentButtonProps {
     onCycleAgent: () => void;
@@ -18,7 +19,10 @@ const LONG_PRESS_MS = 500;
 
 // NOTE: Use pointer events instead of onClick to keep soft keyboard open on mobile
 export const MobileAgentButton: React.FC<MobileAgentButtonProps> = ({ onCycleAgent, onOpenAgentPanel, className }) => {
+    const getAgentColor = useAgentColors();
     const currentAgentName = useConfigStore((state) => state.currentAgentName);
+    const currentProviderId = useConfigStore((state) => state.currentProviderId);
+    const currentModelId = useConfigStore((state) => state.currentModelId);
     const getVisibleAgents = useConfigStore((state) => state.getVisibleAgents);
     const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
     const sessionAgentName = useSelectionStore((state) =>
@@ -94,6 +98,10 @@ export const MobileAgentButton: React.FC<MobileAgentButtonProps> = ({ onCycleAge
         };
     }, []);
 
+    // Under Auto the routing category names the agent, so the composer offers
+    // no agent to pick — same as the desktop controls.
+    if (isAutoModel(currentProviderId, currentModelId)) return null;
+
     return (
         <button
             type="button"
@@ -103,19 +111,14 @@ export const MobileAgentButton: React.FC<MobileAgentButtonProps> = ({ onCycleAge
             onContextMenu={(e) => e.preventDefault()}
             onMouseDown={(e) => e.preventDefault()}
             className={cn(
-                'inline-flex min-w-0 items-stretch select-none',
+                'inline-flex h-[26px] min-h-0 min-w-0 items-stretch select-none',
                 'rounded-lg',
                 'typography-micro font-medium',
                 'focus:outline-none hover:bg-[var(--interactive-hover)]',
                 'touch-none',
                 className
             )}
-            style={{
-                height: '26px',
-                maxHeight: '26px',
-                minHeight: '26px',
-                color: `var(${agentColor.var})`,
-            }}
+            style={{ color: `var(${agentColor.var})` }}
             title={sessionVariant ? `${agentLabel} · ${sessionVariant}` : agentLabel}
         >
             <span className="flex h-full w-full min-w-0 items-center gap-1">

@@ -1,5 +1,5 @@
 import React from 'react';
-import type { Session } from '@opencode-ai/sdk/v2';
+import type { Session } from '@/lib/opencode/model';
 import { useAllLiveSessions } from '@/sync/sync-context';
 import {
   EMPTY_SESSION_ORDER_RANKS,
@@ -18,6 +18,7 @@ import { filterSessionsBySource, hasMultipleSessionSources, type SessionSourceFi
 import { useSessionSourceFilterStore } from '@/stores/useSessionSourceFilterStore';
 import type { GlobalSessionStructure } from '@/stores/globalSessionStructure';
 import { countSyncPerformance } from '@/sync/performance-diagnostics';
+import type { SessionNode } from '../types';
 
 type ProjectSidebarActiveSessionsArgs = {
   globalActiveSessions: Session[];
@@ -63,10 +64,14 @@ const isKnownActiveSessionDirectory = (
   knownDirectories: Set<string>,
   isVSCode: boolean,
 ): boolean => {
+  // The full app's global cache is authoritative for active-session retention.
+  // A deleted worktree is not a deletion event, so its record must reach the
+  // ownership resolver even when no current topology directory matches it.
+  if (!isVSCode) return true;
   if (session.time?.archived) return true;
   const directory = normalizePath(resolveGlobalSessionDirectory(session))?.toLowerCase();
-  if (!directory) return !isVSCode;
-  if (knownDirectories.size === 0) return !isVSCode;
+  if (!directory) return false;
+  if (knownDirectories.size === 0) return false;
   return knownDirectories.has(directory);
 };
 
@@ -80,6 +85,7 @@ export const projectSidebarActiveSessions = ({
 }: ProjectSidebarActiveSessionsArgs): Session[] => {
   const sessions = [...globalActiveSessions];
   const knownIds = new Set(globalActiveSessions.map((session) => session.id));
+  const knownDirectoryKeys = new Set([...knownDirectories].map((directory) => directory.toLowerCase()));
 
   for (const session of liveSessions) {
     if (knownIds.has(session.id)) continue;
@@ -87,7 +93,7 @@ export const projectSidebarActiveSessions = ({
   }
 
   return partitionSidebarSessions(sessions, isVSCode).projectSessions
-    .filter((session) => isKnownActiveSessionDirectory(session, knownDirectories, isVSCode));
+    .filter((session) => isKnownActiveSessionDirectory(session, knownDirectoryKeys, isVSCode));
 };
 
 export const projectSidebarCollection = (args: ProjectSidebarActiveSessionsArgs): Session[] => {
@@ -128,6 +134,29 @@ export const getDescendantIds = (
   return descendants;
 };
 
+// Recent and managed Chats render their rows from this tree, and the row's
+// archive/delete actions collect descendants from it as well. Building it to
+// full depth here keeps a grandchild reachable everywhere: a projection that
+// stopped at direct children rendered correctly but left grandchildren active
+// after their root was archived. Archived children are cut at every depth,
+// as they were for direct children before.
+export const buildActiveSessionNode = (
+  childrenMap: ReadonlyMap<string, readonly Session[]>,
+  session: Session,
+): SessionNode => {
+  const visited = new Set<string>([session.id]);
+  const build = (current: Session): SessionNode => ({
+    session: current,
+    children: (childrenMap.get(current.id) ?? []).flatMap((child) => {
+      if (child.time?.archived || visited.has(child.id)) return [];
+      visited.add(child.id);
+      return [build(child)];
+    }),
+    worktree: null,
+  });
+  return build(session);
+};
+
 type SidebarSessionProjectionArgs = ProjectSidebarActiveSessionsArgs & {
   pinnedSessionIds: Set<string>;
   sessionOrderRanks: ReadonlyMap<string, number>;
@@ -152,8 +181,9 @@ const buildSidebarSessionStructure = ({
   const indexedGlobalSessions = globalActiveSessions ?? [];
   const visibleSessions = mergeSidebarSessionSources(indexedGlobalSessions, liveSessions);
   const partition = partitionSidebarSessions(visibleSessions, isVSCode);
+  const knownDirectoryKeys = new Set([...knownDirectories].map((directory) => directory.toLowerCase()));
   const knownProjectSessions = partition.projectSessions
-    .filter((session) => isKnownActiveSessionDirectory(session, knownDirectories, isVSCode));
+    .filter((session) => isKnownActiveSessionDirectory(session, knownDirectoryKeys, isVSCode));
   // Everything the sidebar can show, before the tool filter. Availability is
   // read from this list rather than the filtered one: reading the filtered list
   // would hide the control the moment it is used, because a single tool is all

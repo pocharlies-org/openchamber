@@ -14,6 +14,7 @@ import { SESSION_SOURCE_FILTERS, SESSION_SOURCE_LABEL_KEYS } from '@/lib/session
 import { cn } from '@/lib/utils';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useSessionSourceFilterStore } from '@/stores/useSessionSourceFilterStore';
+import { useGitStore, useIsGitRepo } from '@/stores/useGitStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useSession } from '@/sync/sync-context';
 
@@ -43,6 +44,14 @@ export const MobileHeader: React.FC<{
   const sourceFilterAvailable = useSessionSourceFilterStore((state) => state.available);
   const sourceFilter = useSessionSourceFilterStore((state) => state.filter);
   const setSourceFilter = useSessionSourceFilterStore((state) => state.setFilter);
+  // Uncommitted changes in the active project or worktree: the workspace
+  // button gets a dot instead of a changed-files bar above the composer.
+  const isGitRepo = useIsGitRepo(effectiveDirectory || null);
+  const hasUncommittedChanges = useGitStore((state) => {
+    if (!effectiveDirectory || isGitRepo !== true) return false;
+    const status = state.directories.get(effectiveDirectory)?.status;
+    return Boolean(status && !status.isClean);
+  });
 
   const sessionTitle = currentSession?.title?.trim();
   // Single-line title, desktop-style: session title, or the "New session"
@@ -87,7 +96,7 @@ export const MobileHeader: React.FC<{
         <div className="flex h-[var(--oc-header-height,56px)] w-full items-center gap-1 px-2">
           <button
             type="button"
-            className="flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            className="flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             aria-label={t('mobile.sessions.openSheetAria')}
             onClick={handleOpenSessions}
             style={{ touchAction: 'manipulation' }}
@@ -135,7 +144,7 @@ export const MobileHeader: React.FC<{
             ref={titleRef}
             type="button"
             className={cn(
-              'flex min-w-0 items-center rounded-lg px-2 py-1.5 text-left transition-colors active:bg-interactive-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+              'flex min-w-0 items-center rounded-lg px-2 py-1.5 text-left transition-colors active:bg-interactive-active focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
               compactTitle ? 'shrink' : 'flex-1',
             )}
             aria-label={t('sessions.switcher.openAria')}
@@ -172,8 +181,10 @@ export const MobileHeader: React.FC<{
 
           <button
             type="button"
-            className="flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            aria-label={t('mobile.header.openWorkspaceAria')}
+            className="relative flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            aria-label={hasUncommittedChanges
+              ? t('mobile.header.openWorkspaceWithChangesAria')
+              : t('mobile.header.openWorkspaceAria')}
             onClick={() => {
               setMetadataOpen(false);
               setSwitcherOpen(false);
@@ -182,6 +193,12 @@ export const MobileHeader: React.FC<{
             style={{ touchAction: 'manipulation' }}
           >
             <Icon name="pencil-ruler-2" className="size-5" />
+            {hasUncommittedChanges ? (
+              <span
+                className="absolute right-1.5 top-1.5 size-2.5 rounded-full border-2 border-[var(--background)] bg-[var(--status-warning)]"
+                aria-hidden
+              />
+            ) : null}
           </button>
         </div>
       </header>
