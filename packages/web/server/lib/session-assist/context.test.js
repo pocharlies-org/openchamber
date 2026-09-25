@@ -26,22 +26,45 @@ const page = (data, next = null) => ({ data: [...data].reverse(), cursor: next ?
 const load = (readPage) => loadAssistContext({ readPage, signal: new AbortController().signal });
 
 describe('session assist context', () => {
-  it('stops paging at three human turns and excludes tools and injected instructions', async () => {
-    let calls = 0;
+  it('reads the whole session across pages and keeps tool names but never their payloads', async () => {
+    const pages = [];
     const records = [...pair(1), ...pair(2), ...pair(3), ...pair(4)];
     records.at(-1).content.push(
-      { type: 'tool', tool: 'bash', state: { output: 'TOOL_PAYLOAD' } },
+      { type: 'tool', id: 'c1', name: 'bash', state: { status: 'completed', input: { command: 'TOOL_INPUT' }, content: [{ type: 'text', text: 'TOOL_PAYLOAD' }] } },
+      { type: 'tool', id: 'c2', name: 'bash', state: { status: 'completed', input: {}, content: [{ type: 'text', text: 'x' }] } },
     );
     const context = await load(async ({ limit, cursor }) => {
-      calls++;
-      expect(limit).toBe(50);
-      expect(cursor).toBeUndefined();
-      return page(records, 'more');
+      pages.push(cursor ?? 'first');
+      expect(limit).toBe(200);
+      return cursor ? page([...pair(0)]) : page(records, 'older');
     });
-    expect(calls).toBe(1);
-    expect(context.turns.map((t) => t.user.id)).toEqual(['u2', 'u3', 'u4']);
+    expect(pages).toEqual(['first', 'older']);
+    expect(context.turns.map((t) => [t.number, t.user.id])).toEqual([[1, 'u0'], [2, 'u1'], [3, 'u2'], [4, 'u3'], [5, 'u4']]);
+    expect(context.turns.at(-1).tools).toEqual(['bash', 'bash']);
     expect(context.last.text).toBe('answer 4');
     expect(JSON.stringify(context)).not.toContain('TOOL_PAYLOAD');
+    expect(JSON.stringify(context)).not.toContain('TOOL_INPUT');
+    const prompt = buildAssistPrompt(context.turns, { recap: true, suggestion: true }, 100_000);
+    expect(prompt.text).toContain('The whole conversation, oldest first');
+    expect(prompt.text).toContain('Tools the assistant used: bash×2');
+    expect(prompt.text).toContain('Turn 1\n');
+  });
+
+  it('drops the oldest turns only in chunks and keeps each turn\'s number, so the prompt prefix is stable', async () => {
+    const records = Array.from({ length: 40 }, (_, i) => pair(i + 1)).flat();
+    const context = await load(async () => page(records));
+    const full = buildAssistPrompt(context.turns, { recap: true }, 1_000_000).text;
+    const budget = Math.floor(full.length * 0.9);
+    const trimmed = buildAssistPrompt(context.turns, { recap: true }, budget).text;
+    expect(trimmed.length).toBeLessThanOrEqual(budget);
+    expect(trimmed).toContain('its first 8 turns are omitted');
+    expect(trimmed).toContain('Turn 9\n');
+    expect(trimmed).not.toContain('Turn 8\n');
+    // One more turn does not move where the transcript starts.
+    const longer = await load(async () => page([...records, ...pair(41)]));
+    const next = buildAssistPrompt(longer.turns, { recap: true }, budget).text;
+    const start = (text) => text.slice(0, text.indexOf('--- End of conversation evidence ---'));
+    expect(start(next).startsWith(start(trimmed).slice(0, start(trimmed).lastIndexOf('Turn 40')))).toBe(true);
   });
 
   it('finds the real user across a page boundary and past a compaction', async () => {
@@ -120,7 +143,7 @@ describe('session assist context', () => {
   it('bounds retrieval and refuses to invent a user for an orphaned answer', async () => {
     let calls = 0;
     const context = await load(async () => page([assistant(`a${++calls}`, 'answer')], `cursor${calls}`));
-    expect(calls).toBe(8);
+    expect(calls).toBe(50);
     expect(context).toBeNull();
   });
 
@@ -184,7 +207,7 @@ describe('session assist context', () => {
     ]));
     for (const budget of [1_000, 4_000, 14_000, 32_000, 1_000_000]) {
       const prompt = buildAssistPrompt(context.turns, { recap: true, suggestion: true }, budget);
-      expect(prompt.text.length).toBeLessThanOrEqual(Math.min(budget, 32_000));
+      expect(prompt.text.length).toBeLessThanOrEqual(budget);
       for (const marker of ['REQUEST_START', 'REQUEST_END', 'ANSWER_START', 'ANSWER_END']) expect(prompt.text).toContain(marker);
     }
     expect(buildAssistPrompt(context.turns, { recap: true }, 500)).toBeNull();

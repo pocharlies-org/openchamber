@@ -17,65 +17,32 @@ unchanged; an empty suggestion is a successful outcome.
 
 ## What the model receives
 
-Read backward through the official SDK in pages of 50 messages until three
-human turns are covered, history ends, or eight pages have been read. A failed
-page or repeated cursor aborts generation; it is not treated as complete history.
-At the page limit, use fewer available human turns. If the latest answer's human
+Read backward through the official SDK in pages of 200 messages (the largest
+page v2 serves) until history ends or fifty pages have been read: the model
+sees the whole session, not a tail. A failed page or repeated cursor aborts
+generation; it is not treated as complete history. If the latest answer's human
 request has not been found, skip generation rather than invent its context.
 
-Three turns retain the substance behind short commit confirmations without
-bringing an entire old task back into the prompt. This was compared against
-one, five, ten, and full-history contexts on long maintainer sessions. There
-is no full-history cache and no assumed provider prefix-cache behavior.
+The whole session is what lets the suggestion judge the next step against what
+the user asked for at the START — a tail window cannot see the original request
+once a long task has run for a while, and then invents follow-up work (this
+fork's change, upstream #3311). Each turn keeps the names of the tools the
+assistant ran (`Tools the assistant used: Bash×3, Read`), never their input or
+output: a session can be almost all tool calls, and without them it reads as an
+empty conversation. The language sample still comes from the last three turns.
 
-The latest content record must be a completed, successful, non-summary
-assistant answer with visible text. OpenCode closes every turn with an `idle`
-record and appends agent/model/location switches as records of their own;
-`newestContentId` looks past those, both here and in the re-check before the
-write, so an ordinary v2 transcript still ends in its answer. An `idle` whose
-outcome is `failed` or `interrupted` is not skipped: it disqualifies the turn.
-Child, archived, and reverted sessions are skipped. A new prompt clears the
-revert boundary before its next idle event.
-
-Human turns follow chronological message intervals. OpenCode can insert
-synthetic continuation users during compaction, so a final answer's `parentID`
-need not point directly at the original human request. These continuations stay
-within their human turn; compaction summaries are excluded. An interrupted
-request remains context with its last visible progress explicitly labeled as
-unfinished, rather than being dropped or called a final answer.
-An answer must still reference that human user or one of its continuation
-users; a late answer for an older request cannot be assigned to a newer request.
-
-### Attached context and language
-
-The persisted attachment contract is owned by
-`packages/ui/src/lib/messages/contextParts.ts`. Its user-facing Markdown
-formatter is `packages/ui/src/lib/messages/messageMarkdown.ts`.
-
-The server projects those persisted parts into model context without importing
-the UI runtime: code comments, file/chat quotes, browser annotations, PR comments,
-checks, terminal selections, and linked GitHub/Linear items remain attached to
-the user turn even when their transport part is synthetic. The OpenCode
-`opencodeComment` mirror is also accepted. Unrecognized synthetic prompts and
-ignored parts are excluded. Malformed attached text fails the generation.
-
-Quoted material and the user's own comment are separate blocks. The user's
-authored text is also supplied separately for language selection. Quoted source,
-logs, assistant replies, and injected memory instructions do not choose the
-language. A language-neutral final acknowledgment can use recent authored text.
-The existing Cyrillic/CJK mismatch guard uses that authored sample per field;
-it is not a complete language detector, and it is skipped if no sample exists.
-
-### Input bounds
-
-User text is bounded to 8,000 characters and each assistant answer to 16,000.
 Attached quote bodies have their own 4,000-character limit so a large quote
 does not consume the user's comment. Excerpts preserve both ends with an
 explicit omission marker, including the conclusion of a long final report.
 
-The complete user prompt is limited to 32,000 characters and the resolved small
-model's input allowance, reserving space for the system prompt. Under pressure,
-drop older whole turns first. If the latest pair itself is too large, excerpt
+The complete user prompt is sized by the resolved small model's input
+allowance, reserving space for the system prompt; there is no fixed cap. Under
+pressure, drop the oldest turns — only in chunks of eight, and turns keep their
+number in the session — so the start of the transcript moves in steps: the
+prompt goes to the session's own model, and consecutive assists on a session
+then share a token prefix the backend can cache. Everything that varies per
+call (language sample, requested fields) comes after the transcript.
+If the latest pair itself is too large, excerpt
 both its user request and answer rather than discarding either side. If even
 the minimum prompt cannot fit, skip generation. `onOverflow: 'error'` prevents
 the Small Model service from silently cutting off the instructions. Expected

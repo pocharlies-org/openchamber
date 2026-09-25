@@ -1,6 +1,8 @@
-const TURN_LIMIT = 3;
-const PAGE_SIZE = 50;
-const MAX_PAGES = 8;
+// The whole session, not a tail: the suggestion is judged against what the user
+// asked for at the start, which a window of the last turns cannot see. 200 is
+// the largest page v2 serves; the page cap only bounds a runaway session.
+const PAGE_SIZE = 200;
+const MAX_PAGES = 50;
 const USER_CHAR_LIMIT = 8_000;
 const ANSWER_CHAR_LIMIT = 16_000;
 
@@ -74,12 +76,16 @@ export function newestContentId(records) {
  * v2 message records are flat: an assistant message carries `content[]`, a user
  * message a single `text` plus its attachments, and context items that used to
  * ride along as `synthetic` text parts are their own `synthetic` messages now.
- * Tool payloads never enter this view.
+ * Tool payloads never enter this view — only tool NAMES do: a session can be
+ * almost all tool calls, and without them it reads as an empty conversation,
+ * while their input and output are exactly where file contents, command lines
+ * and credentials would leak into a utility prompt.
  */
 function readMessage(message) {
   const role = message.type;
   const blocks = [];
   const authored = [];
+  const tools = [];
 
   if (role === 'user') {
     const attached = attachedText(message);
@@ -94,6 +100,7 @@ function readMessage(message) {
   } else if (role === 'assistant') {
     for (const part of Array.isArray(message.content) ? message.content : []) {
       if (part?.type === 'text' && typeof part.text === 'string') blocks.push(part.text);
+      else if (part?.type === 'tool' && typeof part.name === 'string' && part.name) tools.push(part.name);
     }
   } else if (role === 'synthetic') {
     // Context the user attached to the message that follows: in v1 it was a
@@ -122,6 +129,7 @@ function readMessage(message) {
       && !message.error,
     text: excerpt(blocks.join('\n\n').trim(), role === 'user' ? USER_CHAR_LIMIT : ANSWER_CHAR_LIMIT),
     authored: excerpt(authored.filter(Boolean).join('\n\n').trim(), USER_CHAR_LIMIT),
+    tools,
   };
 }
 
@@ -149,16 +157,19 @@ function collectTurns(messages) {
       const authored = [...attached.map((entry) => entry.authored), message.authored].filter(Boolean).join('\n\n');
       attached = [];
       if (!text) continue;
-      active = { user: { ...message, text, authored }, assistant: null, complete: false };
+      // Numbered by position in the session, so the number a turn carries
+      // never changes when older turns are trimmed from the prompt.
+      active = { number: turns.length + 1, user: { ...message, text, authored }, assistant: null, complete: false, tools: [] };
       turns.push(active);
       continue;
     }
     attached = [];
     if (!active || message.role !== 'assistant') continue;
+    active.tools.push(...message.tools);
     if (message.text) active.assistant = message;
     active.complete = message.complete && Boolean(message.text);
   }
-  return turns.slice(-TURN_LIMIT);
+  return turns;
 }
 
 /** Failure is thrown; null means no eligible final answer within bounded history. */
@@ -189,8 +200,8 @@ export async function loadAssistContext({ readPage, signal }) {
       if (!next || pageNumber === MAX_PAGES - 1) return null;
     } else {
       if (!last.complete || !last.text) return null;
-      const turns = collectTurns(messages);
-      if (turns.length === TURN_LIMIT || !next || pageNumber === MAX_PAGES - 1) {
+      if (!next || pageNumber === MAX_PAGES - 1) {
+        const turns = collectTurns(messages);
         if (!turns.at(-1)?.complete || turns.at(-1).assistant.id !== last.id) return null;
         return { turns, last };
       }
