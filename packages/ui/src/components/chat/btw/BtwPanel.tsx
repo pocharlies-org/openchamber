@@ -7,6 +7,7 @@ import { isIMECompositionEvent } from '@/lib/ime';
 import { cn } from '@/lib/utils';
 import { toast } from '@/components/ui';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Icon } from '@/components/icon/Icon';
 import { useBtwStore } from '@/stores/useBtwStore';
 import { useSync } from '@/sync/use-sync';
@@ -41,7 +42,8 @@ const IDLE_SESSION_STATUS = { type: 'idle' as const };
  * Three exits: collapse (panel minimizes to the composer chip, the composer
  * returns to the main session), promote (the fork becomes a normal session
  * and the app navigates to it), destroy (the fork is deleted; the main
- * conversation is never touched).
+ * conversation is never touched). Destroying a fork that has messages of its
+ * own asks first, offering promote as the alternative.
  */
 export const BtwPanel: React.FC<{ parentSessionId: string; panel: BtwPanelState; onExit: () => void }> = ({
     parentSessionId,
@@ -108,6 +110,57 @@ const useBtwDestroy = (sessionRef: BtwSessionRef | null): (() => void) => {
             if (!ok) toast.error(t('chat.btw.toast.destroyFailed'));
         });
     }, [sessionRef, t]);
+};
+
+/**
+ * Whether closing the fork would lose something: any record past the
+ * inherited-history boundary. A fork whose messages are not loaded yet counts
+ * as having content, so an unloaded (collapsed) panel never deletes silently.
+ */
+const useBtwHasOwnContent = (sessionRef: BtwSessionRef, boundaryMessageID: string | null): boolean => {
+    const sync = useSync();
+    const renderable = useSessionRenderable(sessionRef.btwSessionId, sessionRef.directory);
+    React.useEffect(() => {
+        if (!renderable) {
+            void sync.ensureSessionRenderable(sessionRef.btwSessionId, false, sessionRef.directory);
+        }
+    }, [renderable, sessionRef.btwSessionId, sessionRef.directory, sync]);
+    const messageRecords = useSessionMessageRecords(sessionRef.btwSessionId, sessionRef.directory);
+    return React.useMemo(
+        () => !renderable || filterBtwTailMessages(messageRecords, boundaryMessageID).length > 0,
+        [boundaryMessageID, messageRecords, renderable],
+    );
+};
+
+/** Closing a fork with messages asks first: discard it, or keep it as its own session. */
+const BtwCloseConfirmDialog: React.FC<{
+    open: boolean;
+    onCancel: () => void;
+    onDiscard: () => void;
+    onKeep: () => void;
+}> = ({ open, onCancel, onDiscard, onKeep }) => {
+    const { t } = useI18n();
+    return (
+        <Dialog open={open} onOpenChange={(next) => { if (!next) onCancel(); }}>
+            <DialogContent showCloseButton={false} className="max-w-sm gap-5">
+                <DialogHeader>
+                    <DialogTitle>{t('chat.btw.closeConfirm.title')}</DialogTitle>
+                    <DialogDescription>{t('chat.btw.closeConfirm.description')}</DialogDescription>
+                </DialogHeader>
+                <DialogFooter className="gap-2">
+                    <Button type="button" variant="outline" size="sm" onClick={onCancel}>
+                        {t('chat.btw.closeConfirm.cancel')}
+                    </Button>
+                    <Button type="button" variant="outline" size="sm" onClick={onKeep}>
+                        {t('chat.btw.closeConfirm.keep')}
+                    </Button>
+                    <Button type="button" variant="destructive" size="sm" onClick={onDiscard}>
+                        {t('chat.btw.closeConfirm.discard')}
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    );
 };
 
 type BtwSessionData = {
@@ -291,6 +344,23 @@ const BtwSheet: React.FC<{
             toast.error(t('chat.btw.toast.promoteFailed'));
         });
     }, [sessionRef, t]);
+    const hasOwnContent = useBtwHasOwnContent(sessionRef, boundaryMessageID);
+    const [confirmingClose, setConfirmingClose] = React.useState(false);
+    const handleClose = React.useCallback(() => {
+        if (hasOwnContent) {
+            setConfirmingClose(true);
+            return;
+        }
+        handleDestroy();
+    }, [handleDestroy, hasOwnContent]);
+    const closeConfirm = (
+        <BtwCloseConfirmDialog
+            open={confirmingClose}
+            onCancel={() => setConfirmingClose(false)}
+            onDiscard={() => { setConfirmingClose(false); handleDestroy(); }}
+            onKeep={() => { setConfirmingClose(false); handlePromote(); }}
+        />
+    );
 
     const toggleLabel = collapsed ? t('chat.btw.expandAria') : t('chat.btw.collapseAria');
     const headerButtonClass = 'size-7 rounded-lg text-muted-foreground transition-colors hover:text-foreground hover:!bg-transparent active:!bg-transparent';
@@ -312,7 +382,7 @@ const BtwSheet: React.FC<{
                 variant="ghost"
                 size="icon"
                 className={headerButtonClass}
-                onClick={handleDestroy}
+                onClick={handleClose}
                 aria-label={t('chat.btw.destroyAria')}
                 title={t('chat.btw.destroyAria')}
             >
@@ -323,23 +393,29 @@ const BtwSheet: React.FC<{
 
     if (collapsed) {
         return (
-            <BtwCollapsedStrip
-                sessionRef={sessionRef}
-                actions={actions}
-                onExpand={handleToggleCollapsed}
-                expandLabel={toggleLabel}
-            />
+            <>
+                <BtwCollapsedStrip
+                    sessionRef={sessionRef}
+                    actions={actions}
+                    onExpand={handleToggleCollapsed}
+                    expandLabel={toggleLabel}
+                />
+                {closeConfirm}
+            </>
         );
     }
 
     return (
-        <BtwExpandedSheet
-            sessionRef={sessionRef}
-            boundaryMessageID={boundaryMessageID}
-            actions={actions}
-            onTitleClick={handleToggleCollapsed}
-            titleClickLabel={toggleLabel}
-        />
+        <>
+            <BtwExpandedSheet
+                sessionRef={sessionRef}
+                boundaryMessageID={boundaryMessageID}
+                actions={actions}
+                onTitleClick={handleToggleCollapsed}
+                titleClickLabel={toggleLabel}
+            />
+            {closeConfirm}
+        </>
     );
 };
 
