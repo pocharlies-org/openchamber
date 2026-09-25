@@ -1,7 +1,7 @@
 import express from 'express';
 import request from 'supertest';
 import nodeCrypto from 'crypto';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { createClaudeSurface } from './routes.js';
 
@@ -207,6 +207,20 @@ describe('reading a Claude session through the OpenCode 2 routes', () => {
     expect(second.body.data).toHaveLength(1);
     expect(second.body.data[0]).toMatchObject({ type: 'user', text: 'primera' });
     expect(second.body.cursor.next).toBeNull();
+  });
+
+  it('parses a transcript once for the pages read back to back', async () => {
+    const getSessionMessages = vi.fn(async () => transcript);
+    const { app } = surfaceApp({ sdk: { ...sdk, getSessionMessages } });
+
+    const first = await request(app).get('/api/session/ses_cccsess-1/message?limit=2&order=desc');
+    await request(app).get(`/api/session/ses_cccsess-1/message?limit=2&cursor=${encodeURIComponent(first.body.cursor.next)}`);
+    await Promise.all([
+      request(app).get('/api/session/ses_cccsess-1/message?limit=2'),
+      request(app).get('/api/session/ses_cccsess-1/message/msg_x'),
+    ]);
+
+    expect(getSessionMessages).toHaveBeenCalledTimes(1);
   });
 
   it('answers a session as Session.Info at its project root', async () => {
