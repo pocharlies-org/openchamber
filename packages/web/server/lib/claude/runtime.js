@@ -18,7 +18,12 @@ import { remoteControlUrl } from './live-sessions.js';
 
 const BACKEND_ID = 'claude';
 const PROVIDER_ID = 'claude';
-const LIST_CACHE_TTL_MS = 4000;
+const LIST_CACHE_TTL_MS = 15_000;
+// Listing reads the head of every transcript (~5 s for 1,600 of them). Past
+// the TTL a list younger than this is still served while a fresh read runs in
+// the background: the UI lists several directories at once and would otherwise
+// wait on that read every few seconds.
+const LIST_STALE_MAX_MS = 5 * 60 * 1000;
 const DEFAULT_MAX_CONCURRENT_RUNS = 4;
 const DEFAULT_IDLE_TIMEOUT_MS = 60 * 60 * 1000;
 const DEFAULT_LIVE_POLL_MS = 2000;
@@ -189,6 +194,31 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
   const processes = new Map();
   const idleTimers = new Map();
   const listCache = new Map();
+  /** Map<cacheKey, Promise>: one transcript scan per key at a time. */
+  const listInflight = new Map();
+  /** Bumped on every hard invalidation, so a scan started before it cannot refill the cache. */
+  let listGeneration = 0;
+  /** Bumped on every soft invalidation: a scan that straddles one stores its result already expired. */
+  let listStaleness = 0;
+  const invalidateList = () => {
+    listGeneration += 1;
+    listCache.clear();
+    listInflight.clear();
+  };
+  /**
+   * A process elsewhere started or stopped: the list is out of date, not
+   * wrong. Live state is read per call (withLiveState), so the cached records
+   * stay servable while a rescan runs — with a dozen CLI sessions coming and
+   * going, a hard clear here rescanned every transcript on every list call.
+   */
+  const markListStale = () => {
+    const expired = Date.now() - LIST_CACHE_TTL_MS;
+    for (const entry of listCache.values()) entry.at = Math.min(entry.at, expired);
+    // Never a second scan beside a running one (each reads every transcript):
+    // one that may predate the change stores its result already expired, so
+    // the next call refreshes again.
+    listStaleness += 1;
+  };
   /** Map<sessionId, owner>: sessions live in a process that is not ours. */
   let foreignOwners = new Map();
   /** Map<sessionId, { directory, readAt, lastModified, sent: Map<recordId, json> }> */
@@ -424,25 +454,46 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     const limit = typeof input.limit === 'number' && input.limit > 0 ? input.limit : null;
 
     const cacheKey = directory || '*';
-    const cached = listCache.get(cacheKey);
-    let sessions;
-    if (cached && Date.now() - cached.at < LIST_CACHE_TTL_MS) {
-      sessions = cached.sessions;
-    } else {
-      try {
+    const scan = () => {
+      const pending = listInflight.get(cacheKey);
+      if (pending) return pending;
+      const generation = listGeneration;
+      const staleness = listStaleness;
+      const promise = (async () => {
         const listRequest = { includeProgrammatic: true };
         if (directory) {
           listRequest.dir = directory;
         }
         const infos = await sdk.listSessions(listRequest);
-        sessions = (Array.isArray(infos) ? infos : [])
+        const scanned = (Array.isArray(infos) ? infos : [])
           .filter((info) => info && typeof info.sessionId === 'string')
           .map((info) => buildSessionFromInfo(info, directory));
+        if (generation === listGeneration) {
+          const at = staleness === listStaleness ? Date.now() : Date.now() - LIST_CACHE_TTL_MS;
+          listCache.set(cacheKey, { at, sessions: scanned });
+        }
+        return scanned;
+      })().finally(() => {
+        if (listInflight.get(cacheKey) === promise) listInflight.delete(cacheKey);
+      });
+      listInflight.set(cacheKey, promise);
+      return promise;
+    };
+    const cached = listCache.get(cacheKey);
+    const age = cached ? Date.now() - cached.at : Infinity;
+    let sessions;
+    if (cached && age < LIST_CACHE_TTL_MS) {
+      sessions = cached.sessions;
+    } else if (cached && age < LIST_STALE_MAX_MS) {
+      sessions = cached.sessions;
+      scan().catch((error) => console.warn('[claude-backend] listSessions refresh failed:', error?.message || error));
+    } else {
+      try {
+        sessions = await scan();
       } catch (error) {
         console.warn('[claude-backend] listSessions failed:', error?.message || error);
         return [];
       }
-      listCache.set(cacheKey, { at: Date.now(), sessions });
     }
 
     let result = sessions
@@ -560,7 +611,7 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
       const directory = normalizeDirectory(after?.cwd || before?.cwd || followed.get(sessionId)?.directory);
       if (statusBefore !== statusAfter) setBusyStatus(sessionId, directory, { type: statusAfter });
       if (Boolean(before) !== Boolean(after)) {
-        listCache.clear();
+        markListStale();
         const session = await getSession({ sessionID: sessionId, directory }).catch(() => null);
         if (session) emitSessionUpdate('session.updated', session);
       }
@@ -812,14 +863,14 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
         });
       },
       onRemoteControl: () => {
-        listCache.clear();
+        invalidateList();
         void getSession({ sessionID: sessionId, directory })
           .then((session) => session && emitSessionUpdate('session.updated', session))
           .catch(() => {});
       },
       onTurnEnd: async () => {
         await applyPendingTitle(sdk, sessionId, directory);
-        listCache.clear();
+        invalidateList();
         const known = await getSession({ sessionID: sessionId, directory }).catch(() => null);
         emitSessionUpdate('session.updated', withLiveState(buildSession({
           sessionId,
@@ -901,7 +952,7 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
       });
     }
     setBusyStatus(sessionId, directory, { type: 'idle' });
-    listCache.clear();
+    invalidateList();
     const session = await getSession({ sessionID: sessionId, directory });
     if (session) emitSessionUpdate('session.updated', session);
     return session;
@@ -1076,7 +1127,7 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     delete overlay.archived[sessionId];
     delete overlay.pendingTitles[sessionId];
     if (hadOverlay) await persistOverlay();
-    listCache.clear();
+    invalidateList();
 
     if (!removed && !hadOverlay) return false;
     emitEvent(directory, {

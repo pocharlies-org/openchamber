@@ -153,6 +153,42 @@ describe('claude backend listSessions', () => {
     expect(archived[0].time.archived).toBe(123);
   });
 
+  it('scans the transcripts once for concurrent calls', async () => {
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    const listSessions = vi.fn(async () => { await gate; return [sessionInfo()]; });
+    const { runtime } = createRuntime({ sdk: makeSdk({ listSessions }) });
+
+    const calls = [runtime.listSessions({ archived: false }), runtime.listSessions({ archived: true }), runtime.listSessions({})];
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    release();
+    const [active, archived, all] = await Promise.all(calls);
+
+    expect(listSessions).toHaveBeenCalledTimes(1);
+    expect(active).toHaveLength(1);
+    expect(archived).toHaveLength(0);
+    expect(all).toHaveLength(1);
+  });
+
+  it('serves a stale list past the TTL while it refreshes in the background', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      let round = 0;
+      const listSessions = vi.fn(async () => [sessionInfo({ customTitle: `round ${round += 1}` })]);
+      const { runtime } = createRuntime({ sdk: makeSdk({ listSessions }) });
+
+      expect((await runtime.listSessions({}))[0].title).toBe('round 1');
+      vi.setSystemTime(Date.now() + 20_000);
+      // Past the TTL: the old list comes back at once and a scan starts.
+      expect((await runtime.listSessions({}))[0].title).toBe('round 1');
+      await vi.waitFor(() => expect(listSessions).toHaveBeenCalledTimes(2));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect((await runtime.listSessions({}))[0].title).toBe('round 2');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('serves a second call from cache within the TTL', async () => {
     const listSessions = vi.fn(async () => [sessionInfo()]);
     const { runtime } = createRuntime({ sdk: makeSdk({ listSessions }) });
