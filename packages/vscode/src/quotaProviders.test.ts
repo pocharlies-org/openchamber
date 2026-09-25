@@ -411,7 +411,7 @@ describe('ClinePass quota provider (VS Code parity)', () => {
   });
 });
 
-describe('quota refresh coalescing (VS Code parity)', () => {
+describe('Codex quota provider (VS Code parity)', () => {
   test('coalesces concurrent refreshes for the same provider', async () => {
     let resolveResponse: ((response: Response) => void) | undefined;
     let requestCount = 0;
@@ -422,14 +422,38 @@ describe('quota refresh coalescing (VS Code parity)', () => {
       });
     }) as typeof fetch;
 
-    const first = fetchQuotaForProvider('crof');
-    const second = fetchQuotaForProvider('crof');
-    resolveResponse?.(mockResponse({}));
+    const first = fetchQuotaForProvider('codex');
+    const second = fetchQuotaForProvider('codex');
+    resolveResponse?.(mockResponse({ rate_limit: null }));
 
     const [firstResult, secondResult] = await Promise.all([first, second]);
 
-    assert.equal(firstResult, secondResult);
+    assert.equal(firstResult.ok, true);
+    assert.equal(secondResult.ok, true);
     assert.equal(requestCount, 1);
+  });
+
+  test('surfaces spend_control individual limit for business accounts', async () => {
+    stubFetchReturning(() => Promise.resolve(mockResponse({
+      plan_type: 'business',
+      rate_limit: null,
+      credits: { has_credits: true, unlimited: false, balance: null },
+      spend_control: {
+        individual_limit: {
+          limit: '7500',
+          used: '2674.8724080324173',
+          remaining: '4825.127591967583',
+          used_percent: 36,
+          remaining_percent: 64,
+        },
+      },
+    })));
+
+    const result = await fetchQuotaForProvider('codex');
+
+    assert.equal(result.ok, true);
+    assert.equal(result.usage!.windows.credits!.usedPercent, 36);
+    assert.equal(result.usage!.windows.credits!.valueLabel, '2675 / 7500 used');
   });
 });
 

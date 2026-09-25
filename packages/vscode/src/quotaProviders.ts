@@ -765,6 +765,11 @@ export const listConfiguredQuotaProviders = () => {
     configured.add('claude');
   }
 
+  const openaiAuth = normalizeAuthEntry(getAuthEntry(auth, ['openai', 'codex', 'chatgpt']));
+  if (openaiAuth && ((openaiAuth as Record<string, unknown>).access || (openaiAuth as Record<string, unknown>).token)) {
+    configured.add('codex');
+  }
+
   if (resolveGeminiCliAuth(auth) || resolveAntigravityAuth()) {
     configured.add('google');
   }
@@ -846,6 +851,112 @@ export const listConfiguredQuotaProviders = () => {
   }
 
   return Array.from(configured);
+};
+
+const fetchCodexQuota = async (): Promise<ProviderResult> => {
+  const auth = readAuthFile();
+  const entry = normalizeAuthEntry(getAuthEntry(auth, ['openai', 'codex', 'chatgpt'])) as Record<string, unknown> | null;
+  const accessToken = (entry?.access as string | undefined) ?? (entry?.token as string | undefined);
+  const accountId = entry?.accountId as string | undefined;
+
+  if (!accessToken) {
+    return buildResult({
+      providerId: 'codex',
+      providerName: 'Codex',
+      ok: false,
+      configured: false,
+      error: 'Not configured',
+    });
+  }
+
+  try {
+    const response = await fetch('https://chatgpt.com/backend-api/wham/usage', {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        ...(accountId ? { 'ChatGPT-Account-Id': accountId } : {}),
+      },
+    });
+
+    if (!response.ok) {
+      return buildResult({
+        providerId: 'codex',
+        providerName: 'Codex',
+        ok: false,
+        configured: true,
+        error: `API error: ${response.status}`,
+      });
+    }
+
+    const payload = await response.json() as OpenAiUsagePayload;
+    const primary = payload?.rate_limit?.primary_window ?? null;
+    const secondary = payload?.rate_limit?.secondary_window ?? null;
+    const credits = payload?.credits ?? null;
+
+    const windows: Record<string, UsageWindow> = {};
+    if (primary) {
+      const windowSeconds = toNumber(primary.limit_window_seconds);
+      windows[resolveWindowLabel(windowSeconds)] = toUsageWindow({
+        usedPercent: toNumber(primary.used_percent),
+        windowSeconds,
+        resetAt: toTimestamp(primary.reset_at),
+      });
+    }
+    if (secondary) {
+      const windowSeconds = toNumber(secondary.limit_window_seconds);
+      windows[resolveWindowLabel(windowSeconds)] = toUsageWindow({
+        usedPercent: toNumber(secondary.used_percent),
+        windowSeconds,
+        resetAt: toTimestamp(secondary.reset_at),
+      });
+    }
+    if (credits) {
+      const balance = toNumber(credits.balance);
+      const unlimited = Boolean(credits.unlimited);
+      const valueLabel = unlimited
+        ? 'Unlimited'
+        : balance !== null
+          ? `$${formatMoney(balance)}`
+          : null;
+      windows.credits_balance = toUsageWindow({
+        usedPercent: null,
+        windowSeconds: null,
+        resetAt: null,
+        valueLabel,
+      });
+    }
+    if (payload?.spend_control?.individual_limit) {
+      const spendLimit = payload.spend_control.individual_limit;
+      const used = toNumber(spendLimit.used);
+      const limit = toNumber(spendLimit.limit);
+      const valueLabel = used !== null && limit !== null
+        ? `${used.toFixed(0)} / ${limit.toFixed(0)} used`
+        : null;
+      windows.credits = toUsageWindow({
+        usedPercent: toNumber(spendLimit.used_percent),
+        windowSeconds: null,
+        resetAt: null,
+        valueLabel,
+      });
+    }
+
+    return buildResult({
+      providerId: 'codex',
+      providerName: 'Codex',
+      ok: true,
+      configured: true,
+      usage: { windows },
+    });
+  } catch (error) {
+    return buildResult({
+      providerId: 'codex',
+      providerName: 'Codex',
+      ok: false,
+      configured: true,
+      error: error instanceof Error ? error.message : 'Request failed',
+    });
+  }
 };
 
 type GoogleAuthSource = {
@@ -2930,6 +3041,8 @@ const fetchQuotaForProviderUncoalesced = async (providerId: string): Promise<Pro
   switch (providerId) {
     case 'claude':
       return fetchClaudeQuota();
+    case 'codex':
+      return fetchCodexQuota();
     case 'github-copilot':
       return fetchCopilotQuota();
     case 'github-copilot-addon':
