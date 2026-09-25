@@ -30,6 +30,10 @@ const DEFAULT_LIVE_POLL_MS = 2000;
 // A session whose messages were read this recently is being looked at: its
 // transcript is followed while another process writes it.
 const LIVE_FOLLOW_WINDOW_MS = 15 * 60 * 1000;
+// A session nobody touched in this long counts as archived, as
+// opencode-archive-prune does for OpenCode's: nothing archives the transcripts
+// VS Code, Desktop and `claude -p` leave behind, and they were 1,600 on 25-09.
+const DEFAULT_AUTO_ARCHIVE_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_MODE_ID = 'default';
 const DEFAULT_EFFORT_ID = 'high';
 const SDK_IMPORT_PATH = '@anthropic-ai/claude-agent-sdk';
@@ -187,6 +191,8 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     selfPid = process.pid,
     livePollMs = DEFAULT_LIVE_POLL_MS,
     liveFollowWindowMs = LIVE_FOLLOW_WINDOW_MS,
+    // 0 turns automatic archiving off.
+    autoArchiveAfterMs = DEFAULT_AUTO_ARCHIVE_AFTER_MS,
   } = dependencies;
 
   const eventClients = new Set();
@@ -226,7 +232,7 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
   let livePollTimer = null;
 
   /** OpenChamber-side overlay: Claude owns transcripts, not archive state. */
-  let overlay = { archived: {}, pendingTitles: {} };
+  let overlay = { archived: {}, pendingTitles: {}, kept: {} };
   let overlayLoaded = false;
   let writeLock = Promise.resolve();
 
@@ -310,12 +316,13 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
       overlay = {
         archived: parsed?.archived && typeof parsed.archived === 'object' ? parsed.archived : {},
         pendingTitles: parsed?.pendingTitles && typeof parsed.pendingTitles === 'object' ? parsed.pendingTitles : {},
+        kept: parsed?.kept && typeof parsed.kept === 'object' ? parsed.kept : {},
       };
     } catch (error) {
       if (!error || error.code !== 'ENOENT') {
         console.warn('[claude-backend] Failed to read overlay:', error);
       }
-      overlay = { archived: {}, pendingTitles: {} };
+      overlay = { archived: {}, pendingTitles: {}, kept: {} };
     }
     overlayLoaded = true;
     return overlay;
@@ -442,6 +449,27 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     };
   };
 
+  /**
+   * When the session counts as archived, or null. An archive by hand wins;
+   * otherwise a session idle for autoArchiveAfterMs is archived from the moment
+   * it crossed that line, unless it is live somewhere or was unarchived by hand
+   * since. New activity in the transcript brings it back by itself.
+   */
+  const archivedAtOf = (session) => {
+    const explicit = overlay.archived[session.id];
+    if (explicit) return explicit;
+    const updated = session.time?.updated;
+    if (!autoArchiveAfterMs || !updated) return null;
+    if (processes.has(session.id) || foreignOwners.has(session.id)) return null;
+    const archivedAt = Math.max(updated, overlay.kept[session.id] ?? 0) + autoArchiveAfterMs;
+    return archivedAt <= Date.now() ? archivedAt : null;
+  };
+
+  const withArchiveState = (session) => {
+    const archivedAt = archivedAtOf(session);
+    return archivedAt ? { ...session, time: { ...session.time, archived: archivedAt } } : session;
+  };
+
   const listSessions = async (input = {}) => {
     const sdk = await ensureSdk();
     if (!sdk) return [];
@@ -450,6 +478,7 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     await loadOverlay();
     const directory = normalizeDirectory(input.directory);
     const archivedOnly = input.archived === true;
+    const anyArchiveState = input.archived === 'any';
     const rootsOnly = input.roots !== false;
     const limit = typeof input.limit === 'number' && input.limit > 0 ? input.limit : null;
 
@@ -498,14 +527,8 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
 
     let result = sessions
       .filter((session) => (rootsOnly ? !session.parentID : true))
-      .filter((session) => {
-        const archivedAt = overlay.archived[session.id];
-        return archivedOnly ? Boolean(archivedAt) : !archivedAt;
-      })
-      .map((session) => {
-        const archivedAt = overlay.archived[session.id];
-        return archivedAt ? { ...session, time: { ...session.time, archived: archivedAt } } : session;
-      })
+      .map(withArchiveState)
+      .filter((session) => anyArchiveState || (archivedOnly ? Boolean(session.time?.archived) : !session.time?.archived))
       .sort((a, b) => (b.time?.updated ?? 0) - (a.time?.updated ?? 0));
 
     if (limit) result = result.slice(0, limit);
@@ -520,14 +543,15 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     await loadOverlay();
     const directory = normalizeDirectory(input.directory);
 
-    const known = await listSessions({ directory }).catch(() => []);
+    // An archived session still opens by its id.
+    const known = await listSessions({ directory, archived: 'any' }).catch(() => []);
     const hit = known.find((session) => session.id === sessionId);
     if (hit) return hit;
 
     try {
       const info = await sdk.getSessionInfo?.(sessionId, directory ? { dir: directory } : {});
       if (!info) return null;
-      return withLiveState(buildSessionFromInfo(info, directory));
+      return withLiveState(withArchiveState(buildSessionFromInfo(info, directory)));
     } catch (error) {
       console.warn('[claude-backend] getSessionInfo failed:', error?.message || error);
       return null;
@@ -1084,9 +1108,13 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     const archivedAt = typeof input?.time?.archived === 'number' ? input.time.archived : null;
     if (archivedAt) {
       overlay.archived[sessionId] = archivedAt;
+      delete overlay.kept[sessionId];
       await persistOverlay();
     } else if (input?.time && 'archived' in input.time && !input.time.archived) {
       delete overlay.archived[sessionId];
+      // Unarchived by hand: automatic archiving counts from now, not from the
+      // transcript's last write.
+      overlay.kept[sessionId] = Date.now();
       await persistOverlay();
     }
 
@@ -1097,8 +1125,9 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
       createdAt: current?.time?.created ?? Date.now(),
       updatedAt: Date.now(),
     });
-    if (overlay.archived[sessionId]) {
-      next.time.archived = overlay.archived[sessionId];
+    const nextArchivedAt = archivedAtOf(next);
+    if (nextArchivedAt) {
+      next.time.archived = nextArchivedAt;
     }
     emitSessionUpdate('session.updated', next);
     return { ...next };
@@ -1123,9 +1152,10 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     }
 
     await loadOverlay();
-    const hadOverlay = Boolean(overlay.archived[sessionId] || overlay.pendingTitles[sessionId]);
+    const hadOverlay = Boolean(overlay.archived[sessionId] || overlay.pendingTitles[sessionId] || overlay.kept[sessionId]);
     delete overlay.archived[sessionId];
     delete overlay.pendingTitles[sessionId];
+    delete overlay.kept[sessionId];
     if (hadOverlay) await persistOverlay();
     invalidateList();
 

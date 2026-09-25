@@ -72,6 +72,8 @@ const createRuntime = ({ sdk, fs, ...rest } = {}) => {
     overlayFilePath: OVERLAY_FILE,
     claudeExecutable: EXECUTABLE,
     sdkLoader: async () => sdkObject,
+    // The fixtures' timestamps are from 1970: automatic archiving is tested on its own.
+    autoArchiveAfterMs: 0,
     ...rest,
   });
   return { runtime, sdk: sdkObject };
@@ -151,6 +153,35 @@ describe('claude backend listSessions', () => {
     const archived = await runtime.listSessions({ archived: true });
     expect(archived.map((session) => session.id)).toEqual(['a']);
     expect(archived[0].time.archived).toBe(123);
+  });
+
+  it('archives a session untouched for the configured time, unless it is live or was unarchived by hand', async () => {
+    const DAY = 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    const fs = makeFs();
+    const { runtime } = createRuntime({
+      sdk: makeSdk({
+        listSessions: vi.fn(async () => [
+          sessionInfo({ sessionId: 'fresh', lastModified: now - DAY }),
+          sessionInfo({ sessionId: 'stale', lastModified: now - 8 * DAY }),
+          sessionInfo({ sessionId: 'kept', lastModified: now - 9 * DAY }),
+        ]),
+      }),
+      fs,
+      autoArchiveAfterMs: 7 * DAY,
+    });
+
+    expect((await runtime.listSessions({ archived: false })).map((session) => session.id)).toEqual(['fresh']);
+    const archived = await runtime.listSessions({ archived: true });
+    expect(archived.map((session) => session.id)).toEqual(['stale', 'kept']);
+    // Archived from the moment it crossed the line, not from when it was listed.
+    expect(archived[0].time.archived).toBe(now - DAY);
+
+    // Unarchived by hand: back in the list, and the clock starts again.
+    const restored = await runtime.updateSession({ sessionID: 'kept', time: { archived: null } });
+    expect(restored.time.archived).toBeUndefined();
+    expect(JSON.parse(fs.files.get(OVERLAY_FILE)).kept.kept).toBeGreaterThanOrEqual(now);
+    expect((await runtime.listSessions({ archived: false })).map((session) => session.id)).toEqual(['fresh', 'kept']);
   });
 
   it('scans the transcripts once for concurrent calls', async () => {
