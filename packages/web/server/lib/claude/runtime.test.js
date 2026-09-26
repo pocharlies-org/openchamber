@@ -906,6 +906,23 @@ describe('claude backend sessions live in another process', () => {
     expect(remoteAttach.closeAll).toHaveBeenCalled();
   });
 
+  it('puts a live session on the model picked here before writing to it', async () => {
+    const sdk = makeSdk({ getSessionInfo: vi.fn(async () => sessionInfo()) });
+    const liveRegistry = makeRegistry([owner()]);
+    const remoteAttach = { send: vi.fn(async () => {}), setModel: vi.fn(async () => {}), closeAll: vi.fn() };
+    const { runtime } = createRuntime({ sdk, liveRegistry, remoteAttach, livePollMs: 0 });
+
+    await runtime.promptAsync({ sessionID: 'sess-1', directory: '/repo/project', parts: [{ type: 'text', text: 'hola' }] });
+    expect(remoteAttach.setModel).not.toHaveBeenCalled();
+
+    await runtime.promptAsync({
+      sessionID: 'sess-1', directory: '/repo/project', parts: [{ type: 'text', text: 'otra' }], model: { modelID: 'sonnet[1m]' },
+    });
+    expect(remoteAttach.setModel).toHaveBeenCalledWith('session_01REMOTE', 'sonnet[1m]');
+    expect(remoteAttach.setModel.mock.invocationCallOrder[0]).toBeLessThan(remoteAttach.send.mock.invocationCallOrder[1]);
+    await runtime.shutdownAll();
+  });
+
   it('still refuses a live session that is not linked to claude.ai', async () => {
     const sdk = makeSdk();
     const liveRegistry = makeRegistry([owner({ bridgeSessionId: '' })]);

@@ -1012,6 +1012,9 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
         if (!remoteAttach || !owner.bridgeSessionId) throw new ClaudeSessionLiveElsewhereError(owner);
         // Follow the transcript so the owner's answer streams here.
         if (!followed.has(sessionId)) await getMessages({ sessionID: sessionId, directory: directory || owner.cwd });
+        // Only a model picked in the composer: the owner keeps its own otherwise.
+        const pickedModel = typeof input.model?.modelID === 'string' ? input.model.modelID.trim() : '';
+        if (pickedModel) await remoteAttach.setModel(owner.bridgeSessionId, pickedModel);
         await remoteAttach.send(owner.bridgeSessionId, blocks);
         input.onStarted?.();
         return;

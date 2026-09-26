@@ -24,6 +24,7 @@ import { buildLinkedGuestIssue, buildLinkedIssue, buildLinkedLinearIssue } from 
 import type { AttachIssueRequest, JsonValue } from '@openchamber/sdk';
 import { useSession } from "@/sync/sync-context";
 import { getClaudeLiveState } from '@/lib/claudeSessionMetadata';
+import { resolveSessionSource } from '@/lib/sessionSourceFilter';
 import { takeOverClaudeSession } from '@/lib/claudeTakeOver';
 import { getInlineCommentDraftKey, useInlineCommentDraftStore, type InlineCommentDraft, type InlineCommentDraftTarget } from '@/stores/useInlineCommentDraftStore';
 import { useSnippetsStore } from '@/stores/useSnippetsStore';
@@ -57,6 +58,7 @@ import type { SkillAutocompleteHandle } from './SkillAutocomplete';
 import type { SnippetAutocompleteHandle } from './SnippetAutocomplete';
 import { cn } from "@/lib/utils";
 import { ModelControls } from './ModelControls';
+import { ClaudeModelControls } from './ClaudeModelControls';
 import { focusChatInput } from './composer/editor/dom';
 import { parseAgentMentions } from '@/lib/messages/agentMentions';
 import { CONTEXT_METADATA_KEY, draftFromContextPayload } from '@/lib/messages/contextParts';
@@ -3571,12 +3573,22 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         // and mic icons above them; the buttons drop their own padding so the
         // row alone owns the inset.
         <div className="flex items-center justify-between gap-x-2 px-3.5 pb-2 pt-0.5">
-            <MemoMobileModelButton onOpenModel={() => handleOpenMobilePanel('model')} className="min-w-0 px-0" />
-            <MemoMobileAgentButton
-                onOpenAgentPanel={handleOpenAgentPanel}
-                onCycleAgent={handleCycleAgent}
-                className="flex-shrink-0 px-0"
-            />
+            {currentSessionId && resolveSessionSource({ id: currentSessionId }) === 'claude' ? (
+                <ClaudeModelControls
+                    className="flex-1 justify-start"
+                    sessionId={currentSessionId}
+                    directory={currentSessionDirectoryForSync ?? currentDirectory ?? undefined}
+                />
+            ) : (
+                <>
+                    <MemoMobileModelButton onOpenModel={() => handleOpenMobilePanel('model')} className="min-w-0 px-0" />
+                    <MemoMobileAgentButton
+                        onOpenAgentPanel={handleOpenAgentPanel}
+                        onCycleAgent={handleCycleAgent}
+                        className="flex-shrink-0 px-0"
+                    />
+                </>
+            )}
         </div>
     ) : null;
 

@@ -50,6 +50,20 @@ describe('remote attachments', () => {
     attach.closeAll();
   });
 
+  it('changes the live session\'s model as Claude Desktop does, once per model', async () => {
+    const setModel = vi.fn(async () => {});
+    const sdk = { query: vi.fn(() => Object.assign((async function* stream() {})(), { setModel })) };
+    const attach = createRemoteAttachments({ loadBrowserSdk: async () => sdk, readAccessToken: async () => 'tok' });
+
+    await attach.setModel('session_01ABC', 'sonnet[1m]');
+    await attach.setModel('cse_01ABC', 'sonnet[1m]');
+    await attach.setModel('session_01ABC', 'opus[1m]');
+
+    expect(sdk.query).toHaveBeenCalledTimes(1);
+    expect(setModel.mock.calls).toEqual([['sonnet[1m]'], ['opus[1m]']]);
+    attach.closeAll();
+  });
+
   it('fails without claude.ai credentials', async () => {
     const { sdk } = makeBrowserSdk();
     const attach = createRemoteAttachments({ loadBrowserSdk: async () => sdk, readAccessToken: async () => '' });
