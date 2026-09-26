@@ -33,6 +33,9 @@ const fromPublicId = (publicId) =>
 
 export const isClaudeSessionId = (value) => fromPublicId(value) !== null;
 
+/** `providerID` of a model picked from the Claude catalog (the composer sends it back on `/model`). */
+const CLAUDE_PROVIDER_ID = 'claude';
+
 /** `OPENCHAMBER_CLAUDE_LIST_DISABLED=1` turns the whole surface off: no routes, no sessions in the list. */
 const claudeSurfaceDisabled = () => process.env.OPENCHAMBER_CLAUDE_LIST_DISABLED === '1';
 
@@ -329,13 +332,29 @@ export const createClaudeSurface = (dependencies = {}) => {
         .catch((error) => sendTagged(res, 500, 'UnknownError', error?.message || 'Failed to create session'));
     });
 
+    // The Claude catalog (settings.json `modelPicker`) the composer offers a
+    // Claude session instead of OpenCode's provider list.
+    app.get('/api/claude/models', (_req, res) => runtime
+      .getControlSurface()
+      .then(({ modelSelector, effortSelector }) => res.json({
+        models: modelSelector.options,
+        defaultModelId: modelSelector.defaultOptionId,
+        efforts: effortSelector.options,
+        defaultEffort: effortSelector.defaultOptionId,
+      }))
+      .catch((error) => sendTagged(res, 500, 'UnknownError', error?.message || 'Failed')));
+
     // The composer puts a session on a model/agent before prompting; for
-    // Claude that choice rides the next prompt (model, effort, mode).
+    // Claude that choice rides the next prompt (model, effort, mode). Only a
+    // pick from the Claude catalog counts: the send path also switches every
+    // session to OpenCode's current model, which would overwrite it.
     app.post('/api/session/:id/model', async (req, res, next) => {
       const sessionId = fromPublicId(req.params.id);
       if (!sessionId) return next();
       const body = await readJsonBody(req);
-      selections.set(sessionId, { ...selections.get(sessionId), model: body.model || undefined });
+      if (body.model?.providerID === CLAUDE_PROVIDER_ID) {
+        selections.set(sessionId, { ...selections.get(sessionId), model: body.model });
+      }
       res.status(204).end();
     });
 
@@ -389,8 +408,8 @@ export const createClaudeSurface = (dependencies = {}) => {
       // The turn changes the transcript: the next read must not be the old parse.
       recordCache.delete(sessionId);
       const selection = selections.get(sessionId) || {};
-      // The composer's model comes from OpenCode's provider list: only a
-      // Claude model is passed on, anything else leaves the runtime's own.
+      // Only a model picked from the Claude catalog is held (see /model);
+      // without one the runtime keeps its own.
       const modelId = typeof selection.model?.id === 'string' ? selection.model.id.trim() : '';
       const directory = await workingDirectoryOf(sessionId, directoryOf(req));
       const now = Date.now();
@@ -422,7 +441,7 @@ export const createClaudeSurface = (dependencies = {}) => {
           sessionID: sessionId,
           directory,
           parts,
-          model: modelId.startsWith('claude') ? { modelID: modelId } : undefined,
+          model: modelId ? { modelID: modelId } : undefined,
           agent: selection.agent,
           variant: selection.model?.variant,
           messageID,
@@ -456,7 +475,7 @@ export const createClaudeSurface = (dependencies = {}) => {
         .takeOverSession({
           sessionID: sessionId,
           directory: await workingDirectoryOf(sessionId, directoryOf(req)),
-          model: modelId.startsWith('claude') ? { modelID: modelId } : undefined,
+          model: modelId ? { modelID: modelId } : undefined,
           agent: selection.agent,
           variant: selection.model?.variant,
         })
