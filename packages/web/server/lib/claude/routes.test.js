@@ -92,6 +92,23 @@ describe('POST /api/session/:id/prompt', () => {
     release();
   });
 
+  it('reports a running turn to the proxy\'s active snapshot, and not once it settles', async () => {
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    const query = () => (async function* stream() {
+      await gate;
+      yield { type: 'result', is_error: false };
+    })();
+    const { app, surface } = surfaceApp({ sdk: sdkWith(query) });
+
+    await request(app).post('/api/session/ses_cccsess-1/prompt').send({ id: 'msg_active1', text: 'corre' });
+    expect(await surface.listClaudeActive()).toMatchObject({ 'ses_cccsess-1': { type: 'busy' } });
+
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(await surface.listClaudeActive()).toEqual({});
+  });
+
   it('echoes the prompt on the stream as one inbox event under the client id', async () => {
     const events = [];
     const query = () => (async function* stream() {

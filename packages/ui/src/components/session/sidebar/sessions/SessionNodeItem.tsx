@@ -1638,7 +1638,8 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
                       {sessionSourceIcon ? (
                         <Icon
                           name={sessionSourceIcon}
-                          className="h-3 w-3 flex-shrink-0 text-muted-foreground/70"
+                          className="h-3 w-3 flex-shrink-0"
+                          style={{ color: 'var(--source-claude, var(--muted-foreground))' }}
                           aria-label={t(SESSION_SOURCE_LABEL_KEYS[sessionSource])}
                         />
                       ) : null}

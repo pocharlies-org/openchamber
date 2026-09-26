@@ -935,6 +935,49 @@ export const registerOpenCodeProxy = (app, deps) => {
     return forwardSanitizedSessionListRequest(req, res, next, 'session.list');
   });
 
+  // The polled active snapshot is where the sidebar's running dots reconcile
+  // (absence = idle), and it is OpenCode's — a Claude session running here is
+  // absent from it, so the poll would clear the busy state the Claude runtime
+  // just broadcast. Fold the Claude map into the answer. Registered before the
+  // :sessionID route below, which would otherwise read 'active' as an id.
+  app.get('/api/session/active', async (req, res, next) => {
+    if (typeof claudeSurface?.listClaudeActive !== 'function') return next();
+    try {
+      const upstreamPath = await getRequestUpstreamPath(req);
+      const [result, claude] = await Promise.all([
+        fetchSessionListPayload(upstreamPath, { req }),
+        claudeSurface.listClaudeActive({
+          directory: typeof req.query?.directory === 'string' ? req.query.directory : null,
+        }).catch((error) => {
+          console.log(`[SessionMerge] Claude active-status read failed: ${error?.message ?? error}`);
+          return {};
+        }),
+      ]);
+      if (!result.upstream.ok || !result.isJson || result.parseError) return next();
+      const base = result.payload && typeof result.payload === 'object' && !Array.isArray(result.payload)
+        ? result.payload
+        : {};
+      // The SDK's snapshot schema accepts only `{ type: 'running' }` entries.
+      const merged = { ...base };
+      for (const sessionId of Object.keys(claude)) {
+        if (claude[sessionId]?.type === 'busy' || claude[sessionId]?.type === 'retry') {
+          merged[sessionId] = { type: 'running' };
+        }
+      }
+      res.status(result.upstream.status);
+      res.setHeader('content-type', 'application/json; charset=utf-8');
+      res.json(merged);
+    } catch (error) {
+      if (isAbortError(error)) return;
+      console.error('[proxy] Claude active-status merge error:', error?.message ?? error);
+      if (!res.headersSent) {
+        next(error);
+        return;
+      }
+      res.end();
+    }
+  });
+
   // One session: the same overlay, so a detail read agrees with the list it
   // came from. Everything else about the record is forwarded untouched.
   app.get('/api/session/:sessionID', async (req, res, next) => {
