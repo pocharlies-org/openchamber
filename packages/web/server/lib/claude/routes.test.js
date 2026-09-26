@@ -140,6 +140,59 @@ describe('POST /api/session/:id/prompt', () => {
   });
 });
 
+describe('the Claude model picker', () => {
+  const SETTINGS = {
+    model: 'opus[1m]',
+    modelPicker: {
+      options: [
+        { model: 'opus[1m]', label: 'Opus 5.5 (Anthropic)', description: 'Suscripcion oficial' },
+        { model: 'qwen38-flash-next', label: 'qwen38 residente (local)' },
+      ],
+    },
+  };
+  const withSettings = {
+    readFile: async (file) => {
+      if (String(file).endsWith('settings.json')) return JSON.stringify(SETTINGS);
+      throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+    },
+  };
+
+  it('offers the models of Claude Code\'s own picker, not OpenCode\'s providers', async () => {
+    const { app } = surfaceApp({ fsPromises: withSettings, homeDir: '/home/test' });
+
+    const response = await request(app).get('/api/claude/models');
+
+    expect(response.status).toBe(200);
+    expect(response.body.models).toEqual([
+      { id: 'opus[1m]', label: 'Opus 5.5 (Anthropic)', description: 'Suscripcion oficial' },
+      { id: 'qwen38-flash-next', label: 'qwen38 residente (local)' },
+    ]);
+    expect(response.body.defaultModelId).toBe('opus[1m]');
+    expect(response.body.efforts.map((effort) => effort.id)).toEqual(['low', 'medium', 'high', 'max']);
+  });
+
+  it('runs the next turn on the Claude pick, which the send path\'s OpenCode model does not overwrite', async () => {
+    const query = vi.fn(() => (async function* stream() {
+      yield { type: 'result', is_error: false };
+    })());
+    const sdk = {
+      listSessions: async () => [],
+      getSessionMessages: async () => [],
+      getSessionInfo: async () => null,
+      renameSession: async () => {},
+      query,
+    };
+    const { app } = surfaceApp({ sdk, fsPromises: withSettings, homeDir: '/home/test' });
+
+    await request(app).post('/api/session/ses_cccsess-1/model').send({ model: { providerID: 'claude', id: 'qwen38-flash-next', variant: 'low' } });
+    await request(app).post('/api/session/ses_cccsess-1/model').send({ model: { providerID: 'litellm-local', id: 'q38-flash' } });
+    const response = await request(app).post('/api/session/ses_cccsess-1/prompt').send({ text: 'hi' });
+
+    expect(response.status).toBe(200);
+    expect(query.mock.calls[0][0].options).toMatchObject({ model: 'qwen38-flash-next', effort: 'low' });
+  });
+});
+
 describe('a session live in another process', () => {
   it('answers a prompt with 409 and who holds it', async () => {
     const sdk = {

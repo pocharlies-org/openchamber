@@ -24,6 +24,8 @@ import { useConfigStore } from '@/stores/useConfigStore';
 import { isVSCodeRuntime } from '@/lib/desktop';
 import { isDictationCaptureSupported } from '@/lib/dictation/use-dictation-audio-source';
 import { ModelControls } from '../../ModelControls';
+import { ClaudeModelControls } from '../../ClaudeModelControls';
+import { resolveSessionSource } from '@/lib/sessionSourceFilter';
 import { ComposerActionButtons } from './ComposerActionButtons';
 import { ComposerAttachmentControls } from './ComposerAttachmentControls';
 import { FocusModeButton } from './FocusModeButton';
@@ -297,7 +299,12 @@ export function ComposerFooter(props: ComposerFooterProps) {
                             className="max-w-[22rem] flex-[1_1_12rem] justify-end"
                         />
                         <ComposerCacheTimer sessionId={currentSessionId} directory={directory} />
-                                                                        {parallelRun ? <div className="flex-1" /> : isBtw ? <ModelControls className="flex-1 min-w-0 justify-end" sessionId={modelSessionId ?? null} selection={btwSelection} /> : pinnedSelection ? <ModelControls className="flex-1 min-w-0 justify-end" sessionId={currentSessionId} selection={pinnedSelection} agentSelectable /> : <MemoModelControls className={cn('flex-1 min-w-0 justify-end')} onRunInParallel={onRunInParallel} />}
+                         {parallelRun ? <div className="flex-1" />
+                             : isBtw ? <ModelControls className="flex-1 min-w-0 justify-end" sessionId={modelSessionId ?? null} selection={btwSelection} />
+                             : pinnedSelection ? <ModelControls className="flex-1 min-w-0 justify-end" sessionId={currentSessionId} selection={pinnedSelection} agentSelectable />
+                             : currentSessionId && resolveSessionSource({ id: currentSessionId }) === 'claude'
+                                 ? <ClaudeModelControls className="flex-1" sessionId={currentSessionId} directory={directory} />
+                                 : <MemoModelControls className={cn('flex-1 min-w-0 justify-end')} onRunInParallel={onRunInParallel} />}
                         {!isBtw ? <MemoComposerDictation
                             radius={chatInputRadius}
                             isMobile={isMobile}

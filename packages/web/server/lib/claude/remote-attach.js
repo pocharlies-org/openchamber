@@ -102,7 +102,7 @@ export const createRemoteAttachments = ({
     const abort = new AbortController();
     /** Map<event id, { resolve, reject }> of sends waiting for the worker. */
     const pending = new Map();
-    const attachment = { prompts, abort, pending, idleTimer: null };
+    const attachment = { prompts, abort, pending, idleTimer: null, stream: null, model: null };
 
     const stream = query({
       prompt: prompts,
@@ -124,6 +124,7 @@ export const createRemoteAttachments = ({
         },
       },
     });
+    attachment.stream = stream;
     // The owner's messages reach OpenChamber through its transcript on disk;
     // the stream is drained only to keep the connection flowing.
     void (async () => {
@@ -138,11 +139,8 @@ export const createRemoteAttachments = ({
     return attachment;
   };
 
-  /**
-   * Send a user message to the live session behind `bridgeSessionId`.
-   * Resolves once its owning process has received it.
-   */
-  const send = async (bridgeSessionId, content) => {
+  /** The attachment to `bridgeSessionId`, opened if needed, its idle timer restarted. */
+  const attach = async (bridgeSessionId) => {
     const bridgeId = toBridgeId(bridgeSessionId);
     let attachment = attachments.get(bridgeId);
     if (!attachment) {
@@ -152,6 +150,37 @@ export const createRemoteAttachments = ({
     clearTimeout(attachment.idleTimer);
     attachment.idleTimer = setTimeout(() => close(bridgeId), idleMs);
     attachment.idleTimer.unref?.();
+    return { bridgeId, attachment };
+  };
+
+  /**
+   * Put the live session behind `bridgeSessionId` on `model` for its next
+   * turns, as Claude Desktop's model picker does (a `set_model` control
+   * request its owning process applies). A model already set through this
+   * attachment is not sent again.
+   */
+  const setModel = async (bridgeSessionId, model) => {
+    const { attachment } = await attach(bridgeSessionId);
+    if (!model || attachment.model === model) return;
+    let timer;
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new ClaudeRemoteAttachError('The live session did not acknowledge the model change')), deliveryTimeoutMs);
+      timer.unref?.();
+    });
+    try {
+      await Promise.race([attachment.stream.setModel(model), timeout]);
+    } finally {
+      clearTimeout(timer);
+    }
+    attachment.model = model;
+  };
+
+  /**
+   * Send a user message to the live session behind `bridgeSessionId`.
+   * Resolves once its owning process has received it.
+   */
+  const send = async (bridgeSessionId, content) => {
+    const { bridgeId, attachment } = await attach(bridgeSessionId);
 
     const uuid = randomUUID();
     const delivered = new Promise((resolve, reject) => {
@@ -179,5 +208,5 @@ export const createRemoteAttachments = ({
     for (const bridgeId of Array.from(attachments.keys())) close(bridgeId);
   };
 
-  return { send, closeAll };
+  return { send, setModel, closeAll };
 };
