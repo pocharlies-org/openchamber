@@ -169,6 +169,12 @@ renders `projects`.
   row menu hides `Move to folder`. Their archive/delete actions still
   cover the full subtree, because `collectSessionSubtreeIds` resolves
   descendants from the global cache at action time.
+- The mobile sheet's timeline (`apps/MobileTimelineList.tsx`) keeps that flat
+  lifecycle order but says each project once per consecutive run: a sticky band
+  carries the project icon and label, and each row carries title, status, time
+  and branch. A run is a consecutive stretch only — `groupTimelineRunsByProject`
+  never re-sorts a session, so a project that reappears lower down opens a
+  second band.
 - `worktreeIndex.ts` is the shared exact worktree index (normalized keys,
   project-root exclusion, first-wins dedupe) for Recent/Timeline, project
   grouping, and the session switcher. `recent/sessionLocation.ts` is the single
