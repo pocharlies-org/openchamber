@@ -224,6 +224,24 @@ export const createClaudeSurface = (dependencies = {}) => {
       .map(toSession);
   };
 
+  /**
+   * Which Claude sessions are running right now, as `{ [id]: { type } }`.
+   * `GET /api/session/active` is OpenCode's and OpenCode knows nothing of a
+   * Claude session, so the proxy folds this map into the answer: without it
+   * the sidebar's polled snapshot — where absence means idle — clears the
+   * busy state the runtime's own events just set. In-memory only (the live
+   * processes and the foreign-owner registry), so the list kill switch,
+   * which guards whole-transcript reads, does not apply here.
+   */
+  const listClaudeActive = async (options = {}) => {
+    const snapshot = await runtime.getStatusSnapshot({
+      directory: typeof options.directory === 'string' && options.directory ? options.directory : null,
+    });
+    return Object.fromEntries(
+      Object.entries(snapshot).map(([sessionId, status]) => [toPublicId(sessionId), status]),
+    );
+  };
+
   const directoryOf = (req) => {
     if (typeof req.query?.directory === 'string' && req.query.directory) return req.query.directory;
     const header = req.get?.('x-opencode-directory');
@@ -527,5 +545,5 @@ export const createClaudeSurface = (dependencies = {}) => {
     return runtime;
   };
 
-  return { register, listClaudeSessions, runtime };
+  return { register, listClaudeSessions, listClaudeActive, runtime };
 };
