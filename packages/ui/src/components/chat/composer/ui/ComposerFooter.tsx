@@ -20,6 +20,8 @@ import type { GuestAttachItem } from '@/hooks/useGuestSurfaces';
 import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { ModelControls } from '../../ModelControls';
+import { ClaudeModelControls } from '../../ClaudeModelControls';
+import { resolveSessionSource } from '@/lib/sessionSourceFilter';
 import { ComposerActionButtons } from './ComposerActionButtons';
 import { ComposerAttachmentControls } from './ComposerAttachmentControls';
 import { FocusModeButton } from './FocusModeButton';
@@ -276,7 +278,10 @@ export function ComposerFooter(props: ComposerFooterProps) {
                             className="max-w-[22rem] flex-[1_1_12rem] justify-end"
                         />
                         <ComposerCacheTimer sessionId={currentSessionId} directory={directory} />
-                        {isBtw ? <ModelControls className="flex-1 min-w-0 justify-end" sessionId={modelSessionId ?? null} selection={btwSelection} /> : <MemoModelControls className={cn('flex-1 min-w-0 justify-end')} />}
+                        {isBtw ? <ModelControls className="flex-1 min-w-0 justify-end" sessionId={modelSessionId ?? null} selection={btwSelection} />
+                            : currentSessionId && resolveSessionSource({ id: currentSessionId }) === 'claude'
+                                ? <ClaudeModelControls className="flex-1" sessionId={currentSessionId} directory={directory} />
+                                : <MemoModelControls className={cn('flex-1 min-w-0 justify-end')} />}
                         {!isBtw ? <MemoComposerDictation
                             radius={chatInputRadius}
                             isMobile={isMobile}
