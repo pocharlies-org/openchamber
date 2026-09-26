@@ -12,6 +12,7 @@ import { useSessionUnseenCount } from '@/sync/notification-store';
 import { useHasSessionActivityDuration } from '@/sync/session-activity-timing';
 
 import { MobileProjectIcon, type MobileProjectIconProject } from './MobileProjectIcon';
+import { groupTimelineRunsByProject } from './mobileTimelineGroups';
 import { MobileSessionRenameForm } from './MobileSessionRenameForm';
 import { MobileSessionRowActions, MobileSwipeActionsRow, ROW_ACTION_SLOT_WIDTH, ROW_ACTIONS_WIDTH } from './MobileSessionSwipe';
 import { isSessionInWork } from '@/lib/sessionWorkMetadata';
@@ -131,7 +132,7 @@ const MobileTimelineRow: React.FC<{
   handlers: TimelineRowHandlers;
 }> = ({ entry, active, revealed, confirmingDelete, renaming, handlers }) => {
   const { t } = useI18n();
-  const { session, project, branch } = entry;
+  const { session, branch } = entry;
   const title = session.title?.trim() || t('mobile.sessions.untitled');
   const time = formatRelativeShort(getSessionTimestamp(session));
   const aiRename = useSessionAiRenameAction(session.id, session.directory, revealed || renaming);
@@ -185,31 +186,9 @@ const MobileTimelineRow: React.FC<{
       {(() => {
         const lines = (
           <>
-            <span className="flex min-w-0 items-center gap-2">
-              <MobileProjectIcon project={project} size="sm" />
-              <span className="block min-w-0 flex-1 truncate typography-micro text-muted-foreground">
-                {project.label}
-              </span>
-              {pinned ? (
-                <Icon name="pushpin" className="size-3 shrink-0 text-muted-foreground" aria-label={t('sessions.sidebar.session.status.pinned')} />
-              ) : null}
-              {aiRename.pending ? (
-                <Icon name="loader-4" className="size-3 shrink-0 animate-spin text-primary" aria-label={t('sessions.aiRename.generating')} />
-              ) : isStreaming || showUnreadDot ? (
-                <SessionActivityIndicator
-                  state={isStreaming ? 'running' : 'unread'}
-                  label={isStreaming ? t('sessions.sidebar.session.status.active') : t('sessions.sidebar.session.status.unread')}
-                />
-              ) : null}
-              {showActivityDuration ? (
-                <SessionActivityDuration sessionId={session.id} running={isStreaming} className="shrink-0 typography-micro" />
-              ) : time ? (
-                <span className="shrink-0 typography-micro text-muted-foreground tabular-nums">{time}</span>
-              ) : null}
-            </span>
             {renaming ? (
-              // The title line becomes the editor; project and branch stay put
-              // so the card does not change shape while renaming.
+              // The title line becomes the editor; the branch line stays put so
+              // the card does not change shape while renaming.
               <MobileSessionRenameForm
                 initialTitle={title}
                 indent={0}
@@ -220,8 +199,26 @@ const MobileTimelineRow: React.FC<{
                 onCancel={handlers.onCancelRename}
               />
             ) : (
-              <span className={cn('block min-w-0 truncate typography-ui-label', active ? 'text-primary' : 'text-foreground')}>
-                {title}
+              <span className="flex min-w-0 items-center gap-2">
+                <span className={cn('block min-w-0 flex-1 truncate typography-ui-label', active ? 'text-primary' : 'text-foreground')}>
+                  {title}
+                </span>
+                {pinned ? (
+                  <Icon name="pushpin" className="size-3 shrink-0 text-muted-foreground" aria-label={t('sessions.sidebar.session.status.pinned')} />
+                ) : null}
+                {aiRename.pending ? (
+                  <Icon name="loader-4" className="size-3 shrink-0 animate-spin text-primary" aria-label={t('sessions.aiRename.generating')} />
+                ) : isStreaming || showUnreadDot ? (
+                  <SessionActivityIndicator
+                    state={isStreaming ? 'running' : 'unread'}
+                    label={isStreaming ? t('sessions.sidebar.session.status.active') : t('sessions.sidebar.session.status.unread')}
+                  />
+                ) : null}
+                {showActivityDuration ? (
+                  <SessionActivityDuration sessionId={session.id} running={isStreaming} className="shrink-0 typography-micro" />
+                ) : time ? (
+                  <span className="shrink-0 typography-micro text-muted-foreground tabular-nums">{time}</span>
+                ) : null}
               </span>
             )}
             {branch || hasGoal || hasPendingRequests ? (
@@ -299,8 +296,23 @@ const TimelineEndSentinel: React.FC<{
   return <div ref={sentinelRef} aria-hidden className="h-px w-full" />;
 };
 
-/** Flat "Projects" timeline: every non-archived root project session across
-    all projects and worktrees, in one lifecycle-ordered list. */
+/** Project band that opens a timeline run. Sticky so the folder stays named
+    while a long run scrolls, and quiet enough to read as a label rather than a
+    row: no chevron, no actions, nothing to tap. */
+const TimelineProjectHeader: React.FC<{ project: TimelineProject }> = ({ project }) => (
+  <div className="sticky top-0 z-10 flex min-h-9 w-full items-center gap-2 border-t border-border/70 bg-background px-3 py-1">
+    <MobileProjectIcon project={project} size="sm" />
+    <span className="block min-w-0 flex-1 truncate typography-ui-label font-semibold text-foreground">
+      {project.label}
+    </span>
+  </div>
+);
+
+/** "Projects" timeline: every non-archived root project session across all
+    projects and worktrees, in one lifecycle-ordered list. The list is flat by
+    order but not by label — consecutive rows of the same project sit under one
+    header, because repeating the folder on every row said nothing after the
+    first one. */
 export const MobileTimelineList: React.FC<{
   entries: TimelineEntry[];
   visibleCount: number;
@@ -309,7 +321,10 @@ export const MobileTimelineList: React.FC<{
   handlers: TimelineRowHandlers;
 }> = ({ entries, visibleCount, onRevealMore, scrollRootRef, handlers }) => {
   const { t } = useI18n();
-  const visibleEntries = entries.slice(0, visibleCount);
+  const runs = React.useMemo(
+    () => groupTimelineRunsByProject(entries.slice(0, visibleCount)),
+    [entries, visibleCount],
+  );
 
   return (
     <section className="border-t border-border/70">
@@ -323,20 +338,25 @@ export const MobileTimelineList: React.FC<{
         <span className="shrink-0 typography-micro text-muted-foreground tabular-nums">{entries.length}</span>
       </div>
       <div className="pb-2">
-        {visibleEntries.map((entry) => (entry.kind === 'run' ? (
-          <MobileTimelineRunRow key={`run:${entry.run.key}`} entry={entry} />
-        ) : (
-          <MobileTimelineRow
-            key={entry.session.id}
-            entry={entry}
-            active={handlers.currentSessionId === entry.session.id}
-            revealed={handlers.revealedSessionId === entry.session.id}
-            confirmingDelete={handlers.confirmingDeleteSessionId === entry.session.id}
-            renaming={handlers.renamingSessionId === entry.session.id}
-            handlers={handlers}
-          />
-        )))}
-        {visibleEntries.length < entries.length ? (
+        {runs.map((run) => (
+          <div key={run.key}>
+            <TimelineProjectHeader project={run.project} />
+            {run.entries.map((entry) => (entry.kind === 'run' ? (
+              <MobileTimelineRunRow key={`run:${entry.run.key}`} entry={entry} />
+            ) : (
+              <MobileTimelineRow
+                key={entry.session.id}
+                entry={entry}
+                active={handlers.currentSessionId === entry.session.id}
+                revealed={handlers.revealedSessionId === entry.session.id}
+                confirmingDelete={handlers.confirmingDeleteSessionId === entry.session.id}
+                renaming={handlers.renamingSessionId === entry.session.id}
+                handlers={handlers}
+              />
+            )))}
+          </div>
+        ))}
+        {visibleCount < entries.length ? (
           <TimelineEndSentinel
             scrollRootRef={scrollRootRef}
             visibleCount={visibleCount}
