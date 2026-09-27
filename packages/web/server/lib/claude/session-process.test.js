@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import nodeCrypto from 'crypto';
 
-import { createClaudeSessionProcess } from './session-process.js';
+import { createClaudeSessionProcess, toCliContent } from './session-process.js';
 
 /** A channel the fake CLI writes its output to. */
 const createChannel = () => {
@@ -226,5 +226,23 @@ describe('claude session process', () => {
     expect(onExit).toHaveBeenCalledTimes(1);
     expect(proc.hasExited()).toBe(true);
     await expect(proc.send([{ type: 'text', text: 'late' }])).rejects.toThrow(/exited/);
+  });
+});
+
+describe('toCliContent', () => {
+  it('sends a command as the plain string Claude Code parses', () => {
+    expect(toCliContent([{ type: 'text', text: '/compact' }], { asCommand: true })).toBe('/compact');
+    expect(toCliContent([{ type: 'text', text: '/review src\n\nctx' }], { asCommand: true })).toBe('/review src\n\nctx');
+  });
+
+  it('keeps blocks for a prompt, even one starting with a slash: prose is never parsed as a command', () => {
+    const path = [{ type: 'text', text: '/usr/local/bin/node --version shows 18, why?' }];
+    expect(toCliContent(path)).toBe(path);
+    expect(toCliContent(path, { asCommand: false })).toBe(path);
+  });
+
+  it('keeps blocks when a command somehow carries a non-text block', () => {
+    const withImage = [{ type: 'text', text: '/review' }, { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'x' } }];
+    expect(toCliContent(withImage, { asCommand: true })).toBe(withImage);
   });
 });

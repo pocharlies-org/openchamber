@@ -425,6 +425,16 @@ const handleLocalApiRequest = async (input: RequestInfo | URL, url: URL, init: R
     return unsupportedWebRouteResponse('Remote tunnel settings');
   }
 
+  // Session engines (packages/web/server/lib/engines): the extension host runs
+  // no Claude Code surface, so only OpenCode serves sessions here. Answered
+  // locally and stably; unanswered it would fall through to OpenCode as a 404.
+  if (normalizedPathname === '/api/engines' && method === 'GET') {
+    return jsonResponse({ engines: [{ id: 'opencode', available: true }, { id: 'claude', available: false }] });
+  }
+  if (normalizedPathname.startsWith('/api/claude/')) {
+    return unsupportedWebRouteResponse('Claude Code sessions');
+  }
+
   // OpenChamber-owned session state (archive flags, metadata). OpenCode 2.x
   // has no route for either, so the extension host keeps the same files the
   // OpenChamber server does and folds them onto session reads.

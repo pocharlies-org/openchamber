@@ -8,6 +8,7 @@ import { streamPerfMark } from '@/stores/utils/streamDebug';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { collectSessionSubtreeIds, runSessionSubtreeAction } from './sessionSubtreeActions';
 import { describeSessionActionError } from './sessionActionError';
+import { resolveSessionEngine } from '@/lib/sessionEngine';
 
 export type DeleteSessionSource = {
   archivedBucket?: boolean;
@@ -127,7 +128,11 @@ export const useSessionActions = (args: Args) => {
         // answered, with its log ref, so the failure can be looked up.
         console.error('[session-actions] rename failed', error);
         toast.error(t('sessions.sidebar.session.rename.error', {
-          detail: describeSessionActionError(error instanceof Error ? error : new Error(String(error)), t),
+          detail: describeSessionActionError(
+            error instanceof Error ? error : new Error(String(error)),
+            t,
+            resolveSessionEngine({ id: editingSessionId }),
+          ),
         }));
       }
     }

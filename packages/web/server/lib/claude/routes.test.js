@@ -363,3 +363,319 @@ describe('OPENCHAMBER_CLAUDE_LIST_DISABLED kill switch', () => {
     }
   });
 });
+
+describe('Claude engine: commands, compaction, fork and refusals', () => {
+  // A CLI that records every prompt it is sent and answers each at once.
+  const recordingSdk = (extra = {}) => {
+    const prompts = [];
+    const sdk = {
+      listSessions: async () => [],
+      getSessionMessages: async () => [],
+      getSessionInfo: async (id) => ({ sessionId: id, cwd: '/repo', createdAt: 1, lastModified: 2, summary: 's' }),
+      renameSession: async () => {},
+      forkSession: vi.fn(async () => ({ sessionId: 'forked-1' })),
+      query: ({ prompt }) => (async function* stream() {
+        for await (const message of prompt) {
+          prompts.push(message.message.content);
+          yield { type: 'result', is_error: false };
+        }
+      })(),
+      ...extra,
+    };
+    return { sdk, prompts };
+  };
+  const id = 'ses_ccc11111111-2222-3333-4444-555555555555';
+
+  it('sends a command as `/name args` in a plain string, and answers 204 like OpenCode', async () => {
+    const { sdk, prompts } = recordingSdk();
+    const { app } = surfaceApp({ sdk });
+    const response = await request(app).post(`/api/session/${id}/command`).send({ name: 'review', text: 'src/app.ts' });
+    expect(response.status).toBe(204);
+    await vi.waitFor(() => expect(prompts).toEqual(['/review src/app.ts']));
+  });
+
+  it('sends the context admitted with a command after the command line, in the same message', async () => {
+    const { sdk, prompts } = recordingSdk();
+    const { app } = surfaceApp({ sdk });
+    await request(app).post(`/api/session/${id}/synthetic`).send({ text: 'selected code' });
+    await request(app).post(`/api/session/${id}/command`).send({ name: 'review', text: 'focus on auth' });
+    await vi.waitFor(() => expect(prompts).toHaveLength(1));
+    expect(prompts[0]).toBe('/review focus on auth\n\nselected code');
+    // Consumed with the command: the next prompt does not carry it again.
+    await request(app).post(`/api/session/${id}/prompt`).send({ text: 'go on' });
+    await vi.waitFor(() => expect(prompts).toHaveLength(2));
+    expect(JSON.stringify(prompts[1])).not.toContain('selected code');
+  });
+
+  it('leaves context admitted for the next prompt out of /compact', async () => {
+    const { sdk, prompts } = recordingSdk();
+    const { app } = surfaceApp({ sdk });
+    await request(app).post(`/api/session/${id}/synthetic`).send({ text: 'terminal output' });
+    await request(app).post(`/api/session/${id}/compact`).send({});
+    await vi.waitFor(() => expect(prompts).toHaveLength(1));
+    expect(prompts[0]).toBe('/compact');
+    await request(app).post(`/api/session/${id}/prompt`).send({ text: 'go on' });
+    await vi.waitFor(() => expect(prompts).toHaveLength(2));
+    expect(JSON.stringify(prompts[1])).toContain('terminal output');
+  });
+
+  it('refuses a command with attachments instead of degrading it to prose', async () => {
+    const { sdk, prompts } = recordingSdk();
+    const { app } = surfaceApp({ sdk });
+    const response = await request(app).post(`/api/session/${id}/command`)
+      .send({ name: 'review', text: 'x', files: [{ uri: 'data:image/png;base64,AAAA', name: 'a.png' }] });
+    expect(response.status).toBe(400);
+    expect(response.body).toMatchObject({ _tag: 'UnsupportedOperationError', engine: 'claude', operation: 'commandAttachments' });
+    expect(prompts).toEqual([]);
+  });
+
+  it('sends a prompt that merely starts with a slash as prose (blocks), never as a command', async () => {
+    const { sdk, prompts } = recordingSdk();
+    const { app } = surfaceApp({ sdk });
+    await request(app).post(`/api/session/${id}/prompt`).send({ text: '/usr/local/bin/node --version shows 18, why?' });
+    await vi.waitFor(() => expect(prompts).toHaveLength(1));
+    expect(Array.isArray(prompts[0])).toBe(true);
+  });
+
+  it('puts consumed context back when the turn is refused before it starts', async () => {
+    const prompts = [];
+    let refuse = true;
+    const sdk = {
+      listSessions: async () => [],
+      getSessionMessages: async () => [],
+      getSessionInfo: async (sid) => ({ sessionId: sid, cwd: '/repo', createdAt: 1, lastModified: 2, summary: 's' }),
+      renameSession: async () => {},
+      query: ({ prompt }) => {
+        if (refuse) {
+          refuse = false;
+          throw new Error('CLI failed to start');
+        }
+        return (async function* stream() {
+          for await (const message of prompt) {
+            prompts.push(message.message.content);
+            yield { type: 'result', is_error: false };
+          }
+        })();
+      },
+    };
+    const { app } = surfaceApp({ sdk });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await request(app).post(`/api/session/${id}/synthetic`).send({ text: 'keep me' });
+    const failed = await request(app).post(`/api/session/${id}/prompt`).send({ text: 'first' });
+    expect(failed.status).toBe(500);
+    await request(app).post(`/api/session/${id}/prompt`).send({ text: 'second' });
+    await vi.waitFor(() => expect(prompts).toHaveLength(1));
+    warn.mockRestore();
+    expect(JSON.stringify(prompts[0])).toContain('keep me');
+  });
+
+  it.each(['two words', 'usr/local/bin/node', '', '9lives'])('refuses %j as a command name', async (name) => {
+    const { sdk } = recordingSdk();
+    const { app } = surfaceApp({ sdk });
+    const response = await request(app).post(`/api/session/${id}/command`).send({ name });
+    expect(response.status).toBe(400);
+    expect(response.body._tag).toBe('InvalidRequestError');
+  });
+
+  it('accepts namespaced command names', async () => {
+    const { sdk, prompts } = recordingSdk();
+    const { app } = surfaceApp({ sdk });
+    const response = await request(app).post(`/api/session/${id}/command`).send({ name: 'frontend:component', text: 'Button' });
+    expect(response.status).toBe(204);
+    await vi.waitFor(() => expect(prompts).toEqual(['/frontend:component Button']));
+  });
+
+  it('compacts through Claude Code\'s own /compact', async () => {
+    const { sdk, prompts } = recordingSdk();
+    const { app } = surfaceApp({ sdk });
+    const response = await request(app).post(`/api/session/${id}/compact`).send({});
+    expect(response.status).toBe(200);
+    await vi.waitFor(() => expect(prompts).toEqual(['/compact']));
+  });
+
+  it('forks into a sibling Claude session with a public id', async () => {
+    const { sdk } = recordingSdk();
+    const { app } = surfaceApp({ sdk });
+    const response = await request(app).post(`/api/session/${id}/fork`).send({});
+    expect(response.status).toBe(200);
+    expect(response.body.data.id).toBe('ses_cccforked-1');
+    expect(response.body.data.parentID).toBeUndefined();
+    expect(response.body.data.metadata.backend).toBe('claude');
+  });
+
+  it('answers a fork point it cannot find as a missing message, not a server failure', async () => {
+    const { sdk } = recordingSdk();
+    const { app } = surfaceApp({ sdk });
+    const response = await request(app).post(`/api/session/${id}/fork`).send({ before: 'msg_nope' });
+    expect(response.status).toBe(404);
+    expect(response.body._tag).toBe('MessageNotFoundError');
+  });
+
+  it.each([
+    ['post', 'shell', 'shell'],
+    ['post', 'revert/stage', 'revert'],
+    ['post', 'move', 'move'],
+    ['post', 'generate', 'generate'],
+    ['post', 'permission/req_1', 'permissions'],
+  ])('refuses %s %s with a typed error naming the engine and the operation', async (method, rest, operation) => {
+    const { sdk } = recordingSdk();
+    const { app } = surfaceApp({ sdk });
+    const response = await request(app)[method](`/api/session/${id}/${rest}`).send({});
+    expect(response.status).toBe(400);
+    expect(response.body).toMatchObject({ _tag: 'UnsupportedOperationError', engine: 'claude', operation });
+    expect(response.body.message).toBe(`Claude Code sessions do not support ${operation}`);
+  });
+
+  it('never forwards an OpenCode session\'s command to the Claude engine', async () => {
+    const { sdk, prompts } = recordingSdk();
+    const { app } = surfaceApp({ sdk });
+    const response = await request(app).post('/api/session/ses_native123/command').send({ name: 'review' });
+    expect(response.status).toBe(418);
+    expect(prompts).toEqual([]);
+  });
+
+  it('lists the commands the Claude CLI reported', async () => {
+    const { sdk } = recordingSdk();
+    const { app } = surfaceApp({ sdk });
+    const response = await request(app).get('/api/claude/commands').query({ directory: '/repo' });
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ commands: [] });
+  });
+});
+
+describe('queueTransport: the server queue delivering to a Claude session', () => {
+  const sdkRecording = () => {
+    const prompts = [];
+    return {
+      prompts,
+      sdk: {
+        listSessions: async () => [],
+        getSessionMessages: async () => [],
+        getSessionInfo: async (id) => ({ sessionId: id, cwd: '/repo', createdAt: 1, lastModified: 2, summary: 's' }),
+        renameSession: async () => {},
+        query: ({ prompt }) => (async function* stream() {
+          for await (const message of prompt) {
+            prompts.push(message.message.content);
+            yield { type: 'result', is_error: false };
+          }
+        })(),
+      },
+    };
+  };
+  const id = 'ses_ccc11111111-2222-3333-4444-555555555555';
+
+  it('owns only Claude ids', () => {
+    const { surface } = surfaceApp({ sdk: sdkRecording().sdk });
+    expect(surface.queueTransport.owns(id)).toBe(true);
+    expect(surface.queueTransport.owns('ses_native123')).toBe(false);
+  });
+
+  it('is idle when nothing runs for the session', async () => {
+    const { surface } = surfaceApp({ sdk: sdkRecording().sdk });
+    await expect(surface.queueTransport.isIdle(id)).resolves.toBe(true);
+  });
+
+  it('sends queued text with its context and knowledge ahead, and says the knowledge went out', async () => {
+    const { sdk, prompts } = sdkRecording();
+    const { surface } = surfaceApp({ sdk });
+    const result = await surface.queueTransport.send(id, '/repo', { text: 'go on', context: ['quoted selection'], knowledge: 'project notes' });
+    expect(result).toEqual({ knowledgeDelivered: true });
+    await vi.waitFor(() => expect(prompts).toHaveLength(1));
+    const sent = JSON.stringify(prompts[0]);
+    expect(sent).toContain('quoted selection');
+    expect(sent).toContain('project notes');
+    expect(sent.indexOf('project notes')).toBeLessThan(sent.indexOf('go on'));
+  });
+
+  it('sends a queued `/name` as the command with its context after it, and no knowledge', async () => {
+    const { sdk, prompts } = sdkRecording();
+    const { surface } = surfaceApp({ sdk });
+    const result = await surface.queueTransport.send(id, '/repo', { text: '/review src/app.ts', context: ['selected code'], knowledge: 'project notes' });
+    expect(result).toEqual({ knowledgeDelivered: false });
+    await vi.waitFor(() => expect(prompts).toHaveLength(1));
+    expect(prompts[0]).toBe('/review src/app.ts\n\nselected code');
+  });
+
+  it('sends queued prose that starts with a path as a prompt', async () => {
+    const { sdk, prompts } = sdkRecording();
+    const { surface } = surfaceApp({ sdk });
+    await surface.queueTransport.send(id, '/repo', { text: '/etc/hosts has a stale line, check it' });
+    await vi.waitFor(() => expect(prompts).toHaveLength(1));
+    expect(Array.isArray(prompts[0])).toBe(true);
+  });
+
+  it('never touches the composer\'s pending context, so a retry cannot duplicate it', async () => {
+    const { sdk, prompts } = sdkRecording();
+    const { app, surface } = surfaceApp({ sdk });
+    await surface.queueTransport.send(id, '/repo', { text: 'one', context: ['ctx'] });
+    await vi.waitFor(() => expect(prompts).toHaveLength(1));
+    await request(app).post(`/api/session/${id}/prompt`).send({ text: 'two' });
+    await vi.waitFor(() => expect(prompts).toHaveLength(2));
+    expect(JSON.stringify(prompts[1])).not.toContain('ctx');
+  });
+
+  it('holds Claude items while the surface is switched off: idleness unknown, sends refused', async () => {
+    const { sdk, prompts } = sdkRecording();
+    const { surface } = surfaceApp({ sdk });
+    process.env.OPENCHAMBER_CLAUDE_LIST_DISABLED = '1';
+    try {
+      await expect(surface.queueTransport.isIdle(id)).resolves.toBeNull();
+      await expect(surface.queueTransport.send(id, '/repo', { text: 'x' })).rejects.toThrow('switched off');
+    } finally {
+      delete process.env.OPENCHAMBER_CLAUDE_LIST_DISABLED;
+    }
+    expect(prompts).toEqual([]);
+  });
+});
+
+describe('OpenChamber metadata on Claude sessions', () => {
+  const sdk = {
+    listSessions: async () => [{ sessionId: 'aaaa', cwd: '/repo', createdAt: 1, lastModified: 2, summary: 's' }],
+    getSessionMessages: async () => [],
+    getSessionInfo: async (id) => ({ sessionId: id, cwd: '/repo', createdAt: 1, lastModified: 2, summary: 's' }),
+    renameSession: async () => {},
+    query: () => (async function* stream() {})(),
+  };
+  const stored = { 'ses_cccaaaa': { openchamber: { btwSessionID: 'ses_cccbbbb' }, backend: 'opencode' } };
+  const options = {
+    getStoredMetadata: async (id) => stored[id] ?? {},
+    peekStoredMetadata: (id) => stored[id],
+  };
+
+  it('lays the stored metadata over the record, and the engine stays the server\'s to declare', async () => {
+    const { app } = surfaceApp({ sdk, ...options });
+    const response = await request(app).get('/api/session/ses_cccaaaa');
+    expect(response.status).toBe(200);
+    expect(response.body.data.metadata.openchamber).toEqual({ btwSessionID: 'ses_cccbbbb' });
+    expect(response.body.data.metadata.backend).toBe('claude');
+  });
+
+  it('re-announces the whole record after a metadata change, never the stored part alone', async () => {
+    const published = [];
+    const { surface } = surfaceApp({ sdk, ...options, publishEvent: (event) => published.push(event.payload) });
+    await surface.announceSession('ses_cccaaaa');
+    const update = published.find((event) => event.type === 'session.metadata.updated');
+    expect(update).toBeDefined();
+    const metadata = update.data?.metadata ?? update.properties?.metadata;
+    expect(metadata.backend).toBe('claude');
+    expect(metadata.openchamber).toEqual({ btwSessionID: 'ses_cccbbbb' });
+  });
+});
+
+describe('deleting a Claude session', () => {
+  it('forgets its OpenChamber metadata with it', async () => {
+    const forgotten = [];
+    const sdk = {
+      listSessions: async () => [],
+      getSessionMessages: async () => [],
+      getSessionInfo: async (id) => ({ sessionId: id, cwd: '/repo', createdAt: 1, lastModified: 2, summary: 's' }),
+      renameSession: async () => {},
+      deleteSession: async () => {},
+      query: () => (async function* stream() {})(),
+    };
+    const { app } = surfaceApp({ sdk, forgetStoredMetadata: async (id) => { forgotten.push(id); } });
+    const response = await request(app).delete('/api/session/ses_cccaaaa');
+    expect(response.status).toBe(204);
+    expect(forgotten).toEqual(['ses_cccaaaa']);
+  });
+});

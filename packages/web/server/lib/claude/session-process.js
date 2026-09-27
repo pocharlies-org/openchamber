@@ -63,6 +63,19 @@ const humanText = (content) => {
 };
 
 /**
+ * The content of a prompt as the CLI receives it. A command (`/name args`,
+ * sent through the command route) goes as one plain string: that is the shape
+ * in which Claude Code parses a slash command. Everything else keeps its
+ * blocks, which the CLI reads as prose even when the text starts with `/` —
+ * `/usr/local/bin/node --version` in a prompt is a question, not a command.
+ */
+export const toCliContent = (content, { asCommand = false } = {}) => {
+  if (!asCommand || !Array.isArray(content)) return content;
+  const texts = content.filter((block) => block?.type === 'text' && typeof block.text === 'string');
+  return texts.length === content.length ? texts.map((block) => block.text).join('\n\n') : content;
+};
+
+/**
  * @param {object} dependencies
  * @param {object} dependencies.sdk Agent SDK module (`query`)
  * @param {string} dependencies.sessionId
@@ -404,10 +417,13 @@ export const createClaudeSessionProcess = (dependencies) => {
    * runs the prompt is queued in the CLI, as OpenCode queues one, instead of
    * being refused.
    */
-  const send = (content) => {
+  const send = (content, options = {}) => {
     if (exited) return Promise.reject(new Error('Claude process has exited'));
     return new Promise((resolve, reject) => {
-      const uuid = createUuid();
+      // The caller may name the prompt's transcript uuid, so a record the UI
+      // still holds under its own id can be found in the transcript later
+      // (a fork cut, see runtime `forkSession`).
+      const uuid = typeof options.uuid === 'string' && options.uuid ? options.uuid : createUuid();
       if (turn) queued.set(uuid, { resolve, reject });
       else beginTurn({ resolve, reject });
       sentUuids.add(uuid);
@@ -416,7 +432,7 @@ export const createClaudeSessionProcess = (dependencies) => {
         uuid,
         session_id: sessionId,
         parent_tool_use_id: null,
-        message: { role: 'user', content },
+        message: { role: 'user', content: toCliContent(content, { asCommand: options.asCommand === true }) },
       });
     });
   };
@@ -454,10 +470,21 @@ export const createClaudeSessionProcess = (dependencies) => {
     await endTurn();
   };
 
+  /**
+   * The slash commands this CLI answers (built-ins, the user's and the
+   * project's commands, skills, plugins). Only a running CLI knows them.
+   */
+  const supportedCommands = async () => {
+    if (exited || typeof query.supportedCommands !== 'function') return [];
+    const commands = await query.supportedCommands();
+    return Array.isArray(commands) ? commands : [];
+  };
+
   return {
     send,
     interrupt,
     close,
+    supportedCommands,
     applyModel,
     applyPermissionMode,
     exited: pump,
