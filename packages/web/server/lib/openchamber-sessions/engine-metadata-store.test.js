@@ -50,6 +50,32 @@ describe('engine session metadata', () => {
   });
 });
 
+describe('engine session metadata write failures', () => {
+  it('rolls a failed write back, so memory never claims what the disk does not hold', async () => {
+    const dataDir = tempDir();
+    const failing = {
+      ...fs.promises,
+      writeFile: vi.fn(async () => { throw new Error('disk full'); }),
+    };
+    const store = createEngineSessionMetadata({ dataDir, owns, fsPromises: failing });
+    await expect(store.write('ses_ccc1', { openchamber: { pins: ['m1'] } })).rejects.toThrow('disk full');
+    await expect(store.read('ses_ccc1')).resolves.toEqual({});
+    expect(store.peek('ses_ccc1')).toBeUndefined();
+  });
+
+  it('serializes writes: the last one wins on disk', async () => {
+    const dataDir = tempDir();
+    const store = createEngineSessionMetadata({ dataDir, owns });
+    await Promise.all([
+      store.write('ses_ccc1', { n: 1 }),
+      store.write('ses_ccc1', { n: 2 }),
+      store.write('ses_ccc1', { n: 3 }),
+    ]);
+    const onDisk = JSON.parse(fs.readFileSync(path.join(dataDir, ENGINE_METADATA_FILE_NAME), 'utf8'));
+    expect(onDisk).toEqual({ ses_ccc1: { n: 3 } });
+  });
+});
+
 describe('session metadata store with an engine of its own', () => {
   const openCode = () => ({
     read: vi.fn(async () => ({ opencode: true })),
