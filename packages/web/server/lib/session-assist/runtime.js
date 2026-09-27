@@ -33,6 +33,26 @@ const GENERATION_TIMEOUT_MS = 120_000;
 const TAIL_RECHECK_LIMIT = 8;
 const QUIET_FAILURE_CODES = new Set(['context-too-small', 'output-exhausted']);
 
+// A session that ends with no suggestion is invisible from the outside, and
+// this is the only place that can say why. Kept to the error's own fields, on
+// one line and short: the transcript and the prompt never belong in a log, and
+// a provider error can echo an authorization value, so credentials are cut.
+const GENERATION_FAILURE_DETAIL_LIMIT = 200;
+const withoutCredentials = (value) => value
+  .replace(/\b(Bearer|Basic)\s+[^\s,;]+/gi, '$1 [redacted]')
+  .replace(/\b(sk|pk)-[A-Za-z0-9_-]{8,}\b/g, '[redacted]');
+const describeGenerationFailure = (error, model) => {
+  const parts = [];
+  const statusCode = Number(error?.statusCode);
+  if (Number.isFinite(statusCode) && statusCode > 0) parts.push(`HTTP ${statusCode}`);
+  if (error?.code) parts.push(String(error.code));
+  if (model?.providerID && model?.modelID) parts.push(`${model.providerID}/${model.modelID}`);
+  const message = withoutCredentials(String(error?.message ?? error ?? '')).replace(/\s+/g, ' ').trim()
+    .slice(0, GENERATION_FAILURE_DETAIL_LIMIT);
+  if (message) parts.push(message);
+  return parts.join(' · ') || 'unknown error';
+};
+
 const extractJsonObject = (value) => {
   const text = String(value ?? '').trim();
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
@@ -195,7 +215,7 @@ export const createSessionAssistRuntime = ({
       });
     } catch (error) {
       if (!signal.aborted && Number(error?.statusCode) !== 404 && !QUIET_FAILURE_CODES.has(error?.code)) {
-        console.warn('[session-assist] generation failed');
+        console.warn('[session-assist] generation failed:', describeGenerationFailure(error, described));
       }
       return;
     }
