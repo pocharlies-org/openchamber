@@ -4,8 +4,17 @@ import type { SessionFolder } from '@/stores/useSessionFoldersStore';
 import { useI18n } from '@/lib/i18n';
 import { Icon } from "@/components/icon/Icon";
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { CollapsedActivityIndicator } from './sidebar/sessions/collapsedActivityIndicator';
 import type { CollapsedActivityState } from './sidebar/sessions/collapsedActivityState';
+
+const ADD_SESSION_BUTTON_CLASS =
+  'inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-interactive-hover/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
 
 interface SessionFolderItemProps<TSessionNode> {
   folder: SessionFolder;
@@ -40,6 +49,11 @@ interface SessionFolderItemProps<TSessionNode> {
   isDropTarget?: boolean;
   /** Create a new session scoped to this folder */
   onNewSession?: () => void;
+  /**
+   * Offer the same tool choice as the project "+": with it set, the folder "+"
+   * opens a menu (draft / Claude) instead of jumping straight to the draft.
+   */
+  onNewClaudeSession?: () => void;
   /** Visual indent depth (0 = root folder, 1 = sub-folder) */
   depth?: number;
   /** Hide folder action buttons (rename/delete/new) */
@@ -70,6 +84,7 @@ const SessionFolderItemBase = <TSessionNode,>({
   droppableRef,
   isDropTarget = false,
   onNewSession,
+  onNewClaudeSession,
   depth = 0,
   hideActions = false,
   archivedBucket = false,
@@ -77,6 +92,8 @@ const SessionFolderItemBase = <TSessionNode,>({
   const { t } = useI18n();
   const [localRenaming, setLocalRenaming] = React.useState(false);
   const [localDraft, setLocalDraft] = React.useState('');
+  // The "+" stays visible while its tool-choice menu is open, like the project "+".
+  const [isAddMenuOpen, setIsAddMenuOpen] = React.useState(false);
   const inputRef = React.useRef<HTMLInputElement | null>(null);
 
 
@@ -268,25 +285,57 @@ const SessionFolderItemBase = <TSessionNode,>({
           <div
             className={cn(
               'absolute right-0.5 top-1/2 z-10 flex -translate-y-1/2 items-center gap-0.5 transition-opacity',
-              alwaysShowActions
-                ? 'opacity-100'
-                : 'opacity-0 pointer-events-none group-hover/folder:opacity-100 group-hover/folder:pointer-events-auto group-focus-within/folder:opacity-100 group-focus-within/folder:pointer-events-auto',
+              isAddMenuOpen
+                ? 'opacity-100 pointer-events-auto'
+                : alwaysShowActions
+                  ? 'opacity-100'
+                  : 'opacity-0 pointer-events-none group-hover/folder:opacity-100 group-hover/folder:pointer-events-auto group-focus-within/folder:opacity-100 group-focus-within/folder:pointer-events-auto',
             )}
           >
             <div className="flex items-center gap-0.5">
               {!archivedBucket && onNewSession ? (
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onNewSession();
-                  }}
-                  className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-interactive-hover/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  aria-label={t('sessions.sidebar.folderItem.newSessionAria', { folderName: folder.name })}
-                  title={t('sessions.sidebar.project.actions.newSession')}
-                >
-                  <Icon name="add" className="h-3.5 w-3.5" />
-                </button>
+                onNewClaudeSession ? (
+                  <DropdownMenu open={isAddMenuOpen} onOpenChange={setIsAddMenuOpen}>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                        }}
+                        className={ADD_SESSION_BUTTON_CLASS}
+                        aria-label={t('sessions.sidebar.folderItem.newSessionAria', { folderName: folder.name })}
+                        title={t('sessions.sidebar.project.actions.newSession')}
+                      >
+                        <Icon name="add" className="h-3.5 w-3.5" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="min-w-[180px]">
+                      <DropdownMenuItem onClick={() => onNewSession()}>
+                        <Icon name="add" className="mr-1.5 h-4 w-4" />
+                        {t('sessions.sidebar.project.actions.newSession')}
+                      </DropdownMenuItem>
+                      {/* Like the project "+": a Claude session needs a concrete
+                          directory, and the folder's is exactly that. */}
+                      <DropdownMenuItem onClick={() => onNewClaudeSession()}>
+                        <Icon name="claude-code" className="mr-1.5 h-4 w-4" />
+                        {t('sessions.sidebar.project.actions.newClaudeSession')}
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onNewSession();
+                    }}
+                    className={ADD_SESSION_BUTTON_CLASS}
+                    aria-label={t('sessions.sidebar.folderItem.newSessionAria', { folderName: folder.name })}
+                    title={t('sessions.sidebar.project.actions.newSession')}
+                  >
+                    <Icon name="add" className="h-3.5 w-3.5" />
+                  </button>
+                )
               ) : null}
               {!archivedBucket ? (
                 <button
