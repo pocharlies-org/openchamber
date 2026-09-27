@@ -224,6 +224,7 @@ export const SessionErrorNotice: React.FC<SessionErrorNoticeProps> = ({ sessionI
           )}
         </LongErrorText>
         {!hasDetails && engine.hasOpenCodeStatus ? (
+        {!hasDetails && engine.hasOpenCodeStatus ? (
           <div className="pl-[1.375rem]">
             <Button
               variant="link"
