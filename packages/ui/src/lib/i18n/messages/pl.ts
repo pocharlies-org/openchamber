@@ -1873,6 +1873,8 @@ export const dict: Record<I18nKey, string> = {
   'chat.claudeLive.actions.takeOverAndSend': 'Przejmij i wyślij',
   'chat.claudeLive.actions.openRemote': 'Otwórz w claude.ai',
   'chat.claudeLive.actions.openVSCode': 'Otwórz w VS Code',
+  'chat.claudeLive.toast.vscodeBusy': 'Sesja odpowiada; poczekaj do końca tury i spróbuj ponownie.',
+  'chat.claudeLive.toast.vscodeFailed': 'Nie udało się zwolnić sesji, aby otworzyć ją w VS Code.',
   'chat.claudeLive.toast.takeOverFailed': 'Nie udało się przejąć sesji',
   'chat.claudeLive.toast.sendNeedsTakeOver': 'Ta sesja jest otwarta w innej aplikacji, do której OpenChamber nie ma dostępu',
   'chat.claudeLive.remoteLinked': 'Otwarta także na claude.ai i w aplikacji Claude',

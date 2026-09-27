@@ -1693,6 +1693,8 @@ export const dict: Record<I18nKey, string> = {
   'chat.claudeLive.actions.takeOverAndSend': '接管並傳送',
   'chat.claudeLive.actions.openRemote': '在 claude.ai 中開啟',
   'chat.claudeLive.actions.openVSCode': '在 VS Code 中開啟',
+  'chat.claudeLive.toast.vscodeBusy': '工作階段正在回覆；請等待本輪結束後重試。',
+  'chat.claudeLive.toast.vscodeFailed': '無法釋放工作階段以在 VS Code 中開啟。',
   'chat.claudeLive.toast.takeOverFailed': '無法接管此工作階段',
   'chat.claudeLive.toast.sendNeedsTakeOver': '此工作階段在另一個 OpenChamber 無法連線的應用程式中開啟',
   'chat.claudeLive.remoteLinked': '同時在 claude.ai 與 Claude 應用程式中開啟',

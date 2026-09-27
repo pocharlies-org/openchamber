@@ -852,6 +852,84 @@ describe('claude backend live processes', () => {
   });
 });
 
+describe('claude backend releaseSession', () => {
+  // "Open in VS Code" frees the transcript before the link: the extension
+  // refuses to open a session a live process holds (single writer).
+  const interactiveQuery = () => vi.fn(({ prompt }) => {
+    const queued = [];
+    const waiting = [];
+    let ended = false;
+    const push = (value) => {
+      const next = waiting.shift();
+      if (next) next({ value, done: false });
+      else queued.push(value);
+    };
+    const end = () => {
+      ended = true;
+      for (const next of waiting.splice(0)) next({ value: undefined, done: true });
+    };
+    (async () => {
+      for await (const message of prompt) {
+        push({ ...message, isReplay: true });
+        push({ type: 'result', is_error: false });
+      }
+      end();
+    })();
+    return {
+      [Symbol.asyncIterator]: () => ({
+        next: () => {
+          if (queued.length > 0) return Promise.resolve({ value: queued.shift(), done: false });
+          if (ended) return Promise.resolve({ value: undefined, done: true });
+          return new Promise((resolve) => waiting.push(resolve));
+        },
+      }),
+      interrupt: vi.fn(async () => {}),
+      close: vi.fn(end),
+      setModel: vi.fn(async () => {}),
+      setPermissionMode: vi.fn(async () => {}),
+    };
+  });
+
+  it('closes the process it hosts, leaving the transcript with no writer', async () => {
+    const sdk = makeSdk({ query: interactiveQuery() });
+    const { runtime } = createRuntime({ sdk });
+    await runtime.promptAsync({ sessionID: 'sess-1', parts: [{ type: 'text', text: 'one' }] });
+    const handle = sdk.query.mock.results[0].value;
+
+    expect(await runtime.releaseSession({ sessionID: 'sess-1' })).toEqual({ released: true, busy: false });
+    expect(handle.close).toHaveBeenCalled();
+
+    await runtime.shutdownAll();
+  });
+
+  it('is a no-op when this server hosts nothing for the session', async () => {
+    const sdk = makeSdk({ query: interactiveQuery() });
+    const { runtime } = createRuntime({ sdk });
+
+    expect(await runtime.releaseSession({ sessionID: 'sess-1' })).toEqual({ released: true, busy: false });
+    expect(sdk.query).not.toHaveBeenCalled();
+
+    await runtime.shutdownAll();
+  });
+
+  it('refuses to release while the turn is answering', async () => {
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    const sdk = makeSdk({
+      query: vi.fn(() => makeQuery([(async () => { await gate; return { type: 'result', is_error: false }; })()])),
+    });
+    const { runtime } = createRuntime({ sdk });
+    const running = runtime.promptAsync({ sessionID: 'sess-1', parts: [{ type: 'text', text: 'hi' }] });
+    await vi.waitFor(() => expect(sdk.query).toHaveBeenCalled());
+
+    expect(await runtime.releaseSession({ sessionID: 'sess-1' })).toEqual({ released: false, busy: true });
+
+    release();
+    await running;
+    await runtime.shutdownAll();
+  });
+});
+
 describe('claude backend sessions live in another process', () => {
   const owner = (overrides = {}) => ({
     pid: 4242,

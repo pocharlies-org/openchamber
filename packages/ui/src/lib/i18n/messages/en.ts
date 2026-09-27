@@ -1717,6 +1717,8 @@ export const dict = {
   'chat.claudeLive.actions.takeOverAndSend': 'Take over and send',
   'chat.claudeLive.actions.openRemote': 'Open in claude.ai',
   'chat.claudeLive.actions.openVSCode': 'Open in VS Code',
+  'chat.claudeLive.toast.vscodeBusy': 'The session is answering; wait for the turn to end and try again.',
+  'chat.claudeLive.toast.vscodeFailed': 'Could not free the session to open it in VS Code.',
   'chat.claudeLive.toast.takeOverFailed': 'Could not take the session over',
   'chat.claudeLive.toast.sendNeedsTakeOver': 'This session is open in another app that OpenChamber cannot reach',
   'chat.claudeLive.remoteLinked': 'Also open on claude.ai and in the Claude app',
