@@ -79,8 +79,11 @@ export const useSidebarBulkActions = (args: Args) => {
   const { t } = useI18n();
   const failureDescription = React.useCallback((ids: readonly string[]): { description: string } | undefined => {
     const error = takeSessionActionFailure(ids);
-    // The engine of the sessions acted on: a Claude session's failure is Claude Code's.
-    return error ? { description: describeSessionActionError(error, t, resolveSessionEngine({ id: ids[0] })) } : undefined;
+    // A failure is named after the engine of the sessions acted on only when
+    // they all share one; a mixed batch keeps the generic wording.
+    const engines = new Set(ids.map((id) => resolveSessionEngine({ id })));
+    const engine = engines.size === 1 ? [...engines][0] : 'opencode';
+    return error ? { description: describeSessionActionError(error, t, engine) } : undefined;
   }, [t]);
   const {
     isInlineEditing,

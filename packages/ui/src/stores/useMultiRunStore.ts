@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { Session } from '@/lib/opencode/model';
 import { routeMessage, useSessionUIStore } from '@/sync/session-ui-store';
+import { routeCarriesKnowledge } from '@/sync/message-route';
 import { devtools } from 'zustand/middleware';
 import type { CreateMultiRunParams, CreateMultiRunResult } from '@/types/multirun';
 import { opencodeClient } from '@/lib/opencode/client';
@@ -339,7 +340,7 @@ export const useMultiRunStore = create<MultiRunStore>()(
                         ? [{ text: knowledge.text, synthetic: true, systemContext: 'session-knowledge' }]
                         : undefined,
                     });
-                    if (knowledge.text && route !== 'shell') {
+                    if (knowledge.text && routeCarriesKnowledge(route)) {
                       void reportSessionKnowledgeDelivered(run.worktreePath, run.sessionId, knowledge.signature);
                     }
                   } catch (err) {

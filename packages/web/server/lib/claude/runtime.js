@@ -1142,7 +1142,7 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
 
     const promptUuid = createSessionId(crypto);
     rememberPromptUuid(sessionId, userRecordId, promptUuid);
-    const turnDone = proc.send(blocks, { uuid: promptUuid });
+    const turnDone = proc.send(blocks, { uuid: promptUuid, asCommand: input.asCommand === true });
     // The turn is accepted from here on: every later failure is reported as a
     // `session.error` event, so an HTTP caller can be answered now instead of
     // being held open for the whole turn.
@@ -1161,8 +1161,10 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
   const COMMANDS_TIMEOUT_MS = 5_000;
   const listCommands = async (input = {}) => {
     const directory = normalizeDirectory(input.directory);
-    const live = [...processes.values()].filter((proc) => !proc.hasExited());
-    const proc = live.find((candidate) => directory && candidate.directory === directory) || live[0];
+    // Only a CLI running where the session runs can answer for it: another
+    // project's commands (its .claude/commands) are not this one's.
+    const proc = [...processes.values()].find((candidate) => !candidate.hasExited()
+      && (candidate.directory || '') === directory);
     if (proc) {
       try {
         let timer;
@@ -1180,13 +1182,13 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
             description: typeof command.description === 'string' ? command.description : '',
             argumentHint: typeof command.argumentHint === 'string' ? command.argumentHint : '',
           }));
-        commandCache.set(proc.directory || '', normalized);
-        if (!directory || proc.directory === directory) return normalized;
+        commandCache.set(directory, normalized);
+        return normalized;
       } catch (error) {
         console.warn('[claude-backend] supportedCommands failed:', error?.message || error);
       }
     }
-    return commandCache.get(directory) || commandCache.get('') || [...commandCache.values()][0] || [];
+    return commandCache.get(directory) || [];
   };
 
   const abortSession = async (input = {}) => {
