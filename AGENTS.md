@@ -40,7 +40,6 @@ Shared contracts must define intentional behavior for every applicable runtime: 
 ## Always-On Constraints
 
 - Do not modify `../opencode`; it is a separate repository.
-- Do not run git or GitHub commands unless the user explicitly asks.
 - Do not add dependencies unless explicitly requested.
 - Never add or log secrets, bearer tokens, pairing credentials, or sensitive user data.
 - Keep changes minimal and preserve unrelated worktree changes.
