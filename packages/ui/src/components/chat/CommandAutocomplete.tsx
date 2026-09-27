@@ -108,7 +108,8 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
     if (!engineCommandsArePrompts) return undefined;
     let cancelled = false;
     void fetchClaudeCommands(effectiveDirectory).then((commands) => {
-      if (!cancelled) setClaudeCommands(commands);
+      // A failed read keeps what the menu already shows.
+      if (!cancelled && commands) setClaudeCommands(commands);
     });
     return () => {
       cancelled = true;

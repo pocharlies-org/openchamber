@@ -20,8 +20,6 @@
 
 export type SessionEngine = 'opencode' | 'claude';
 
-export const SESSION_ENGINES: readonly SessionEngine[] = ['opencode', 'claude'];
-
 /** Every boolean operation a session can be asked for (server ENGINE_OPERATIONS). */
 export type EngineOperation =
   | 'prompt'
@@ -43,7 +41,7 @@ export type EngineOperation =
   | 'metadata'
   | 'goals';
 
-export const ENGINE_OPERATIONS: readonly EngineOperation[] = [
+const ENGINE_OPERATIONS: readonly EngineOperation[] = [
   'prompt', 'interrupt', 'rename', 'delete', 'archive', 'synthetic', 'fork', 'forkAtMessage', 'compact',
   'shell', 'revert', 'move', 'generate', 'diff', 'permissions', 'forms', 'metadata', 'goals',
 ];
@@ -139,7 +137,7 @@ const declaredBackend = (session: SessionLike): SessionEngine | null => {
 export const isSessionEngine = (value: unknown): value is SessionEngine =>
   value === 'opencode' || value === 'claude';
 
-export const isClaudeSessionId = (id: string | null | undefined): boolean =>
+const isClaudeSessionId = (id: string | null | undefined): boolean =>
   typeof id === 'string' && CLAUDE_ID_PREFIXES.some((prefix) => id.startsWith(prefix));
 
 export const resolveSessionEngine = (session: SessionLike): SessionEngine =>
@@ -173,10 +171,6 @@ export const mergeDeclaredEngine = (fallback: SessionEngineInfo, declared: unkno
     capabilities,
   });
 };
-
-/** Whether the engine that owns `session` can do `operation`. */
-export const sessionCan = (info: SessionEngineInfo, operation: EngineOperation): boolean =>
-  info.capabilities[operation];
 
 /**
  * An operation the session's engine does not have, refused before it leaves

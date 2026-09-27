@@ -551,3 +551,21 @@ describe('OpenChamber metadata on Claude sessions', () => {
     expect(metadata.openchamber).toEqual({ btwSessionID: 'ses_cccbbbb' });
   });
 });
+
+describe('deleting a Claude session', () => {
+  it('forgets its OpenChamber metadata with it', async () => {
+    const forgotten = [];
+    const sdk = {
+      listSessions: async () => [],
+      getSessionMessages: async () => [],
+      getSessionInfo: async (id) => ({ sessionId: id, cwd: '/repo', createdAt: 1, lastModified: 2, summary: 's' }),
+      renameSession: async () => {},
+      deleteSession: async () => {},
+      query: () => (async function* stream() {})(),
+    };
+    const { app } = surfaceApp({ sdk, forgetStoredMetadata: async (id) => { forgotten.push(id); } });
+    const response = await request(app).delete('/api/session/ses_cccaaaa');
+    expect(response.status).toBe(204);
+    expect(forgotten).toEqual(['ses_cccaaaa']);
+  });
+});
