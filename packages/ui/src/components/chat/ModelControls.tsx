@@ -29,6 +29,7 @@ import { useAgentColors } from '@/hooks/useAgentColors';
 import { useDeviceInfo } from '@/lib/device';
 import { mergeModelMetadataWithLiveModel } from '@/lib/modelMetadata';
 import { getModelDisplayName as getSharedModelDisplayName } from '@/lib/modelDisplay';
+import { compactClaudeQuotaName } from '@/lib/claudeQuotaName';
 import { getEditModeColors } from '@/lib/permissions/editModeColors';
 import { cn } from '@/lib/utils';
 import { agentLabel } from '@/lib/agentLabel';
@@ -1444,7 +1445,11 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
     };
 
     const getModelDisplayName = (model: ProviderModel | undefined, fallbackModelId?: string) => {
-        return getSharedModelDisplayName(model, fallbackModelId, { maxLength: 40 });
+        const name = getSharedModelDisplayName(model, fallbackModelId, { maxLength: 40 });
+        // The pill and the bottom sheet share one thumb-wide line: compact the
+        // quota the opencode-claude plugin publishes inside the name there,
+        // and only there — desktop keeps the countdown at full precision.
+        return isCompact ? compactClaudeQuotaName(name) : name;
     };
 
     const getProviderDisplayName = () => {
