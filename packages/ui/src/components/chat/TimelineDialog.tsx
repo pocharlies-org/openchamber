@@ -1,3 +1,4 @@
+import { useSessionEngineById } from '@/hooks/useSessionEngine';
 import React from 'react';
 import {
     Dialog,
@@ -42,6 +43,8 @@ export const TimelineDialog: React.FC<TimelineDialogProps> = ({
     const { t } = useI18n();
     const { sessionId: currentSessionId, directory: currentSessionDirectory } = useChatSessionSelection();
     const messages = useSessionMessageRecords(currentSessionId ?? '', currentSessionDirectory ?? undefined);
+    // A Claude Code session has no revert: the timeline only offers what its engine can do.
+    const canRevert = useSessionEngineById(currentSessionId).capabilities.revert;
     const revertToMessage = useSessionUIStore((state) => state.revertToMessage);
     const forkFromMessage = useSessionUIStore((state) => state.forkFromMessage);
     const { isMobile, isTablet } = useDeviceInfo();
@@ -356,6 +359,7 @@ export const TimelineDialog: React.FC<TimelineDialogProps> = ({
 
                                         <div className="flex-shrink-0 h-5 flex items-center mr-2">
                                             <div className={cn("gap-1", alwaysShowActions ? "flex" : "hidden group-hover:flex")}>
+                                                {canRevert ? (
                                                 <Tooltip>
                                                     <TooltipTrigger asChild>
                                                         <button
@@ -372,6 +376,7 @@ export const TimelineDialog: React.FC<TimelineDialogProps> = ({
                                                     </TooltipTrigger>
                                                     <TooltipContent sideOffset={6}>{t('chat.timeline.actions.revertFromHere')}</TooltipContent>
                                                 </Tooltip>
+                                                ) : null}
 
                                                 <Tooltip>
                                                     <TooltipTrigger asChild>

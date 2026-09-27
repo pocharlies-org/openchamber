@@ -1,3 +1,4 @@
+import { describeEngineRefusal } from '@/lib/engineErrors';
 import React from 'react';
 import { formatChangeRequestReference } from '@/lib/source-control/identity';
 import { ComposerDictation } from '@/components/dictation/ComposerDictation';
@@ -480,7 +481,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     const isBtwPanelVisible = Boolean((btwPanel.btwSessionId && btwPanel.btwDirectory) || btwPanel.creating || btwPanel.pending);
     const immediateBtwSubmitRef = React.useRef<{ identity: ChatDraftIdentity; text: string } | null>(null);
     const draftCaretModeRef = React.useRef({ btw: isBtwActive, atEnd: isBtwActive });
-    const inputMode = isBtwActive ? 'normal' : storedInputMode;
+    // A session whose engine has no shell (Claude Code) is always in normal mode.
+    const inputMode = isBtwActive || !sessionEngine.capabilities.shell ? 'normal' : storedInputMode;
     // A session promoted out of `/btw` keeps the boundary instructions in its
     // transcript — there is no way to delete a message part — so it has to say
     // they no longer apply.
@@ -1314,7 +1316,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
 
         // A local or extension command is run, not queued: the queue delivers
         // text to the model, and `/compact`, `/btw`, or `/task` mean nothing there.
-        if (planLocalSlashCommand(inputSnapshot.message, inputMode, hasDrafts, true)
+        if (planLocalSlashCommand(inputSnapshot.message, inputMode, hasDrafts, true, sessionEngine.capabilities)
             || routeGuestSlashCommand(inputSnapshot.message, inputMode, guestCommands)) {
             void handleSubmitRef.current();
             return;
@@ -1423,7 +1425,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             return;
         }
         recordLinkedReferences(queueSessionId, queueTarget.directory, linked);
-    }, [getCurrentInputSnapshot, currentSessionId, messageQueueTarget, inputMode, hasDrafts, guestCommands, attachedFiles, sanitizeAttachmentsForSend, prepareDocumentMentions, extractInlineFileMentions, agents, currentDirectory, consumePendingSyntheticParts, mailboxTarget, inlineDraftTarget, consumeDrafts, linkedReferences, scrollToLatest, clearAttachedFiles, chatDraftIdentity, isMobile, isMobileCommentOpen, addToQueue, currentProviderId, currentModelId, currentAgentName, currentVariant, t]);
+    }, [getCurrentInputSnapshot, currentSessionId, messageQueueTarget, inputMode, hasDrafts, sessionEngine.capabilities, guestCommands, attachedFiles, sanitizeAttachmentsForSend, prepareDocumentMentions, extractInlineFileMentions, agents, currentDirectory, consumePendingSyntheticParts, mailboxTarget, inlineDraftTarget, consumeDrafts, linkedReferences, scrollToLatest, clearAttachedFiles, chatDraftIdentity, isMobile, isMobileCommentOpen, addToQueue, currentProviderId, currentModelId, currentAgentName, currentVariant, t]);
 
     /** Put the context a queued message was captured with back on the composer chips. */
     const restoreQueuedContext = React.useCallback((context: readonly QueuedContextPart[]) => {
@@ -1528,6 +1530,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     }, []);
 
     const getSubmitErrorMessage = (error: unknown, fallback: string) => {
+        const refusal = describeEngineRefusal(error, t);
+        if (refusal) return refusal;
         const message = error instanceof Error ? error.message : '';
         return message.toLowerCase().includes('runtime changed')
             ? t('chat.chatInput.toast.messageSendFailed')
@@ -1598,7 +1602,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         // the prompt it produces. A command the composer cannot run here is not
         // a local command at all and goes out as typed.
         let commandPlan = !queuedOnly && inputSnapshot.hasContent
-            ? planLocalSlashCommand(inputSnapshot.message, inputMode, hasDrafts, Boolean(currentSessionId))
+            ? planLocalSlashCommand(inputSnapshot.message, inputMode, hasDrafts, Boolean(currentSessionId), sessionEngine.capabilities)
             : null;
         if (commandPlan?.kind === 'prompt') {
             const magicCommand = findMagicPromptCommand(commandPlan.command.name);
@@ -2215,7 +2219,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 return;
             }
 
-            toast.error(rawMessage || t('chat.chatInput.toast.messageSendFailed'));
+                        toast.error(describeEngineRefusal(error, t) ?? (rawMessage || t('chat.chatInput.toast.messageSendFailed')));
         });
 
         if (!isMobile) {
@@ -2331,7 +2335,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         // Enter shell mode before CodeMirror inserts the trigger. Keeping the
         // document unchanged also keeps the caret at the start for the first
         // command character.
-        if (!isBtwActive && inputMode === 'normal' && e.key === '!') {
+        // An engine without a shell (Claude Code) never enters shell mode: `!` is text.
+        if (!isBtwActive && sessionEngine.capabilities.shell && inputMode === 'normal' && e.key === '!') {
             const selection = composerRef.current?.getSelection();
             if (selection?.start === 0 && selection.end === 0) {
                 e.preventDefault();
@@ -2656,7 +2661,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         // Mobile keyboards and paste may update the document without a usable
         // keydown, so consume the trigger in the same editor transaction rather
         // than moving the caret in a later frame against stale text.
-        if (!isBtwActive && inputMode === 'normal' && value.startsWith('!')) {
+        if (!isBtwActive && sessionEngine.capabilities.shell && inputMode === 'normal' && value.startsWith('!')) {
             const shellCommand = value.slice(1);
             const nextCursor = Math.max(0, selection.start - 1);
             setInputMode('shell');

@@ -1,3 +1,4 @@
+import { useSessionEngineById } from '@/hooks/useSessionEngine';
 import React from 'react';
 import { modelVariantNames } from '@/lib/modelVariants';
 import { findCatalogModel, type Message, type Part } from '@/lib/opencode/model';
@@ -636,6 +637,11 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
         return true;
     }, [isUser, messageTextContent]);
 
+    // What the session's engine can do: a Claude Code session has no revert.
+    const sessionEngine = useSessionEngineById(sessionId);
+    const canRevert = sessionEngine.capabilities.revert;
+    const canForkAtMessage = sessionEngine.capabilities.forkAtMessage;
+
     const handleRevert = React.useCallback(() => {
         if (!sessionId || !message.info.id) return;
         useSessionUIStore.getState().revertToMessage(sessionId, message.info.id);
@@ -823,8 +829,8 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                                                 copiedMessage={copiedMessage}
                                                 showReasoningTraces={showReasoningTraces}
                                                 agentMention={agentMention}
-                                                onRevert={handleRevert}
-                                                onFork={isUser ? handleFork : undefined}
+                                                onRevert={canRevert ? handleRevert : undefined}
+                                                onFork={isUser && canForkAtMessage ? handleFork : undefined}
                                                 contextPinned={isPinnedIntoContext}
                                                 contextPinPending={pinPending}
                                                 onToggleContextPin={canPinIntoContext && messageCreatedAt ? handleToggleContextPin : undefined}
@@ -860,8 +866,8 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                                                 copiedMessage={copiedMessage}
                                                 showReasoningTraces={showReasoningTraces}
                                                 agentMention={agentMention}
-                                                onRevert={handleRevert}
-                                                onFork={isUser ? handleFork : undefined}
+                                                onRevert={canRevert ? handleRevert : undefined}
+                                                onFork={isUser && canForkAtMessage ? handleFork : undefined}
                                                 contextPinned={isPinnedIntoContext}
                                                 contextPinPending={pinPending}
                                                 onToggleContextPin={canPinIntoContext && messageCreatedAt ? handleToggleContextPin : undefined}

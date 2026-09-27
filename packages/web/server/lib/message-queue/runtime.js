@@ -231,6 +231,10 @@ export function createMessageQueueRuntime({
   // Resolves the `openchamber/auto` sentinel into a real model and agent right
   // before the send; absent means the queue never sees the sentinel.
   resolveAutoSelection = null,
+  // Another session engine's delivery (the Claude surface's `queueTransport`,
+  // lib/claude/routes.js), read at dispatch time: it is created after the
+  // queue. A session it owns is never sent to OpenCode, which does not know it.
+  getEngineTransport = null,
   dataDir,
   fetchImpl = fetch,
   now = Date.now,
@@ -414,12 +418,22 @@ export function createMessageQueueRuntime({
 
   /** True while a subagent of the session runs; null when it could not be checked. */
   const hasWorkingSubagents = async (sessionId) => {
+    // An engine of its own reports a turn with its subagents as one status.
+    if (engineTransportFor(sessionId)) return false;
     const statuses = await activityProbe.fetchActiveSessionStatuses();
     if (!statuses) return null;
     return activityProbe.hasWorkingChildren(sessionId, statuses);
   };
 
+  /** The engine transport that owns `sessionId`, or null for an OpenCode session. */
+  const engineTransportFor = (sessionId) => {
+    const transport = typeof getEngineTransport === 'function' ? getEngineTransport() : null;
+    return transport && transport.owns(sessionId) ? transport : null;
+  };
+
   const isSessionIdle = async (sessionId, directory) => {
+    const transport = engineTransportFor(sessionId);
+    if (transport) return transport.isIdle(sessionId, directory).catch(() => null);
     // `/api/session/active` is global and lists only the sessions that are
     // running right now, so an absent entry means idle.
     // The route answers `{ data: { [id]: { type: 'running' } } }`; the shared
@@ -485,7 +499,31 @@ export function createMessageQueueRuntime({
       : [withMetadata];
   };
 
+  /**
+   * Deliver to a session of another engine: its own transport, with the
+   * captured context and standing knowledge admitted ahead of the text. The
+   * OpenCode model/agent switch and command lookup do not apply to it.
+   */
+  const sendItemThroughEngine = async (transport, sessionId, directory, item) => {
+    const knowledge = sessionKnowledgeRuntime
+      ? await sessionKnowledgeRuntime.resolvePendingForSession(sessionId, directory)
+        .catch(() => ({ text: '', signature: '' }))
+      : { text: '', signature: '' };
+    const context = item.context.flatMap(toContextMessages).map((message) => message.text);
+    if (knowledge.text) context.push(knowledge.text);
+    await transport.send(sessionId, directory, {
+      text: item.text,
+      files: item.attachments.map(toPromptFile),
+      context,
+    });
+    if (knowledge.text && sessionKnowledgeRuntime) {
+      await sessionKnowledgeRuntime.recordDelivered(sessionId, directory, knowledge.signature).catch(() => undefined);
+    }
+  };
+
   const sendItem = async (sessionId, directory, item) => {
+    const transport = engineTransportFor(sessionId);
+    if (transport) return sendItemThroughEngine(transport, sessionId, directory, item);
     const { providerID, modelID, variant } = item.sendConfig;
     let agent = item.sendConfig.agent;
     let model = { id: modelID, providerID, ...(variant ? { variant } : {}) };

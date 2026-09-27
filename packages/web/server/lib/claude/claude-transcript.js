@@ -250,12 +250,105 @@ const buildAssistantParts = (blocks, toolOutputs, { sessionId, recordId, started
  * @param {{ sessionId?: string, providerId?: string }} options
  * @returns {Array<{info: object, parts: Array<object>}>}
  */
+/**
+ * The entries record ids are numbered over: user and assistant messages of the
+ * main chain. Subagent output belongs to the parent tool call, not to it.
+ * Shared with {@link findForkCut}, which must number them the same way.
+ */
+const mainChain = (messages) => asArray(messages).filter((message) => {
+  if (message?.parent_tool_use_id) return false;
+  return message?.type === 'user' || message?.type === 'assistant';
+});
+
+/**
+ * Where to cut a transcript so a fork keeps everything strictly BEFORE the
+ * record the UI names — OpenCode's `fork({ before })`. The Agent SDK's
+ * `forkSession` slices up to a message uuid INCLUSIVE, so the cut is the entry
+ * right before the record's first entry.
+ *
+ * @param {Array} messages SessionMessage[] from the Agent SDK
+ * @param {string} recordId a record id as {@link mapClaudeSessionMessages} built it,
+ *   or one a live turn streamed: `msg_<API message id>` for an answer
+ * @param {{ uuid?: string | null }} [options] the transcript uuid a prompt was
+ *   sent with, for a prompt the UI still holds under its own client id
+ * @returns {{ found: false } | { found: true, upToMessageId: string | null }}
+ *   `upToMessageId: null` when the record is the first one: nothing precedes it.
+ */
+export const findForkCut = (messages, recordId, { uuid = null } = {}) => {
+  const ordered = mainChain(messages);
+  // A live turn streams its answer as `msg_<API message id>` (session-process.js).
+  const apiMessageId = typeof recordId === 'string' && recordId.startsWith('msg_') ? recordId.slice(4) : '';
+  const matches = (message, index) =>
+    buildClaudeRecordId(toMillis(message.timestamp), index + 1, message.uuid) === recordId
+    || (typeof uuid === 'string' && uuid !== '' && message.uuid === uuid)
+    || (message.type === 'assistant' && apiMessageId !== '' && message.message?.id === apiMessageId);
+  for (let index = 0; index < ordered.length; index += 1) {
+    const message = ordered[index];
+    if (!matches(message, index)) continue;
+    for (let back = index - 1; back >= 0; back -= 1) {
+      const uuid = ordered[back]?.uuid;
+      if (typeof uuid === 'string' && uuid) return { found: true, upToMessageId: uuid };
+    }
+    return { found: true, upToMessageId: null };
+  }
+  return { found: false };
+};
+
+/**
+ * What a `type: 'user'` transcript entry really is. Claude Code records more
+ * than prompts under that type, and read back as prompts they become the
+ * user's own bubbles full of XML — and, being the last "user" message, make
+ * the UI report a reply that never began:
+ *
+ * - `isMeta`: a caveat the CLI injects for the model (local-command notices);
+ *   not the user's, never shown.
+ * - `isCompactSummary`: the summary a compaction left behind.
+ * - `<command-name>/x</command-name>…`: a local slash command the user ran.
+ * - `<local-command-stdout>…`: that command's output — its answer.
+ * - `<bash-input>…` / `<bash-stdout>…`: a `!command` run from the terminal or
+ *   VS Code, and its output.
+ */
+const ANSI_ESCAPES = /\u001b\[[0-9;?]*[ -/]*[@-~]/g;
+
+const tagContent = (text, tag) => {
+  const match = new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`).exec(text);
+  return match ? match[1] : null;
+};
+
+const joinOutputs = (...outputs) => outputs
+  .filter((output) => typeof output === 'string' && output.trim())
+  .map((output) => output.replace(ANSI_ESCAPES, '').trim())
+  .join('\n');
+
+export const classifyUserEntry = (message, blocks) => {
+  if (message?.isMeta) return { kind: 'skip' };
+  const text = asArray(blocks)
+    .filter((block) => block?.type === 'text' && typeof block.text === 'string')
+    .map((block) => block.text)
+    .join('\n')
+    .trim();
+  if (message?.isCompactSummary) return { kind: 'compaction', summary: text };
+  const commandName = tagContent(text, 'command-name');
+  if (commandName !== null && commandName.trim()) {
+    const name = commandName.trim().startsWith('/') ? commandName.trim() : `/${commandName.trim()}`;
+    const args = (tagContent(text, 'command-args') || '').trim();
+    return { kind: 'command', text: args ? `${name} ${args}` : name };
+  }
+  const stdout = tagContent(text, 'local-command-stdout');
+  const stderr = tagContent(text, 'local-command-stderr');
+  if (stdout !== null || stderr !== null) return { kind: 'command-output', text: joinOutputs(stdout, stderr) };
+  const bashInput = tagContent(text, 'bash-input');
+  if (bashInput !== null) return { kind: 'shell', command: bashInput.trim() };
+  const bashStdout = tagContent(text, 'bash-stdout');
+  const bashStderr = tagContent(text, 'bash-stderr');
+  if (bashStdout !== null || bashStderr !== null) {
+    return { kind: 'shell-output', output: joinOutputs(bashStdout, bashStderr), failed: Boolean(bashStderr && bashStderr.trim()) };
+  }
+  return { kind: 'prompt' };
+};
+
 export const mapClaudeSessionMessages = (messages, { sessionId = '', providerId = 'claude' } = {}) => {
-  const ordered = asArray(messages).filter((message) => {
-    // Subagent output belongs to the parent tool call, not to the main chain.
-    if (message?.parent_tool_use_id) return false;
-    return message?.type === 'user' || message?.type === 'assistant';
-  });
+  const ordered = mainChain(messages);
 
   const toolOutputs = collectToolOutputs(ordered);
 
@@ -264,6 +357,9 @@ export const mapClaudeSessionMessages = (messages, { sessionId = '', providerId 
   const turns = [];
   const assistantTurns = new Map();
 
+  // The `!command` a `<bash-stdout>` entry belongs to (the entry before it).
+  let openShell = null;
+
   ordered.forEach((message, index) => {
     const created = toMillis(message.timestamp);
 
@@ -271,15 +367,52 @@ export const mapClaudeSessionMessages = (messages, { sessionId = '', providerId 
       const blocks = contentBlocks(message.message);
       if (blocks.length === 0 || isToolResultOnly(blocks)) return;
       const id = buildClaudeRecordId(created, index + 1, message.uuid);
-      turns.push({
-        kind: 'user',
-        id,
-        created,
-        completed: created,
-        blocks,
-      });
-      return;
+      const entry = classifyUserEntry(message, blocks);
+      if (entry.kind !== 'shell-output') openShell = null;
+      switch (entry.kind) {
+        case 'skip':
+          return;
+        case 'compaction': {
+          // Run by `/compact` when that command follows it; otherwise the CLI
+          // compacted on its own because the context ran out.
+          const manual = ordered.slice(index + 1, index + 4).some((next) => next?.type === 'user'
+            && classifyUserEntry(next, contentBlocks(next.message)).text === '/compact');
+          turns.push({ kind: 'compaction', id, created, completed: created, summary: entry.summary, reason: manual ? 'manual' : 'auto' });
+          return;
+        }
+        case 'command':
+          turns.push({ kind: 'user', id, created, completed: created, blocks: [{ type: 'text', text: entry.text }] });
+          return;
+        case 'command-output':
+          // The command's answer, so the turn reads as answered.
+          turns.push({
+            kind: 'assistant',
+            id,
+            created,
+            completed: created,
+            modelId: '',
+            usage: undefined,
+            blocks: entry.text ? [{ block: { type: 'text', text: entry.text } }] : [],
+          });
+          return;
+        case 'shell':
+          openShell = { kind: 'shell', id, created, completed: created, command: entry.command, output: '', failed: false };
+          turns.push(openShell);
+          return;
+        case 'shell-output':
+          if (openShell) {
+            openShell.output = entry.output;
+            openShell.failed = entry.failed;
+            openShell.completed = created;
+            openShell = null;
+          }
+          return;
+        default:
+          turns.push({ kind: 'user', id, created, completed: created, blocks });
+          return;
+      }
     }
+    openShell = null;
 
     const messageId = typeof message.message?.id === 'string' ? message.message.id : '';
     const existing = messageId ? assistantTurns.get(messageId) : undefined;
@@ -309,6 +442,34 @@ export const mapClaudeSessionMessages = (messages, { sessionId = '', providerId 
   let lastUserRecordId = '';
 
   return turns.map((turn) => {
+    if (turn.kind === 'compaction') {
+      return {
+        info: {
+          id: turn.id,
+          sessionID: sessionId,
+          role: 'compaction',
+          time: { created: toIso(turn.created), completed: toIso(turn.completed) },
+          status: 'completed',
+          reason: turn.reason,
+          summary: turn.summary,
+        },
+        parts: [],
+      };
+    }
+    if (turn.kind === 'shell') {
+      return {
+        info: {
+          id: turn.id,
+          sessionID: sessionId,
+          role: 'shell',
+          time: { created: toIso(turn.created), completed: toIso(turn.completed) },
+          command: turn.command,
+          output: turn.output,
+          exit: turn.failed ? 1 : 0,
+        },
+        parts: [],
+      };
+    }
     const isAssistant = turn.kind === 'assistant';
     const modelId = isAssistant ? turn.modelId : '';
     const parts = isAssistant
