@@ -1,28 +1,21 @@
 import type { IconName } from '@/components/icon/icons';
+import { resolveSessionEngine, type SessionEngine } from '@/lib/sessionEngine';
 
-export type SessionSource = 'opencode' | 'claude';
+export type SessionSource = SessionEngine;
 
 export type SessionSourceFilter = SessionSource | 'all';
 
-type SessionLike = { id?: string | null };
+type SessionLike = { id?: string | null; metadata?: unknown };
 
-// `ses_ccc…` es una sesión de Claude Code y `ses_ccs…` uno de sus subagentes
-// (los ids que publica el backend Claude de lib/claude/routes.js). Cualquier
-// otro id es una sesión nativa de opencode.
+// Se clasifica por QUÉ HERRAMIENTA es dueña de la sesión y NO por el modelo:
+// una sesión de opencode servida por el proveedor `claude-code` sigue siendo de
+// opencode (se continúa desde opencode y vive en su base de datos). Para la
+// familia de LLM ya está `resolveSessionModelBadge`.
 //
-// Se clasifica por el id y NO por el modelo a propósito: lo que se filtra aquí
-// es QUÉ HERRAMIENTA es dueña de la sesión, no con qué modelo corre. Una sesión
-// de opencode servida por el proveedor `claude-code` sigue siendo de opencode:
-// se continúa desde opencode y vive en su base de datos. Para lo otro —la
-// familia de LLM— ya está `resolveSessionModelBadge`, y son preguntas distintas.
-const CLAUDE_ID_PREFIXES = ['ses_ccc', 'ses_ccs'] as const;
-
+// El dueño lo declara el servidor (`metadata.backend`); el prefijo del id solo
+// es el respaldo para una sesión que se conoce solo por id. Ver sessionEngine.ts.
 export function resolveSessionSource(session: SessionLike | undefined | null): SessionSource {
-  const id = session?.id ?? '';
-  if (CLAUDE_ID_PREFIXES.some((prefix) => id.startsWith(prefix))) {
-    return 'claude';
-  }
-  return 'opencode';
+  return resolveSessionEngine(session);
 }
 
 /**
