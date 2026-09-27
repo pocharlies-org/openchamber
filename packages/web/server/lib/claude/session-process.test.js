@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import nodeCrypto from 'crypto';
 
-import { asCliContent, createClaudeSessionProcess } from './session-process.js';
+import { createClaudeSessionProcess, toCliContent } from './session-process.js';
 
 /** A channel the fake CLI writes its output to. */
 const createChannel = () => {
@@ -229,18 +229,20 @@ describe('claude session process', () => {
   });
 });
 
-describe('asCliContent', () => {
-  it('sends a lone slash command as the plain string Claude Code recognizes', () => {
-    expect(asCliContent([{ type: 'text', text: '/compact' }])).toBe('/compact');
-    expect(asCliContent([{ type: 'text', text: '/review src/app.ts' }])).toBe('/review src/app.ts');
+describe('toCliContent', () => {
+  it('sends a command as the plain string Claude Code parses', () => {
+    expect(toCliContent([{ type: 'text', text: '/compact' }], { asCommand: true })).toBe('/compact');
+    expect(toCliContent([{ type: 'text', text: '/review src\n\nctx' }], { asCommand: true })).toBe('/review src\n\nctx');
   });
 
-  it('keeps blocks for everything else: prose, several blocks, attachments', () => {
-    const prose = [{ type: 'text', text: 'hello /not-a-command' }];
-    expect(asCliContent(prose)).toBe(prose);
-    const withContext = [{ type: 'text', text: 'context' }, { type: 'text', text: '/compact' }];
-    expect(asCliContent(withContext)).toBe(withContext);
-    const image = [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'x' } }];
-    expect(asCliContent(image)).toBe(image);
+  it('keeps blocks for a prompt, even one starting with a slash: prose is never parsed as a command', () => {
+    const path = [{ type: 'text', text: '/usr/local/bin/node --version shows 18, why?' }];
+    expect(toCliContent(path)).toBe(path);
+    expect(toCliContent(path, { asCommand: false })).toBe(path);
+  });
+
+  it('keeps blocks when a command somehow carries a non-text block', () => {
+    const withImage = [{ type: 'text', text: '/review' }, { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'x' } }];
+    expect(toCliContent(withImage, { asCommand: true })).toBe(withImage);
   });
 });

@@ -37,6 +37,12 @@ export const isClaudeSessionId = (value) => fromPublicId(value) !== null;
 /** `providerID` of a model picked from the Claude catalog (the composer sends it back on `/model`). */
 const CLAUDE_PROVIDER_ID = 'claude';
 
+/**
+ * What a Claude Code command name looks like: `review`, `plugin:command`,
+ * `my-skill`. A path (`/usr/local/bin/node`) or prose is not one.
+ */
+export const isCommandName = (name) => typeof name === 'string' && /^[A-Za-z][A-Za-z0-9:._-]*$/.test(name);
+
 /** `OPENCHAMBER_CLAUDE_LIST_DISABLED=1` turns the whole surface off: no routes, no sessions in the list. */
 const claudeSurfaceDisabled = () => process.env.OPENCHAMBER_CLAUDE_LIST_DISABLED === '1';
 
@@ -342,29 +348,62 @@ export const createClaudeSurface = (dependencies = {}) => {
    * backend unavailable, nothing to send) rejects. Shared by the HTTP routes
    * and by the server's message queue (`queueTransport`).
    *
-   * `withContext: false` is a command: it must reach the CLI as its own
-   * message, so context admitted for the next prompt stays pending for it.
+   * Context reaches the turn two ways: `pendingContext` (what the composer
+   * admitted through `/synthetic`, consumed unless `withPending` is false)
+   * and `context` (handed in directly by the queue, which never parks
+   * anything). A refusal puts consumed pending context back, so it is neither
+   * lost nor duplicated by a retry.
+   *
+   * `asCommand`: `text` is `/name args`, sent as the one plain string Claude
+   * Code parses as a command; context rides after the command line, in the
+   * same message, and attachments are not allowed (the CLI would read the
+   * command as prose).
    */
-  const beginTurn = async (sessionId, { text, files = [], withContext = true, directoryHint, clientMessageId }) => {
-    const context = withContext ? pendingContext.get(sessionId) || [] : [];
-    const parts = [
-      ...context.map((entry) => ({ type: 'text', text: entry })),
-      ...(text ? [{ type: 'text', text }] : []),
-      ...files
-        .filter((file) => file && typeof file.uri === 'string')
-        .map((file) => ({ type: 'file', url: file.uri, filename: file.name })),
-    ];
-    if (parts.length === 0) {
+  const beginTurn = async (sessionId, {
+    text,
+    files = [],
+    context = [],
+    withPending = true,
+    asCommand = false,
+    directoryHint,
+    clientMessageId,
+  }) => {
+    const pending = withPending ? pendingContext.get(sessionId) || [] : [];
+    const admitted = [...pending, ...context].filter((entry) => typeof entry === 'string' && entry.trim());
+    const fileParts = files
+      .filter((file) => file && typeof file.uri === 'string')
+      .map((file) => ({ type: 'file', url: file.uri, filename: file.name }));
+    if (asCommand && fileParts.length > 0) {
+      throw Object.assign(new Error('Claude Code commands take no attachments'), { code: 'COMMAND_ATTACHMENTS' });
+    }
+    const parts = asCommand
+      ? [{ type: 'text', text: [text, ...admitted].join('\n\n') }]
+      : [
+        ...admitted.map((entry) => ({ type: 'text', text: entry })),
+        ...(text ? [{ type: 'text', text }] : []),
+        ...fileParts,
+      ];
+    if (parts.length === 0 || (asCommand && !text)) {
       throw Object.assign(new Error('No text or attachment in prompt'), { code: 'EMPTY_PROMPT' });
     }
-    if (withContext) pendingContext.delete(sessionId);
+    if (withPending) pendingContext.delete(sessionId);
+    const restorePending = () => {
+      if (!withPending || pending.length === 0) return;
+      pendingContext.set(sessionId, [...pending, ...(pendingContext.get(sessionId) || [])]);
+    };
     // The turn changes the transcript: the next read must not be the old parse.
     recordCache.delete(sessionId);
     const selection = selections.get(sessionId) || {};
     // Only a model picked from the Claude catalog is held (see /model);
     // without one the runtime keeps its own.
     const modelId = typeof selection.model?.id === 'string' ? selection.model.id.trim() : '';
-    const directory = await workingDirectoryOf(sessionId, directoryHint);
+    let directory;
+    try {
+      directory = await workingDirectoryOf(sessionId, directoryHint);
+    } catch (error) {
+      restorePending();
+      throw error;
+    }
     const now = Date.now();
     const messageID = typeof clientMessageId === 'string' && clientMessageId.startsWith('msg_')
       ? clientMessageId
@@ -381,6 +420,7 @@ export const createClaudeSurface = (dependencies = {}) => {
           sessionID: sessionId,
           directory,
           parts,
+          asCommand,
           model: modelId ? { modelID: modelId } : undefined,
           agent: selection.agent,
           variant: selection.model?.variant,
@@ -393,6 +433,7 @@ export const createClaudeSurface = (dependencies = {}) => {
           // `session.error` event; only a refusal before it rejects here.
           if (settled) return;
           settled = true;
+          restorePending();
           reject(error);
         });
     });
@@ -400,18 +441,20 @@ export const createClaudeSurface = (dependencies = {}) => {
   };
 
   /** A turn from an HTTP route: answer `res` once it is accepted, as OpenCode does. */
-  const startTurn = async (req, res, sessionId, { text, files = [], body = {}, answer: answerAs = 'item', withContext = true }) => {
+  const startTurn = async (req, res, sessionId, { text, files = [], body = {}, answer: answerAs = 'item', withPending = true, asCommand = false }) => {
     let turn;
     try {
       turn = await beginTurn(sessionId, {
         text,
         files,
-        withContext,
+        withPending,
+        asCommand,
         directoryHint: directoryOf(req),
         clientMessageId: body.id,
       });
     } catch (error) {
       if (error?.code === 'EMPTY_PROMPT') return sendTagged(res, 400, 'InvalidRequestError', error.message);
+      if (error?.code === 'COMMAND_ATTACHMENTS') return sendUnsupportedOperation(res, 'claude', 'commandAttachments');
       return sendPromptError(res, error);
     }
     if (answerAs === 'empty') return res.status(204).end();
@@ -428,39 +471,54 @@ export const createClaudeSurface = (dependencies = {}) => {
   };
 
   /**
+   * `/name args` when `text` is a command the CLI knows — by its name's shape
+   * and, once a CLI has reported its commands, by that list — else null.
+   */
+  const commandIn = async (text, directory) => {
+    const match = /^\/(\S+)(?:\s+([\s\S]*))?$/.exec(typeof text === 'string' ? text.trim() : '');
+    if (!match || !isCommandName(match[1])) return null;
+    const known = await runtime.listCommands({ directory }).catch(() => []);
+    if (known.length > 0 && !known.some((command) => command.name === match[1])) return null;
+    const args = (match[2] || '').trim();
+    return args ? `/${match[1]} ${args}` : `/${match[1]}`;
+  };
+
+  /**
    * How the server's message queue (lib/message-queue) delivers to a Claude
    * session: through this engine, never OpenCode's port, which does not know
-   * the id. Same path as the composer: context is admitted ahead of the
-   * prompt, and a `/name args` message is Claude Code's own command.
+   * the id. Same shape as the composer: the captured context and pending
+   * project knowledge go ahead of the text; a clean `/name args` the CLI knows
+   * is its own command, with the captured context after the command line and
+   * no knowledge (a command is not where standing context belongs). The
+   * answer says whether the knowledge went out, so the queue records it
+   * delivered only then. With the surface switched off
+   * (OPENCHAMBER_CLAUDE_LIST_DISABLED=1) the queue holds Claude items: idleness
+   * is unknown and a send refuses, so no CLI is started for them.
    */
   const queueTransport = {
     owns: (publicId) => fromPublicId(publicId) !== null,
-    /** Idle unless a turn runs here or another process holding it is busy. */
     isIdle: async (publicId) => {
       const sessionId = fromPublicId(publicId);
-      if (!sessionId) return null;
+      if (!sessionId || claudeSurfaceDisabled()) return null;
       const snapshot = await runtime.getStatusSnapshot({});
       return !snapshot[sessionId];
     },
-    send: async (publicId, directory, { text = '', files = [], context = [] } = {}) => {
+    send: async (publicId, directory, { text = '', files = [], context = [], knowledge = '' } = {}) => {
       const sessionId = fromPublicId(publicId);
       if (!sessionId) throw new Error('Not a Claude Code session');
-      for (const entry of context) {
-        if (typeof entry === 'string' && entry.trim()) {
-          pendingContext.set(sessionId, [...(pendingContext.get(sessionId) || []), entry]);
-        }
+      if (claudeSurfaceDisabled()) throw new Error('The Claude Code surface is switched off');
+      const command = await commandIn(text, directory);
+      if (command) {
+        await beginTurn(sessionId, { text: command, files, context, asCommand: true, directoryHint: directory });
+        return { knowledgeDelivered: false };
       }
-      const command = /^\/(\S+)(?:\s+([\s\S]*))?$/.exec(text.trim());
-      if (command && !/\n/.test(command[1])) {
-        const args = (command[2] || '').trim();
-        return beginTurn(sessionId, {
-          text: args ? `/${command[1]} ${args}` : `/${command[1]}`,
-          files,
-          withContext: false,
-          directoryHint: directory,
-        });
-      }
-      return beginTurn(sessionId, { text, files, directoryHint: directory });
+      await beginTurn(sessionId, {
+        text,
+        files,
+        context: knowledge ? [...context, knowledge] : context,
+        directoryHint: directory,
+      });
+      return { knowledgeDelivered: Boolean(knowledge) };
     },
   };
 
@@ -473,7 +531,7 @@ export const createClaudeSurface = (dependencies = {}) => {
    */
   const announceSession = async (publicId) => {
     const sessionId = fromPublicId(publicId);
-    if (!sessionId || !publishEvent) return;
+    if (!sessionId || !publishEvent || claudeSurfaceDisabled()) return;
     await loadStoredMetadata();
     const session = await runtime.getSession({ sessionID: sessionId }).catch(() => null);
     if (!session) return;
@@ -626,16 +684,18 @@ export const createClaudeSurface = (dependencies = {}) => {
       if (!sessionId) return next();
       const body = await readJsonBody(req);
       const name = typeof body.name === 'string' ? body.name.trim().replace(/^\//, '') : '';
-      if (!name || /\s/.test(name)) {
-        return sendTagged(res, 400, 'InvalidRequestError', 'A command needs a name without spaces');
+      if (!isCommandName(name)) {
+        return sendTagged(res, 400, 'InvalidRequestError', 'A command needs a name like `review` or `plugin:command`');
       }
       const args = typeof body.text === 'string' ? body.text.trim() : '';
+      // Context the composer admitted with the command rides after the
+      // command line, in the same message; see `beginTurn`.
       return startTurn(req, res, sessionId, {
         text: args ? `/${name} ${args}` : `/${name}`,
         files: Array.isArray(body.files) ? body.files : [],
         body,
         answer: 'empty',
-        withContext: false,
+        asCommand: true,
       });
     });
 
@@ -645,7 +705,8 @@ export const createClaudeSurface = (dependencies = {}) => {
       const sessionId = fromPublicId(req.params.id);
       if (!sessionId) return next();
       const body = await readJsonBody(req);
-      return startTurn(req, res, sessionId, { text: '/compact', body, withContext: false });
+      // Context admitted for the next prompt waits for it: it is not compaction instructions.
+      return startTurn(req, res, sessionId, { text: '/compact', body, withPending: false, asCommand: true });
     });
 
     // A fork is a sibling transcript up to (and excluding) `before`, or all of it.

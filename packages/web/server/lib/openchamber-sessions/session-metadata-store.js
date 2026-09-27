@@ -285,7 +285,7 @@ export const createSessionMetadataStore = ({
       // A write that ran first already migrated it.
       if (!unmigrated.has(id)) return;
       try {
-        await openCode.write(id, unmigrated.get(id));
+        await backendFor(id).write(id, unmigrated.get(id));
       } catch (error) {
         if (!isSessionNotFound(error)) {
           console.warn(`[openchamber-sessions] could not migrate metadata for ${id}:`, error?.message ?? error);
