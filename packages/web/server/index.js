@@ -1229,6 +1229,9 @@ const claudeSurface = createClaudeSurface({
   // Archive state and titles staged before a session's first turn: Claude Code
   // owns the transcripts, OpenChamber owns this overlay.
   overlayFilePath: path.join(OPENCHAMBER_DATA_DIR, 'claude-sessions.json'),
+  // Archiving from the UI writes OpenChamber's archive store; read lazily, the
+  // store is created with the session service further down.
+  getArchivedSessions: () => openChamberSessionService.archiveStore.getAll(),
   // Opt-in: link every Claude process OpenChamber starts to claude.ai / the
   // Claude app. The base URL override is for hosts whose settings route the
   // CLI through a local proxy, which Remote Control refuses.
