@@ -501,6 +501,22 @@ export const createClaudeSurface = (dependencies = {}) => {
         .catch((error) => sendTagged(res, 500, 'UnknownError', error?.message || 'Failed to take the session over'));
     });
 
+    // Free a session this server hosts so another Claude process (the VS Code
+    // extension) can open it: that extension refuses a transcript a live
+    // process holds. 409 while a turn is answering (see runtime
+    // `releaseSession`).
+    app.post('/api/session/:id/claude/release', async (req, res, next) => {
+      const sessionId = fromPublicId(req.params.id);
+      if (!sessionId) return next();
+      await readJsonBody(req);
+      return runtime
+        .releaseSession({ sessionID: sessionId })
+        .then((result) => (!result.released && result.busy
+          ? sendTagged(res, 409, 'ConflictError', 'The session is answering; wait for the turn to end')
+          : res.json({ data: result })))
+        .catch((error) => sendTagged(res, 500, 'UnknownError', error?.message || 'Failed'));
+    });
+
     app.post('/api/session/:id/interrupt', (req, res, next) => {
       const sessionId = fromPublicId(req.params.id);
       if (!sessionId) return next();
