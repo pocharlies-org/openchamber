@@ -608,6 +608,7 @@ export const dict: Record<I18nKey, string> = {
   'header.sessionTabs.tabMenuAria': '会话标签页操作',
   'header.sessionTabs.closeTab': '关闭标签页',
   'header.sessionTabs.closeOtherTabs': '关闭其他标签页',
+  'header.session.archived': '已归档',
   'sessions.switcher.empty': '没有最近会话',
   'sessions.switcher.draftTitle': '新会话',
   'sessions.sidebar.updateCheck.errorTitle': '检查更新失败',

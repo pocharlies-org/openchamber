@@ -608,6 +608,7 @@ export const dict: Record<I18nKey, string> = {
   'header.sessionTabs.tabMenuAria': 'セッションタブの操作',
   'header.sessionTabs.closeTab': 'タブを閉じる',
   'header.sessionTabs.closeOtherTabs': '他のタブを閉じる',
+  'header.session.archived': 'アーカイブ済み',
   'sessions.switcher.empty': '最近のセッションはありません',
   'sessions.switcher.draftTitle': '新しいセッション',
   'sessions.sidebar.updateCheck.errorTitle': '更新の確認に失敗しました',

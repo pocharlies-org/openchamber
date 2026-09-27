@@ -28,6 +28,8 @@ import { useQuotaAutoRefresh, useQuotaStore } from '@/stores/useQuotaStore';
 import { useGitBranchLabel } from '@/stores/useGitStore';
 import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import { archiveUndoToastOptions, collectSessionSubtreeIds } from '@/components/session/sidebar/sessions/sessionSubtreeActions';
+import { isArchivedSession } from '@/stores/globalSessions';
+import { collectSessionSubtreeIds } from '@/components/session/sidebar/sessions/sessionSubtreeActions';
 import { streamPerfCount } from '@/stores/utils/streamDebug';
 import { useFeatureFlagsStore } from '@/stores/useFeatureFlagsStore';
 
@@ -309,6 +311,24 @@ export const Header: React.FC = () => {
     },
     [currentSessionId],
   )));
+  // The snapshot above is a cache that survives the session leaving the list,
+  // so the archive flag is read straight from the store: it is what tells the
+  // header the session on screen is archived, and it has to stay live.
+  const currentSessionRecord = useGlobalSessionsStore((state) => (
+    currentSessionId ? state.entityById.get(currentSessionId) ?? null : null
+  ));
+  const isCurrentSessionArchived = currentSessionRecord ? isArchivedSession(currentSessionRecord) : false;
+  // The one place that says out loud that the session on screen is archived:
+  // the title itself. The action that undoes it sits in the session menu.
+  const archivedSessionBadge = isCurrentSessionArchived && !isNewSessionDraftOpen ? (
+    <span
+      title={t('header.session.archived')}
+      className="inline-flex shrink-0 items-center gap-0.5 typography-micro px-1 rounded leading-none pb-px text-muted-foreground bg-[var(--surface-subtle)]"
+    >
+      <Icon name="inbox-archive" className="h-2.5 w-2.5" />
+      {t('header.session.archived')}
+    </span>
+  ) : null;
   const activeProject = useProjectsStore(useShallow((state) => {
     if (!state.activeProjectId) {
       return null;
@@ -1482,8 +1502,12 @@ export const Header: React.FC = () => {
                   </button>
                 </form>
               ) : isNewSessionDraftOpen ? null : (
-                <span dir="auto" className="truncate typography-ui-label text-[14px] font-normal leading-tight text-foreground max-w-full">
+                <span dir="auto" className="flex min-w-0 max-w-full items-center gap-1.5">
+                <span dir="auto" className="block min-w-0 truncate typography-ui-label text-[14px] font-normal leading-tight text-foreground max-w-full">
                   {currentSessionTitle}
+
+                  {archivedSessionBadge}
+                </span>
                 </span>
               )}
               {showHeaderMetaRow ? (
@@ -1634,8 +1658,12 @@ export const Header: React.FC = () => {
                   </button>
                 </form>
               ) : (
-                <span dir="auto" className="block overflow-hidden whitespace-nowrap text-left text-[13px] font-medium leading-4 text-foreground max-w-full">
+                <span dir="auto" className="flex min-w-0 max-w-full items-center gap-1.5">
+                <span dir="auto" className="block min-w-0 overflow-hidden whitespace-nowrap text-left text-[13px] font-medium leading-4 text-foreground max-w-full">
                   {isNewSessionDraftOpen ? t('sessions.switcher.draftTitle') : currentSessionTitle}
+
+                  {archivedSessionBadge}
+                </span>
                 </span>
               )}
             </div>
