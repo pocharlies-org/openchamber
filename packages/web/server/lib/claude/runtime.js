@@ -867,11 +867,31 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
 
   const closeProcess = async (sessionId) => {
     const proc = processes.get(sessionId);
-    if (!proc) return;
+    if (!proc) return null;
     processes.delete(sessionId);
     clearTimeout(idleTimers.get(sessionId));
     idleTimers.delete(sessionId);
     await proc.close();
+    return proc;
+  };
+
+  /**
+   * Wait for a closed process to be gone, bounded. `close()` only asks the CLI
+   * to stop; on its way out it still writes its closing stats to the
+   * transcript. Deleting before that lands leaves a stub file the next listing
+   * shows as an empty session (measured 28-09-2026).
+   */
+  const EXIT_WAIT_MS = 5_000;
+  const waitForExit = async (proc) => {
+    if (!proc || typeof proc.exited?.then !== 'function') return;
+    let timer;
+    await Promise.race([
+      proc.exited.catch(() => undefined),
+      new Promise((resolve) => {
+        timer = setTimeout(resolve, EXIT_WAIT_MS);
+        timer.unref?.();
+      }),
+    ]).finally(() => clearTimeout(timer));
   };
 
   // A live process holds memory and, with Remote Control, a claude.ai link.
@@ -1257,7 +1277,7 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     const sessionId = typeof input.sessionID === 'string' ? input.sessionID.trim() : '';
     if (!sessionId) return false;
 
-    await closeProcess(sessionId);
+    await waitForExit(await closeProcess(sessionId));
 
     const directory = normalizeDirectory(input.directory);
     let removed = false;

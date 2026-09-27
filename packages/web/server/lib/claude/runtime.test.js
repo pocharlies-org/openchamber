@@ -1313,3 +1313,26 @@ describe('claude backend listCommands', () => {
     warn.mockRestore();
   });
 });
+
+describe('claude backend deleteSession with a live CLI', () => {
+  it('waits for the CLI to exit before deleting, so its closing write cannot recreate the transcript', async () => {
+    const order = [];
+    const sdk = makeSdk({
+      getSessionInfo: vi.fn(async (id) => sessionInfo({ sessionId: id })),
+      deleteSession: vi.fn(async () => { order.push('delete'); }),
+      query: vi.fn(({ prompt }) => (async function* stream() {
+        for await (const message of prompt) {
+          void message;
+          yield { type: 'result', is_error: false };
+        }
+        // The CLI writes its closing stats on the way out.
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        order.push('exit');
+      })()),
+    });
+    const { runtime } = createRuntime({ sdk });
+    await runtime.promptAsync({ sessionID: 'sess-1', directory: '/repo/project', parts: [{ type: 'text', text: 'hi' }] });
+    await runtime.deleteSession({ sessionID: 'sess-1', directory: '/repo/project' });
+    expect(order).toEqual(['exit', 'delete']);
+  });
+});
