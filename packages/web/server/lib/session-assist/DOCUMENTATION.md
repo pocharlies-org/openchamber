@@ -23,13 +23,16 @@ sees the whole session, not a tail. A failed page or repeated cursor aborts
 generation; it is not treated as complete history. If the latest answer's human
 request has not been found, skip generation rather than invent its context.
 
-The whole session is what lets the suggestion judge the next step against what
-the user asked for at the START — a tail window cannot see the original request
-once a long task has run for a while, and then invents follow-up work (this
-fork's change, upstream #3311). Each turn keeps the names of the tools the
-assistant ran (`Tools the assistant used: Bash×3, Read`), never their input or
-output: a session can be almost all tool calls, and without them it reads as an
-empty conversation. The language sample still comes from the last three turns.
+The whole session is what lets the suggestion see which topics are already
+closed. Whether work remains is judged against the user's most recent request:
+asked to satisfy "what the user actually asked for" over the whole transcript,
+the model declares the opening request done and answers `""` (measured on this
+fork: 16% of assists carried a suggestion with the old three-turn window, 5%
+with the whole session and that wording). Each turn keeps the names of the
+tools the assistant ran (`Tools the assistant used: Bash×3, Read`), never their
+input or output: a session can be almost all tool calls, and without them it
+reads as an empty conversation. The language sample still comes from the last
+three turns.
 
 Attached quote bodies have their own 4,000-character limit so a large quote
 does not consume the user's comment. Excerpts preserve both ends with an
