@@ -45,6 +45,16 @@ The Stats page keeps its reports in a feature-local store, `components/views/usa
 
 PR status reads share the aggregate background-network budget as well as their PR-specific cap. Command discovery gates each scope/config read, including body decoding, rather than only gating the initial SDK list. Command reads have a bounded deadline and abort on runtime reset. Reset clears server-derived command caches and invalidates late reads and mutation responses while preserving unsaved command drafts.
 
+`useEngineStore.ts` holds what each session engine can do, per runtime, as the
+server declares it (`GET /api/engines`, `server/lib/engines/engines.js`). Until
+a runtime answers — or on an older server, or VS Code, whose webview answers
+the route locally — the static table in `lib/sessionEngine.ts` stands in. A
+failed read keeps that table and is retried after a minute, never on every
+render. Components read it through `hooks/useSessionEngine.ts`
+(`useSessionEngine` for a synced session, `useSessionEngineById` for per-row
+components that must not subscribe to the record); non-React code uses
+`engineInfoForSession`. Nothing else decides what an engine supports.
+
 These are the most performance-sensitive.
 
 - `useGitStore.ts`

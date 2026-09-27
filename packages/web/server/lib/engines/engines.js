@@ -21,8 +21,6 @@
  *                         interprets it (Claude Code's slash commands)
  */
 
-export const ENGINE_IDS = Object.freeze(['opencode', 'claude']);
-
 /** Every boolean operation a session can be asked for. */
 export const ENGINE_OPERATIONS = Object.freeze([
   'prompt',

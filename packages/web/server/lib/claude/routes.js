@@ -144,7 +144,7 @@ const positiveInteger = (value) => {
  *   OpenChamber's archive store (sessions-archive.json), keyed by public id
  */
 export const createClaudeSurface = (dependencies = {}) => {
-  const { publishEvent, readProjects, getArchivedSessions, getStoredMetadata, peekStoredMetadata, ...rest } = dependencies;
+  const { publishEvent, readProjects, getArchivedSessions, getStoredMetadata, peekStoredMetadata, forgetStoredMetadata, ...rest } = dependencies;
   const crypto = rest.crypto;
 
   /**
@@ -745,7 +745,16 @@ export const createClaudeSurface = (dependencies = {}) => {
       if (!sessionId) return next();
       return runtime
         .deleteSession({ sessionID: sessionId })
-        .then((removed) => (removed === false ? sendNotFound(res) : res.status(204).end()))
+        .then(async (removed) => {
+          if (removed === false) return sendNotFound(res);
+          // Its OpenChamber metadata goes with it; a failure only leaves an orphan entry.
+          if (typeof forgetStoredMetadata === 'function') {
+            await Promise.resolve(forgetStoredMetadata(req.params.id)).catch((error) => {
+              console.warn('[claude-backend] could not forget session metadata:', error?.message ?? error);
+            });
+          }
+          return res.status(204).end();
+        })
         .catch((error) => sendTagged(res, 500, 'UnknownError', error?.message || 'Failed to delete'));
     });
 

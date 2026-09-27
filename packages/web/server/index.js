@@ -1236,6 +1236,7 @@ const claudeSurface = createClaudeSurface({
   // cursor) for Claude sessions, laid over each record this surface serves.
   getStoredMetadata: async (publicId) => engineSessionMetadata.read(publicId),
   peekStoredMetadata: (publicId) => engineSessionMetadata.peek(publicId),
+  forgetStoredMetadata: (publicId) => engineSessionMetadata.remove(publicId),
   // Opt-in: link every Claude process OpenChamber starts to claude.ai / the
   // Claude app. The base URL override is for hosts whose settings route the
   // CLI through a local proxy, which Remote Control refuses.
