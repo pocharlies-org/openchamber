@@ -180,4 +180,61 @@ describe('session assist runtime', () => {
     // above suppresses.
     expect(buildOpenCodeUrl).toHaveBeenCalled();
   });
+
+  it('names why a generation failed, and keeps a model that ran out of room quiet', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const records = [
+      { id: 'msg_idle', type: 'idle', outcome: 'succeeded' },
+      { id: 'msg_a', type: 'assistant', content: [{ type: 'text', text: 'All done.' }], finish: 'stop', time: { completed: 2 }, model: { providerID: 'p', id: 'm' } },
+      { id: 'msg_u', type: 'user', text: 'Do the thing nobody must read in a log' },
+    ];
+    const fetchMock = vi.fn(async (input) => {
+      const url = new URL(String(input));
+      const body = url.pathname === '/api/session/ses_1'
+        ? { data: { id: 'ses_1', location: { directory: '/repo' } } }
+        : { data: records.slice(0, Number(url.searchParams.get('limit'))), cursor: {} };
+      return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const serviceThrowing = (error) => async () => ({
+      describeSmallModel: async () => ({ providerID: 'litellm-local', modelID: 'tooling', inputCharBudget: 20_000 }),
+      generateSmallModelText: async () => { throw error; },
+    });
+
+    const warnedWhileFailing = async (error) => {
+      warn.mockClear();
+      const { runtime } = makeRuntime({
+        persistSessionAssist: async () => undefined,
+        buildOpenCodeUrl: (fetchPath) => `http://opencode.test${fetchPath}`,
+        isSessionArchived: async () => false,
+        getSmallModelService: serviceThrowing(error),
+      });
+      runtime.processPayload(idle());
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      runtime.stop();
+      return warn.mock.calls.map(([line, detail]) => `${line} ${detail ?? ''}`).join('\n');
+    };
+
+    const loud = await warnedWhileFailing(Object.assign(
+      new Error('litellm:  no deployment  matches this model\nAuthorization: Bearer sk-abcdefghijklmnopqrstuvwxyz'),
+      { statusCode: 503, code: 'small-model-unavailable' },
+    ));
+    expect(loud).toContain('HTTP 503');
+    expect(loud).toContain('small-model-unavailable');
+    expect(loud).toContain('litellm-local/tooling');
+    expect(loud).toContain('no deployment matches this model');
+    // Neither the conversation nor a credential travels through this line.
+    expect(loud).not.toContain('nobody must read in a log');
+    expect(loud).not.toContain('sk-abcdefghijklmnopqrstuvwxyz');
+
+    const quiet = await warnedWhileFailing(Object.assign(
+      new Error('Input is too large for the model'),
+      { statusCode: 413, code: 'context-too-small' },
+    ));
+    expect(quiet).not.toContain('generation failed');
+
+    vi.unstubAllGlobals();
+  });
 });
