@@ -1744,6 +1744,8 @@ export const dict: Record<I18nKey, string> = {
   'chat.claudeLive.actions.takeOverAndSend': '引き継いで送信',
   'chat.claudeLive.actions.openRemote': 'claude.ai で開く',
   'chat.claudeLive.actions.openVSCode': 'VS Code で開く',
+  'chat.claudeLive.toast.vscodeBusy': 'セッションは応答中です。ターンが終わってからもう一度お試しください。',
+  'chat.claudeLive.toast.vscodeFailed': 'セッションを解放できず、VS Code で開けませんでした。',
   'chat.claudeLive.toast.takeOverFailed': 'セッションを引き継げませんでした',
   'chat.claudeLive.toast.sendNeedsTakeOver': 'このセッションは OpenChamber から接続できない別のアプリで開かれています',
   'chat.claudeLive.remoteLinked': 'claude.ai と Claude アプリでも開いています',
