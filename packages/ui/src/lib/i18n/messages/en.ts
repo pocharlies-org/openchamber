@@ -529,6 +529,7 @@ export const dict = {
   'header.sessionTabs.tabMenuAria': 'Session tab actions',
   'header.sessionTabs.closeTab': 'Close tab',
   'header.sessionTabs.closeOtherTabs': 'Close other tabs',
+  'header.session.archived': 'Archived',
   'sessions.switcher.empty': 'No recent sessions',
   'sessions.switcher.draftTitle': 'New session',
   'sessions.sidebar.updateCheck.errorTitle': 'Failed to check for updates',

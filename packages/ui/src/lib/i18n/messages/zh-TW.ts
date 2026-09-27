@@ -543,6 +543,7 @@ export const dict: Record<I18nKey, string> = {
   'header.sessionTabs.tabMenuAria': '工作階段分頁動作',
   'header.sessionTabs.closeTab': '關閉分頁',
   'header.sessionTabs.closeOtherTabs': '關閉其他分頁',
+  'header.session.archived': '已封存',
   'sessions.switcher.empty': '沒有最近會話',
   'sessions.switcher.draftTitle': '新會話',
   'sessions.sidebar.updateCheck.errorTitle': '檢查更新失敗',
