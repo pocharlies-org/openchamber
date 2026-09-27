@@ -5,7 +5,9 @@ import { useI18n } from '@/lib/i18n';
 import { showOpenCodeStatus } from '@/lib/openCodeStatus';
 import { getLastConversationMessage, type Message, type Part, type Session } from '@/lib/opencode/model';
 import { useLatestSessionError } from '@/sync/notification-store';
-import { useDirectoryStore, useSessionStatus, useSessionStatusSnapshotReady } from '@/sync/sync-context';
+import { useDirectoryStore, useSession, useSessionStatus, useSessionStatusSnapshotReady } from '@/sync/sync-context';
+import { useSessionEngine } from '@/hooks/useSessionEngine';
+import { getClaudeLiveState } from '@/lib/claudeSessionMetadata';
 import { refetchSessionMessages } from '@/sync/session-actions';
 import { readLastMessageState, scheduleUnansweredRechecks, type LastMessageState } from './sessionErrorNoticeState';
 
@@ -13,10 +15,6 @@ interface SessionErrorNoticeProps {
   sessionId: string;
   directory?: string;
 }
-
-// How long a user message may sit unanswered on an idle session before the
-// notice calls it a reply that never began.
-const UNANSWERED_AFTER_MS = 5_000;
 
 /**
  * What the stored history says about a session that stopped without a reply.
@@ -113,8 +111,10 @@ const useLastMessageState = (sessionId: string, directory?: string): LastMessage
 };
 
 /**
- * Shows what OpenCode reported when it stopped a turn without producing a
- * reply. Rendered under the last message, only while that turn is the latest
+ * Shows what the session's engine (OpenCode or Claude Code, see
+ * sessionEngine.ts) reported when it stopped a turn without producing a
+ * reply. The copy names the engine that owns the session: a Claude Code
+ * session never blames OpenCode, nor offers OpenCode's status report. Rendered under the last message, only while that turn is the latest
  * one: sending again moves the last message past the error and hides it.
  *
  * Detail, best first: the live error event; the parent's subagent tool error
@@ -127,6 +127,14 @@ export const SessionErrorNotice: React.FC<SessionErrorNoticeProps> = ({ sessionI
   const statusSnapshotReady = useSessionStatusSnapshotReady(directory);
   const lastMessage = useLastMessageState(sessionId, directory);
   const storedFailure = useStoredFailure(sessionId, directory);
+  const engine = useSessionEngine(sessionId, directory);
+  // A Claude session another process holds (terminal, VS Code, Remote
+  // Control) runs its turn THERE: this window only follows the transcript, and
+  // a message that never reached that process fails the send itself. Silence
+  // here is not a reply that never began.
+  const session = useSession(sessionId, directory);
+  const claudeHeldElsewhere = engine.id === 'claude' && getClaudeLiveState(session).liveElsewhere !== null;
+  const unansweredAfterMs = engine.unansweredAfterMs;
 
   // An omitted status means idle only after a successful status snapshot:
   // after a reload the last prompt is hydrated before the runtime reports
@@ -143,19 +151,19 @@ export const SessionErrorNotice: React.FC<SessionErrorNoticeProps> = ({ sessionI
   // A user message that the session is idle on, with nothing after it for a
   // while, is a reply that never began: the send was accepted but OpenCode
   // produced neither a message nor an error for it.
-  const unansweredSince = !reportedError && !storedFailureApplies && isIdle
+  const unansweredSince = !reportedError && !storedFailureApplies && isIdle && !claudeHeldElsewhere
     && lastMessage?.role === 'user' && lastMessage.timestamp > 0
     ? lastMessage.timestamp
     : null;
   const [now, setNow] = React.useState(() => Date.now());
   React.useEffect(() => {
     if (unansweredSince === null) return undefined;
-    const remaining = UNANSWERED_AFTER_MS - (Date.now() - unansweredSince);
+    const remaining = unansweredAfterMs - (Date.now() - unansweredSince);
     if (remaining <= 0) return undefined;
     const timer = window.setTimeout(() => setNow(Date.now()), remaining + 50);
     return () => window.clearTimeout(timer);
-  }, [unansweredSince]);
-  const unansweredDue = unansweredSince !== null && Math.max(now, Date.now()) - unansweredSince >= UNANSWERED_AFTER_MS;
+  }, [unansweredSince, unansweredAfterMs]);
+  const unansweredDue = unansweredSince !== null && Math.max(now, Date.now()) - unansweredSince >= unansweredAfterMs;
   // Looking unanswered is only a guess: the live stream may have dropped the
   // reply. Re-read the session first and show the notice only once a read has
   // settled with the prompt still last. The key ties that verdict to this
@@ -174,22 +182,26 @@ export const SessionErrorNotice: React.FC<SessionErrorNoticeProps> = ({ sessionI
 
   if (!reportedError && !storedFailureApplies && !unanswered) return null;
 
+  const copy = { engine: engine.label };
+  const noDetails = engine.hasOpenCodeStatus
+    ? t('chat.sessionError.noDetails', copy)
+    : t('chat.sessionError.noDetailsBare', copy);
   let title: string;
   let detail: string;
   let hasDetails = true;
   if (reportedError) {
-    title = t('chat.sessionError.title');
+    title = t('chat.sessionError.title', copy);
     hasDetails = Boolean(reportedError.error?.message);
-    const message = reportedError.error?.message ?? t('chat.sessionError.noDetails');
+    const message = reportedError.error?.message ?? noDetails;
     detail = reportedError.error?.name ? `${reportedError.error.name}: ${message}` : message;
   } else if (storedFailureApplies) {
-    title = storedFailure.outcome === 'interrupted' ? t('chat.sessionError.interrupted') : t('chat.sessionError.title');
+    title = storedFailure.outcome === 'interrupted' ? t('chat.sessionError.interrupted', copy) : t('chat.sessionError.title', copy);
     hasDetails = storedFailure.parentToolError !== null;
-    detail = storedFailure.parentToolError ?? t('chat.sessionError.noDetails');
+    detail = storedFailure.parentToolError ?? noDetails;
   } else {
-    title = t('chat.sessionError.noReply');
+    title = t('chat.sessionError.noReply', copy);
     hasDetails = false;
-    detail = t('chat.sessionError.noDetails');
+    detail = noDetails;
   }
 
   return (
@@ -203,7 +215,7 @@ export const SessionErrorNotice: React.FC<SessionErrorNoticeProps> = ({ sessionI
           <span className="typography-meta font-medium text-foreground">{title}</span>
         </div>
         <div className="mt-1 pl-[1.375rem] typography-meta text-muted-foreground break-words">{detail}</div>
-        {!hasDetails ? (
+        {!hasDetails && engine.hasOpenCodeStatus ? (
           <div className="pl-[1.375rem]">
             <Button
               variant="link"
