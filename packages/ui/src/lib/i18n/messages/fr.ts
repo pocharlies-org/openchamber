@@ -391,6 +391,7 @@ export const dict = {
   'header.sessionTabs.tabMenuAria': 'Actions de l\'onglet de session',
   'header.sessionTabs.closeTab': 'Fermer l\'onglet',
   'header.sessionTabs.closeOtherTabs': 'Fermer les autres onglets',
+  'header.session.archived': 'Archivée',
   'sessions.switcher.empty': 'Aucune session récente',
   'sessions.switcher.draftTitle': 'Nouvelle session',
   'sessions.sidebar.updateCheck.errorTitle': 'Échec de la vérification des mises à jour',

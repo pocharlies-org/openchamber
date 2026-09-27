@@ -3466,6 +3466,7 @@ export const dict = {
   'header.sessionTabs.tabMenuAria': 'Session sekmesi eylemleri',
   'header.sessionTabs.closeTab': 'Sekmeyi kapat',
   'header.sessionTabs.closeOtherTabs': 'Diğer sekmeleri kapat',
+  'header.session.archived': 'Arşivlendi',
   'contextRail.configure.open': 'Panelleri yapılandır',
   'contextRail.configure.dialogTitle': 'Rail panelleri',
   'contextRail.configure.dialogDescription': 'Rail\'in hangi panelleri göstereceğini seçin. Gizlenen paneller verilerini korur ve komut paletinden erişilebilir kalır.',

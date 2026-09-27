@@ -27,6 +27,7 @@ import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useQuotaAutoRefresh, useQuotaStore } from '@/stores/useQuotaStore';
 import { useGitBranchLabel } from '@/stores/useGitStore';
 import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
+import { isArchivedSession } from '@/stores/globalSessions';
 import { collectSessionSubtreeIds } from '@/components/session/sidebar/sessions/sessionSubtreeActions';
 import { streamPerfCount } from '@/stores/utils/streamDebug';
 import { useFeatureFlagsStore } from '@/stores/useFeatureFlagsStore';
@@ -304,6 +305,24 @@ export const Header: React.FC = () => {
     },
     [currentSessionId],
   )));
+  // The snapshot above is a cache that survives the session leaving the list,
+  // so the archive flag is read straight from the store: it is what tells the
+  // header the session on screen is archived, and it has to stay live.
+  const currentSessionRecord = useGlobalSessionsStore((state) => (
+    currentSessionId ? state.entityById.get(currentSessionId) ?? null : null
+  ));
+  const isCurrentSessionArchived = currentSessionRecord ? isArchivedSession(currentSessionRecord) : false;
+  // The one place that says out loud that the session on screen is archived:
+  // the title itself. The action that undoes it sits in the session menu.
+  const archivedSessionBadge = isCurrentSessionArchived && !isNewSessionDraftOpen ? (
+    <span
+      title={t('header.session.archived')}
+      className="inline-flex shrink-0 items-center gap-0.5 typography-micro px-1 rounded leading-none pb-px text-muted-foreground bg-[var(--surface-subtle)]"
+    >
+      <Icon name="inbox-archive" className="h-2.5 w-2.5" />
+      {t('header.session.archived')}
+    </span>
+  ) : null;
   const activeProject = useProjectsStore(useShallow((state) => {
     if (!state.activeProjectId) {
       return null;
@@ -744,6 +763,7 @@ export const Header: React.FC = () => {
   const loadSessionRecords = useSessionMessageRecordsForExport();
   const updateSessionTitle = useSessionUIStore((state) => state.updateSessionTitle);
   const archiveSessions = useSessionUIStore((state) => state.archiveSessions);
+  const unarchiveSession = useSessionUIStore((state) => state.unarchiveSession);
   const deleteSessions = useSessionUIStore((state) => state.deleteSessions);
   const [isRenamingHeaderSession, setIsRenamingHeaderSession] = React.useState(false);
   const [isHeaderSessionMenuOpen, setIsHeaderSessionMenuOpen] = React.useState(false);
@@ -915,6 +935,20 @@ export const Header: React.FC = () => {
       ? 'sessions.sidebar.session.archive.success'
       : 'sessions.sidebar.session.delete.success'));
   }, [archiveSessions, deleteSessions, pendingHeaderRetentionAction, t]);
+
+  /**
+   * Restores one archived session from the header or a tab menu. Unarchiving is
+   * not destructive, so it needs no confirmation dialog — the Archive page
+   * restores the same way.
+   */
+  const restoreArchivedSession = React.useCallback(async (sessionId: string) => {
+    const restored = await unarchiveSession(sessionId);
+    if (restored) {
+      toast.success(t('sessions.sidebar.session.restore.success'));
+    } else {
+      toast.error(t('sessions.sidebar.session.restore.error'));
+    }
+  }, [t, unarchiveSession]);
 
   // Full-page surfaces (Scheduled, Archive, Worktrees, Multi-run) replace the
   // chat area; while one is open the header shows the surface identity
@@ -1318,15 +1352,21 @@ export const Header: React.FC = () => {
           <Icon name="close-circle" className="mr-1 size-4" />{t('header.sessionTabs.closeOtherTabs')}
         </Item>
         <Separator />
-        <Item onClick={() => setPendingHeaderRetentionAction({ action: 'archive', sessionId: session.id })}>
-          <Icon name="inbox-archive" className="mr-1 size-4" />{t('sessions.sidebar.bulkActions.archive')}
-        </Item>
+        {isArchivedSession(session) ? (
+          <Item onClick={() => void restoreArchivedSession(session.id)}>
+            <Icon name="inbox-unarchive" className="mr-1 size-4" />{t('sessions.sidebar.bulkActions.restore')}
+          </Item>
+        ) : (
+          <Item onClick={() => setPendingHeaderRetentionAction({ action: 'archive', sessionId: session.id })}>
+            <Icon name="inbox-archive" className="mr-1 size-4" />{t('sessions.sidebar.bulkActions.archive')}
+          </Item>
+        )}
         <Item className="text-destructive focus:text-destructive" onClick={() => setPendingHeaderRetentionAction({ action: 'delete', sessionId: session.id })}>
           <Icon name="delete-bin" className="mr-1 size-4" />{t('sessions.sidebar.bulkActions.delete')}
         </Item>
       </>
     );
-  }, [copySessionIdFor, currentSession, exportCurrentSession, isChatContext, isCurrentSessionActive, isCurrentSessionMovingToWorktree, isVSCode, moveCurrentSessionToWorktree, renderGuestSessionActionItems, sessionDirectory, t]);
+  }, [copySessionIdFor, currentSession, exportCurrentSession, isChatContext, isCurrentSessionActive, isCurrentSessionMovingToWorktree, isVSCode, moveCurrentSessionToWorktree, renderGuestSessionActionItems, restoreArchivedSession, sessionDirectory, t]);
 
   const renderDesktop = () => (
     <div
@@ -1438,8 +1478,11 @@ export const Header: React.FC = () => {
                   </button>
                 </form>
               ) : isNewSessionDraftOpen ? null : (
-                <span className="truncate typography-ui-label text-[14px] font-normal leading-tight text-foreground max-w-full">
-                  {currentSessionTitle}
+                <span className="flex min-w-0 max-w-full items-center gap-1.5">
+                  <span className="truncate typography-ui-label text-[14px] font-normal leading-tight text-foreground">
+                    {currentSessionTitle}
+                  </span>
+                  {archivedSessionBadge}
                 </span>
               )}
               {showHeaderMetaRow ? (
@@ -1516,7 +1559,11 @@ export const Header: React.FC = () => {
                       </Tooltip>
                     ) : null}
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => { if (currentSessionId) setPendingHeaderRetentionAction({ action: 'archive', sessionId: currentSessionId }); }}><Icon name="inbox-archive" className="mr-1 size-4" />{t('sessions.sidebar.bulkActions.archive')}</DropdownMenuItem>
+                    {isCurrentSessionArchived ? (
+                      <DropdownMenuItem onClick={() => { if (currentSessionId) void restoreArchivedSession(currentSessionId); }}><Icon name="inbox-unarchive" className="mr-1 size-4" />{t('sessions.sidebar.bulkActions.restore')}</DropdownMenuItem>
+                    ) : (
+                      <DropdownMenuItem onClick={() => { if (currentSessionId) setPendingHeaderRetentionAction({ action: 'archive', sessionId: currentSessionId }); }}><Icon name="inbox-archive" className="mr-1 size-4" />{t('sessions.sidebar.bulkActions.archive')}</DropdownMenuItem>
+                    )}
                     <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => { if (currentSessionId) setPendingHeaderRetentionAction({ action: 'delete', sessionId: currentSessionId }); }}><Icon name="delete-bin" className="mr-1 size-4" />{t('sessions.sidebar.bulkActions.delete')}</DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
@@ -1584,8 +1631,11 @@ export const Header: React.FC = () => {
                   </button>
                 </form>
               ) : (
-                <span className="block overflow-hidden whitespace-nowrap text-[13px] font-medium leading-4 text-foreground max-w-full">
-                  {isNewSessionDraftOpen ? t('sessions.switcher.draftTitle') : currentSessionTitle}
+                <span className="flex min-w-0 max-w-full items-center gap-1.5">
+                  <span className="block overflow-hidden whitespace-nowrap text-[13px] font-medium leading-4 text-foreground">
+                    {isNewSessionDraftOpen ? t('sessions.switcher.draftTitle') : currentSessionTitle}
+                  </span>
+                  {archivedSessionBadge}
                 </span>
               )}
             </div>
