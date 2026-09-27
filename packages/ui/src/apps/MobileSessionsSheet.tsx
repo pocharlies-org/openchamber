@@ -75,6 +75,7 @@ import {
   useSessionOrderingStore,
 } from '@/sync/session-ordering';
 import { useSessionUIStore } from '@/sync/session-ui-store';
+import { createClaudeSession } from '@/sync/session-actions';
 import { useAllLiveSessions } from '@/sync/sync-context';
 import { useGlobalSyncStore } from '@/sync/global-sync-store';
 import { useSessionUnseenCount } from '@/sync/notification-store';
@@ -822,6 +823,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
   // Bumped to force a re-list of worktrees (e.g. after one is deleted in the editor).
   const [worktreeRefreshKey, setWorktreeRefreshKey] = React.useState(0);
   const [sortPanelOpen, setSortPanelOpen] = React.useState(false);
+  const [newSessionPickerProject, setNewSessionPickerProject] = React.useState<ProjectMeta | null>(null);
   const [directoryDialogOpen, setDirectoryDialogOpen] = React.useState(false);
   const [newWorktreeDialogOpen, setNewWorktreeDialogOpen] = React.useState(false);
   const [worktreeDialogProjectId, setWorktreeDialogProjectId] = React.useState<string | null>(null);
@@ -1596,6 +1598,14 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
     onOpenChange(false);
   };
 
+  // Same choice as the desktop project "+": an opencode draft or a Claude Code
+  // session, which lives in the project directory itself (no worktree needed).
+  const handleNewClaudeSessionInProject = (project: ProjectMeta) => {
+    setActiveProjectIdOnly(project.id);
+    void createClaudeSession(project.path);
+    onOpenChange(false);
+  };
+
   const filteredNodes = React.useMemo(() => {
     if (!normalizedQuery) return projectNodes;
     return projectNodes.filter((node) => {
@@ -1924,7 +1934,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
                         <NewSessionIconButton
                           className="mr-2"
                           label={t('mobile.sessions.newSessionInProjectAria', { label: project.label })}
-                          onClick={() => handleNewSessionInProject(project)}
+                          onClick={() => setNewSessionPickerProject(project)}
                         />
                       </div>
                     ))}
@@ -2218,7 +2228,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
                         <NewSessionIconButton
                           className="mr-2"
                           label={t('mobile.sessions.newSessionInProjectAria', { label: node.project.label })}
-                          onClick={() => handleNewSessionInProject(node.project)}
+                          onClick={() => setNewSessionPickerProject(node.project)}
                         />
                       </div>
                     </MobileSwipeActionsRow>
@@ -2473,6 +2483,37 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
           onClose={() => setEditingProjectId(null)}
           onWorktreesChanged={() => setWorktreeRefreshKey((value) => value + 1)}
         />
+        <MobileOverlayPanel
+          open={newSessionPickerProject !== null}
+          onClose={() => setNewSessionPickerProject(null)}
+          title={newSessionPickerProject
+            ? t('mobile.sessions.newSessionInProjectAria', { label: newSessionPickerProject.label })
+            : ''}
+        >
+          <div className="flex flex-col">
+            {([
+              ['opencode', 'add', 'sessions.sidebar.project.actions.newSession'],
+              ['claude', 'claude-code', 'sessions.sidebar.project.actions.newClaudeSession'],
+            ] as const).map(([source, icon, labelKey]) => (
+              <button
+                key={source}
+                type="button"
+                className="flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-foreground transition-colors active:bg-interactive-active focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                onClick={() => {
+                  const project = newSessionPickerProject;
+                  setNewSessionPickerProject(null);
+                  if (!project) return;
+                  if (source === 'claude') handleNewClaudeSessionInProject(project);
+                  else handleNewSessionInProject(project);
+                }}
+                style={{ touchAction: 'manipulation' }}
+              >
+                <Icon name={icon} className="size-4" />
+                <span className="typography-ui-label">{t(labelKey)}</span>
+              </button>
+            ))}
+          </div>
+        </MobileOverlayPanel>
         <MobileOverlayPanel
           open={sortPanelOpen}
           onClose={() => setSortPanelOpen(false)}
