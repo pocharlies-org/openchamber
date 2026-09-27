@@ -23,13 +23,16 @@ sees the whole session, not a tail. A failed page or repeated cursor aborts
 generation; it is not treated as complete history. If the latest answer's human
 request has not been found, skip generation rather than invent its context.
 
-The whole session is what lets the suggestion judge the next step against what
-the user asked for at the START — a tail window cannot see the original request
-once a long task has run for a while, and then invents follow-up work (this
-fork's change, upstream #3311). Each turn keeps the names of the tools the
-assistant ran (`Tools the assistant used: Bash×3, Read`), never their input or
-output: a session can be almost all tool calls, and without them it reads as an
-empty conversation. The language sample still comes from the last three turns.
+The whole session is what lets the suggestion see which topics are already
+closed. Whether work remains is judged against the user's most recent request:
+asked to satisfy "what the user actually asked for" over the whole transcript,
+the model declares the opening request done and answers `""` (measured on this
+fork: 16% of assists carried a suggestion with the old three-turn window, 5%
+with the whole session and that wording). Each turn keeps the names of the
+tools the assistant ran (`Tools the assistant used: Bash×3, Read`), never their
+input or output: a session can be almost all tool calls, and without them it
+reads as an empty conversation. The language sample still comes from the last
+three turns.
 
 Attached quote bodies have their own 4,000-character limit so a large quote
 does not consume the user's comment. Excerpts preserve both ends with an
@@ -63,14 +66,25 @@ model context is small. Page/count bounds are not a network-byte quota.
    after the old one finishes. Later activity cancels the pending run as well.
 4. Resolve the small model using the last answer's provider/model and the
    existing explicit settings/config overrides. `restrictToPreferredProvider`
-   prevents an implicit cross-provider fallback. Production does not pin the
-   experimental model. Generation accepts an abort signal and a 120-second limit.
+   prevents an implicit cross-provider fallback. On this fork's instance the
+   Small Model is pinned in Settings → Sessions to `litellm-local/tooling`
+   (`smallModelUseDefault: false`), so the resolution lands on `source:
+   'settings'` for every session, Claude ones included — which is also what
+   keeps a Claude session from being refused with
+   `small-model-provider-unsupported`. Generation accepts an abort signal and a
+   120-second limit.
 5. Recap describes the substantive work and its current result, including the
    work behind a closing commit or acknowledgment. Suggestion is independent:
    only unfinished requested agent work should produce a sendable user message.
-   Completed work, optional offers, or a decision/action belonging to the user
-   should return an empty suggestion. This is model judgment, not authorization
+   A reply that stops while a step the agent could take in this session is still
+   owed counts as unfinished; an empty suggestion is for a conversation that has
+   genuinely stopped, not for an answer that merely ends politely. Completed
+   work, optional offers, or a decision/action belonging to the user should
+   return an empty suggestion. This is model judgment, not authorization
    enforcement or a guarantee that every generated field is factually correct.
+   A generation that fails is logged with its status, code, resolved model and
+   the error's own message (credentials stripped, 200 characters); the expected
+   budget failures stay quiet because they say nothing a retry would not repeat.
 6. Re-read the latest message and fresh session before writing. A moved tail,
    canceled run, changed endpoint/directory, archive, revert, or failed fresh
    read discards the result. Never merge from the old pre-generation metadata.
