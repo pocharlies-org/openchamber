@@ -8,6 +8,7 @@ import { claudeVSCodeUrl, getClaudeLiveState, type ClaudeLiveOwnerKind } from '@
 import { CLAUDE_FOLLOW_KEEPALIVE_MS, keepFollowingClaudeSession, releaseClaudeSession, takeOverClaudeSession } from '@/lib/claudeTakeOver';
 import { useI18n } from '@/lib/i18n';
 import { useSession } from '@/sync/sync-context';
+import { cn } from '@/lib/utils';
 
 const TITLE_KEYS = {
   terminal: 'chat.claudeLive.title.terminal',
@@ -15,6 +16,11 @@ const TITLE_KEYS = {
   desktop: 'chat.claudeLive.title.desktop',
   other: 'chat.claudeLive.title.other',
 } as const satisfies Record<ClaudeLiveOwnerKind, string>;
+
+// Below `sm` the text takes the whole row after the icon (1rem + 0.5rem gap)
+// and the actions wrap under it, indented to the text.
+const OWN_LINE_ON_PHONE = 'basis-[calc(100%-1.5rem)] sm:basis-auto';
+const ACTIONS_CLASS = 'flex shrink-0 flex-wrap items-center gap-2 pl-6 sm:pl-0';
 
 type ClaudeLiveSessionBannerProps = {
   sessionId: string | null;
@@ -102,13 +108,18 @@ export const ClaudeLiveSessionBanner = memo(({ sessionId, directory }: ClaudeLiv
   if (!liveElsewhere) {
     return (
       <div className="pb-2 w-full px-1">
-        <div className="flex w-full items-center gap-2 rounded-xl border border-border/60 bg-[var(--surface-elevated)] px-3 py-1.5 text-[var(--surface-elevated-foreground)]">
-          <Icon name="claude-code" className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-          <span className="typography-meta min-w-0 flex-1 text-muted-foreground">
+        {/* Wraps on a phone: the sentence keeps a line of its own and the links
+            go under it. In one row, three items that do not fit squeezed the
+            sentence to one word per line (seen on iOS, 27-09-2026). */}
+        <div className="flex w-full flex-wrap items-center gap-x-2 gap-y-1.5 rounded-xl border border-border/60 bg-[var(--surface-elevated)] px-3 py-1.5 text-[var(--surface-elevated-foreground)]">
+          <Icon name="claude-code" className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+          <span className={cn('typography-meta min-w-0 flex-1 text-muted-foreground', OWN_LINE_ON_PHONE)}>
             {t('chat.claudeLive.remoteLinked')}
           </span>
-          {remoteLink}
-          {vscodeLink}
+          <div className={ACTIONS_CLASS}>
+            {remoteLink}
+            {vscodeLink}
+          </div>
         </div>
       </div>
     );
@@ -117,9 +128,9 @@ export const ClaudeLiveSessionBanner = memo(({ sessionId, directory }: ClaudeLiv
   return (
     <div className="pb-2 w-full px-1">
       <div className="rounded-xl border border-border/60 bg-[var(--surface-elevated)] text-[var(--surface-elevated-foreground)] shadow-sm overflow-hidden">
-        <div className="flex w-full items-center gap-2 px-3 py-2 text-left">
-          <Icon name={liveElsewhere.attachable ? 'lock-unlock' : 'lock'} className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-          <div className="min-w-0 flex-1">
+        <div className="flex w-full flex-wrap items-center gap-x-2 gap-y-1.5 px-3 py-2 text-left">
+          <Icon name={liveElsewhere.attachable ? 'lock-unlock' : 'lock'} className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+          <div className={cn('min-w-0 flex-1', OWN_LINE_ON_PHONE)}>
             <span className="typography-ui-label font-medium text-foreground">
               {t(TITLE_KEYS[liveElsewhere.kind])}
               {liveElsewhere.busy ? <BusyDots /> : null}
@@ -128,6 +139,7 @@ export const ClaudeLiveSessionBanner = memo(({ sessionId, directory }: ClaudeLiv
               {t(liveElsewhere.attachable ? 'chat.claudeLive.descriptionAttached' : 'chat.claudeLive.description')}
             </div>
           </div>
+          <div className={ACTIONS_CLASS}>
           {remoteLink}
           {vscodeLink}
           <Button
@@ -139,6 +151,7 @@ export const ClaudeLiveSessionBanner = memo(({ sessionId, directory }: ClaudeLiv
           >
             {t('chat.claudeLive.actions.takeOver')}
           </Button>
+          </div>
         </div>
       </div>
     </div>

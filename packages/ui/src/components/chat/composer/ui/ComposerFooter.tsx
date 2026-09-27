@@ -21,7 +21,7 @@ import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { ModelControls } from '../../ModelControls';
 import { ClaudeModelControls } from '../../ClaudeModelControls';
-import { resolveSessionSource } from '@/lib/sessionSourceFilter';
+import { useSessionEngine } from '@/hooks/useSessionEngine';
 import { ComposerActionButtons } from './ComposerActionButtons';
 import { ComposerAttachmentControls } from './ComposerAttachmentControls';
 import { FocusModeButton } from './FocusModeButton';
@@ -136,6 +136,8 @@ export function ComposerFooter(props: ComposerFooterProps) {
         onRunInParallel,
         parallelRun = null,
     } = props;
+    // Which model picker: the one of the engine that owns the session.
+    const sessionEngine = useSessionEngine(currentSessionId, directory ?? undefined);
 
     return (
         <div
@@ -287,7 +289,7 @@ export function ComposerFooter(props: ComposerFooterProps) {
                         <ComposerCacheTimer sessionId={currentSessionId} directory={directory} />
                         {parallelRun ? <div className="flex-1" />
                             : isBtw ? <ModelControls className="flex-1 min-w-0 justify-end" sessionId={modelSessionId ?? null} selection={btwSelection} />
-                            : currentSessionId && resolveSessionSource({ id: currentSessionId }) === 'claude'
+                            : currentSessionId && sessionEngine.ownModelCatalog
                                 ? <ClaudeModelControls className="flex-1" sessionId={currentSessionId} directory={directory} />
                                 : <MemoModelControls className={cn('flex-1 min-w-0 justify-end')} onRunInParallel={onRunInParallel} />}
                         {!isBtw ? <MemoComposerDictation
