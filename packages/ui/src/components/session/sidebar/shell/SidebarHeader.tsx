@@ -166,7 +166,27 @@ export function SidebarHeader(props: Props): React.ReactNode {
               </TooltipTrigger>
               <TooltipContent side="bottom" sideOffset={4}><p>{t('sessions.sidebar.nav.archive')}</p></TooltipContent>
             </Tooltip>
-            {guestPages.length > 0 && <DropdownMenu>
+            {/* A single page opens in one click under its own icon; the menu only earns its place with two or more. */}
+            {guestPages.length === 1 && (() => {
+              const guest = guestPages[0];
+              const title = guest.pageTitle ?? guest.name;
+              return (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() => useUIStore.getState().setOpenGuestPage(guest.id)}
+                      className={cn(headerActionButtonClass, 'text-muted-foreground hover:text-foreground hover:bg-transparent')}
+                      aria-label={title}
+                    >
+                      <GuestIcon icon={resolveGuestIconName(guest.icon)} iconSrc={guestPackageIconSrc(guest.id, guest.icon, getRuntimeUrlResolver().authenticatedAsset)} className={headerActionIconClass} />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" sideOffset={4}><p>{title}</p></TooltipContent>
+                </Tooltip>
+              );
+            })()}
+            {guestPages.length > 1 && <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="xs" className="w-6 text-muted-foreground" aria-label={t('sessions.sidebar.header.actions.extensionPages')}>
                   <Icon name="apps" className={headerActionIconClass} />
