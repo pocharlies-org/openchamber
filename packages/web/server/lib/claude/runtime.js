@@ -982,6 +982,21 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     return session;
   };
 
+  // Free a transcript this server itself hosts: closes our process so another
+  // Claude process can open it. The VS Code extension refuses a transcript a
+  // live process holds (single writer), so "Open in VS Code" calls this first.
+  // When no process here holds the session there is nothing to release and the
+  // caller still opens the link; a foreign holder is left alone.
+  const releaseSession = async (input = {}) => {
+    const sessionId = typeof input.sessionID === 'string' ? input.sessionID.trim() : '';
+    if (!sessionId) return { released: false, busy: false };
+    const proc = processes.get(sessionId);
+    if (!proc) return { released: true, busy: false };
+    if (proc.isBusy()) return { released: false, busy: true };
+    await closeProcess(sessionId);
+    return { released: true, busy: false };
+  };
+
   const promptAsync = async (input = {}) => {
     const sdk = await ensureSdk();
     if (!sdk) throw new Error('Claude backend is not available');
@@ -1301,6 +1316,7 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     getMessages,
     promptAsync,
     takeOverSession,
+    releaseSession,
     keepFollowing,
     abortSession,
     updateSession,

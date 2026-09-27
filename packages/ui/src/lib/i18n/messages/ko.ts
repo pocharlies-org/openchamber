@@ -1905,6 +1905,8 @@ export const dict: Record<I18nKey, string> = {
   'chat.claudeLive.actions.takeOverAndSend': '가져와서 보내기',
   'chat.claudeLive.actions.openRemote': 'claude.ai에서 열기',
   'chat.claudeLive.actions.openVSCode': 'VS Code에서 열기',
+  'chat.claudeLive.toast.vscodeBusy': '세션이 응답 중입니다. 턴이 끝날 때까지 기다린 후 다시 시도하세요.',
+  'chat.claudeLive.toast.vscodeFailed': '세션을 해제하지 못해 VS Code에서 열 수 없습니다.',
   'chat.claudeLive.toast.takeOverFailed': '세션 제어를 가져오지 못했습니다',
   'chat.claudeLive.toast.sendNeedsTakeOver': '이 세션은 OpenChamber가 연결할 수 없는 다른 앱에서 열려 있습니다',
   'chat.claudeLive.remoteLinked': 'claude.ai와 Claude 앱에서도 열려 있음',
