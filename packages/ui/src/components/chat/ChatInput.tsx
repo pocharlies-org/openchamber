@@ -24,7 +24,7 @@ import { buildLinkedGuestIssue, buildLinkedIssue, buildLinkedLinearIssue } from 
 import type { AttachIssueRequest, JsonValue } from '@openchamber/sdk';
 import { useSession } from "@/sync/sync-context";
 import { getClaudeLiveState } from '@/lib/claudeSessionMetadata';
-import { resolveSessionSource } from '@/lib/sessionSourceFilter';
+import { useSessionEngine } from '@/hooks/useSessionEngine';
 import { takeOverClaudeSession } from '@/lib/claudeTakeOver';
 import { getInlineCommentDraftKey, useInlineCommentDraftStore, type InlineCommentDraft, type InlineCommentDraftTarget } from '@/stores/useInlineCommentDraftStore';
 import { useSnippetsStore } from '@/stores/useSnippetsStore';
@@ -464,6 +464,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     const claudeLiveElsewhere = getClaudeLiveState(
         useSession(currentSessionId, currentSessionDirectoryForSync ?? currentDirectory ?? undefined),
     ).liveElsewhere;
+    // The engine that owns this session decides the model picker (see sessionEngine.ts).
+    const sessionEngine = useSessionEngine(currentSessionId, currentSessionDirectoryForSync ?? currentDirectory ?? undefined);
     // btw mode: the CURRENT session's metadata links an active btw fork and
     // the panel is expanded, so this composer's sends route to the fork
     // instead of the main session. Collapsed keeps the fork alive (chip stays
@@ -3573,7 +3575,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         // and mic icons above them; the buttons drop their own padding so the
         // row alone owns the inset.
         <div className="flex items-center justify-between gap-x-2 px-3.5 pb-2 pt-0.5">
-            {currentSessionId && resolveSessionSource({ id: currentSessionId }) === 'claude' ? (
+            {currentSessionId && sessionEngine.ownModelCatalog ? (
                 <ClaudeModelControls
                     className="flex-1 justify-start"
                     sessionId={currentSessionId}
