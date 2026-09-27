@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button';
 import { Icon } from "@/components/icon/Icon";
 import { cn } from '@/lib/utils';
 import { sessionEvents } from '@/lib/sessionEvents';
+import { createClaudeSession } from '@/sync/session-actions';
 import { useUIStore } from '@/stores/useUIStore';
 import { SessionFolderItem } from '../../SessionFolderItem';
 import type { SortableDragHandleProps } from './sortableItems';
@@ -806,6 +807,17 @@ function SessionGroupSectionBase(props: SessionGroupSectionProps): React.ReactNo
                  target: group.draftTarget,
                });
             }}
+            onNewClaudeSession={(() => {
+              // Same choice as the project "+": the folder's directory is a
+              // concrete one, which is all a Claude session needs.
+              const claudeDirectory = scopeDirectory ?? group.directory;
+              if (!claudeDirectory) return undefined;
+              return () => {
+                if (projectId && projectId !== activeProjectId) setActiveProjectIdOnly(projectId);
+                if (mobileVariant) setSessionSwitcherOpen(false);
+                void createClaudeSession(claudeDirectory);
+              };
+            })()}
             hideActions={false}
             archivedBucket={group.isArchivedBucket === true}
           >
