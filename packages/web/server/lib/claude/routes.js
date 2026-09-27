@@ -19,6 +19,7 @@
  */
 
 import { createClaudeBackendRuntime } from './runtime.js';
+import { operationOfPath, sendUnsupportedOperation } from '../engines/engines.js';
 import { createClaudeV2EventTranslator, pageOf, toV2Message, toV2Session } from './v2-wire.js';
 
 /** The contract the UI's source filter keys on: `ses_ccc` is a Claude Code session. */
@@ -143,7 +144,7 @@ const positiveInteger = (value) => {
  *   OpenChamber's archive store (sessions-archive.json), keyed by public id
  */
 export const createClaudeSurface = (dependencies = {}) => {
-  const { publishEvent, readProjects, getArchivedSessions, ...rest } = dependencies;
+  const { publishEvent, readProjects, getArchivedSessions, getStoredMetadata, peekStoredMetadata, ...rest } = dependencies;
   const crypto = rest.crypto;
 
   /**
@@ -181,18 +182,35 @@ export const createClaudeSurface = (dependencies = {}) => {
     return archivedSessions;
   };
 
+  /**
+   * OpenChamber's own metadata for Claude sessions (pins, `/btw` links, the
+   * knowledge cursor), kept by the server's engine metadata store: a
+   * transcript has nowhere to hold it. Loaded before a read is answered; the
+   * live stream uses the last loaded copy.
+   */
+  const loadStoredMetadata = async () => {
+    if (typeof getStoredMetadata !== 'function') return;
+    await getStoredMetadata('').catch((error) => {
+      console.warn('[claude-backend] stored session metadata unavailable:', error?.message ?? error);
+    });
+  };
+
   const toSession = (session) => {
     const id = toPublicId(session.id);
     const archivedAt = archivedSessions[id];
-    return toV2Session(
+    const stored = typeof peekStoredMetadata === 'function' ? peekStoredMetadata(id) : undefined;
+    const wire = toV2Session(
       {
         ...session,
         id,
         parentID: session.parentID ? toPublicId(session.parentID) : undefined,
         time: typeof archivedAt === 'number' ? { ...session.time, archived: archivedAt } : session.time,
+        metadata: stored ? { ...(session.metadata || {}), ...stored } : session.metadata,
       },
       resolveProject,
     );
+    // The engine is this server's to declare: stored metadata never overrides it.
+    return { ...wire, metadata: { ...wire.metadata, backend: 'claude' } };
   };
 
   const translator = createClaudeV2EventTranslator({
@@ -238,7 +256,7 @@ export const createClaudeSurface = (dependencies = {}) => {
     // reading them whole.
     if (claudeSurfaceDisabled()) return [];
     const { directory = null, search = null } = options || {};
-    await Promise.all([refreshProjects(), refreshArchived()]);
+    await Promise.all([refreshProjects(), refreshArchived(), loadStoredMetadata()]);
     const [active, archived] = await Promise.all([
       runtime.listSessions({ archived: false }),
       runtime.listSessions({ archived: true }),
@@ -317,6 +335,151 @@ export const createClaudeSurface = (dependencies = {}) => {
     return promise;
   };
 
+  /**
+   * Start a turn and resolve once the runtime accepts it, as OpenCode's
+   * prompt does: the turn itself streams over the event channel, and only a
+   * refusal before acceptance (the session held by another process, the
+   * backend unavailable, nothing to send) rejects. Shared by the HTTP routes
+   * and by the server's message queue (`queueTransport`).
+   *
+   * `withContext: false` is a command: it must reach the CLI as its own
+   * message, so context admitted for the next prompt stays pending for it.
+   */
+  const beginTurn = async (sessionId, { text, files = [], withContext = true, directoryHint, clientMessageId }) => {
+    const context = withContext ? pendingContext.get(sessionId) || [] : [];
+    const parts = [
+      ...context.map((entry) => ({ type: 'text', text: entry })),
+      ...(text ? [{ type: 'text', text }] : []),
+      ...files
+        .filter((file) => file && typeof file.uri === 'string')
+        .map((file) => ({ type: 'file', url: file.uri, filename: file.name })),
+    ];
+    if (parts.length === 0) {
+      throw Object.assign(new Error('No text or attachment in prompt'), { code: 'EMPTY_PROMPT' });
+    }
+    if (withContext) pendingContext.delete(sessionId);
+    // The turn changes the transcript: the next read must not be the old parse.
+    recordCache.delete(sessionId);
+    const selection = selections.get(sessionId) || {};
+    // Only a model picked from the Claude catalog is held (see /model);
+    // without one the runtime keeps its own.
+    const modelId = typeof selection.model?.id === 'string' ? selection.model.id.trim() : '';
+    const directory = await workingDirectoryOf(sessionId, directoryHint);
+    const now = Date.now();
+    const messageID = typeof clientMessageId === 'string' && clientMessageId.startsWith('msg_')
+      ? clientMessageId
+      : `msg_${String(now).padStart(14, '0')}_000000_local`;
+    await new Promise((resolve, reject) => {
+      let settled = false;
+      const accept = () => {
+        if (settled) return;
+        settled = true;
+        resolve();
+      };
+      runtime
+        .promptAsync({
+          sessionID: sessionId,
+          directory,
+          parts,
+          model: modelId ? { modelID: modelId } : undefined,
+          agent: selection.agent,
+          variant: selection.model?.variant,
+          messageID,
+          onStarted: accept,
+        })
+        .then(accept)
+        .catch((error) => {
+          // After acceptance a failure is the turn's own, reported as a
+          // `session.error` event; only a refusal before it rejects here.
+          if (settled) return;
+          settled = true;
+          reject(error);
+        });
+    });
+    return { messageID, created: now };
+  };
+
+  /** A turn from an HTTP route: answer `res` once it is accepted, as OpenCode does. */
+  const startTurn = async (req, res, sessionId, { text, files = [], body = {}, answer: answerAs = 'item', withContext = true }) => {
+    let turn;
+    try {
+      turn = await beginTurn(sessionId, {
+        text,
+        files,
+        withContext,
+        directoryHint: directoryOf(req),
+        clientMessageId: body.id,
+      });
+    } catch (error) {
+      if (error?.code === 'EMPTY_PROMPT') return sendTagged(res, 400, 'InvalidRequestError', error.message);
+      return sendPromptError(res, error);
+    }
+    if (answerAs === 'empty') return res.status(204).end();
+    return res.json({
+      data: {
+        id: turn.messageID,
+        sessionID: req.params.id,
+        time: { created: turn.created },
+        type: 'user',
+        payload: { text, ...(files.length > 0 ? { files } : {}) },
+        delivery: body.delivery || 'queue',
+      },
+    });
+  };
+
+  /**
+   * How the server's message queue (lib/message-queue) delivers to a Claude
+   * session: through this engine, never OpenCode's port, which does not know
+   * the id. Same path as the composer: context is admitted ahead of the
+   * prompt, and a `/name args` message is Claude Code's own command.
+   */
+  const queueTransport = {
+    owns: (publicId) => fromPublicId(publicId) !== null,
+    /** Idle unless a turn runs here or another process holding it is busy. */
+    isIdle: async (publicId) => {
+      const sessionId = fromPublicId(publicId);
+      if (!sessionId) return null;
+      const snapshot = await runtime.getStatusSnapshot({});
+      return !snapshot[sessionId];
+    },
+    send: async (publicId, directory, { text = '', files = [], context = [] } = {}) => {
+      const sessionId = fromPublicId(publicId);
+      if (!sessionId) throw new Error('Not a Claude Code session');
+      for (const entry of context) {
+        if (typeof entry === 'string' && entry.trim()) {
+          pendingContext.set(sessionId, [...(pendingContext.get(sessionId) || []), entry]);
+        }
+      }
+      const command = /^\/(\S+)(?:\s+([\s\S]*))?$/.exec(text.trim());
+      if (command && !/\n/.test(command[1])) {
+        const args = (command[2] || '').trim();
+        return beginTurn(sessionId, {
+          text: args ? `/${command[1]} ${args}` : `/${command[1]}`,
+          files,
+          withContext: false,
+          directoryHint: directory,
+        });
+      }
+      return beginTurn(sessionId, { text, files, directoryHint: directory });
+    },
+  };
+
+  /**
+   * Re-announce a session with its full metadata after OpenChamber's own part
+   * of it changed (a pin, a `/btw` link). The UI replaces a session's metadata
+   * with what an update carries, so a Claude session must get its whole record
+   * — the engine's fields (`backend`, `liveElsewhere`, `remoteControl`) with
+   * the stored ones — never the stored part alone.
+   */
+  const announceSession = async (publicId) => {
+    const sessionId = fromPublicId(publicId);
+    if (!sessionId || !publishEvent) return;
+    await loadStoredMetadata();
+    const session = await runtime.getSession({ sessionID: sessionId }).catch(() => null);
+    if (!session) return;
+    translator.translate({ type: 'session.updated', directory: session.directory, properties: { info: session } });
+  };
+
   const register = (app) => {
     // Kill switch (25-09-2026): the Claude routes parse whole transcripts per request.
     if (claudeSurfaceDisabled()) return runtime;
@@ -327,7 +490,7 @@ export const createClaudeSurface = (dependencies = {}) => {
         .getSession({ sessionID: sessionId })
         .then(async (session) => {
           if (!session) return sendNotFound(res);
-          await Promise.all([refreshProjects(), refreshArchived()]);
+          await Promise.all([refreshProjects(), refreshArchived(), loadStoredMetadata()]);
           res.json({ data: toSession(session) });
         })
         .catch((error) => sendTagged(res, 500, 'UnknownError', error?.message || 'Failed'));
@@ -389,6 +552,13 @@ export const createClaudeSurface = (dependencies = {}) => {
       }))
       .catch((error) => sendTagged(res, 500, 'UnknownError', error?.message || 'Failed')));
 
+    // Claude Code's slash commands for the composer's `/` menu in a Claude
+    // session (OpenCode's command list means nothing to it).
+    app.get('/api/claude/commands', (req, res) => runtime
+      .listCommands({ directory: directoryOf(req) })
+      .then((commands) => res.json({ commands }))
+      .catch((error) => sendTagged(res, 500, 'UnknownError', error?.message || 'Failed')));
+
     // The composer puts a session on a model/agent before prompting; for
     // Claude that choice rides the next prompt (model, effort, mode). Only a
     // pick from the Claude catalog counts: the send path also switches every
@@ -432,68 +602,68 @@ export const createClaudeSurface = (dependencies = {}) => {
       });
     });
 
+    /**
+     * Start a turn with `text` (+ `files`) and answer `res` once the runtime
+     * accepts it, as OpenCode's prompt does. Shared by prompt, command and
+     * compact: a Claude Code command is a prompt that starts with `/name`.
+     */
     app.post('/api/session/:id/prompt', async (req, res, next) => {
       const sessionId = fromPublicId(req.params.id);
       if (!sessionId) return next();
       const body = await readJsonBody(req);
-      const text = typeof body.text === 'string' ? body.text : '';
-      const files = Array.isArray(body.files) ? body.files : [];
-      const context = pendingContext.get(sessionId) || [];
-      const parts = [
-        ...context.map((entry) => ({ type: 'text', text: entry })),
-        ...(text ? [{ type: 'text', text }] : []),
-        ...files
-          .filter((file) => file && typeof file.uri === 'string')
-          .map((file) => ({ type: 'file', url: file.uri, filename: file.name })),
-      ];
-      if (parts.length === 0) {
-        return sendTagged(res, 400, 'InvalidRequestError', 'No text or attachment in prompt');
+      return startTurn(req, res, sessionId, {
+        text: typeof body.text === 'string' ? body.text : '',
+        files: Array.isArray(body.files) ? body.files : [],
+        body,
+      });
+    });
+
+    // A command is Claude Code's own slash command: `/name args` as the
+    // prompt, which the CLI expands (built-ins, ~/.claude/commands, the
+    // project's .claude/commands, skills, plugins). OpenCode answers 204.
+    app.post('/api/session/:id/command', async (req, res, next) => {
+      const sessionId = fromPublicId(req.params.id);
+      if (!sessionId) return next();
+      const body = await readJsonBody(req);
+      const name = typeof body.name === 'string' ? body.name.trim().replace(/^\//, '') : '';
+      if (!name || /\s/.test(name)) {
+        return sendTagged(res, 400, 'InvalidRequestError', 'A command needs a name without spaces');
       }
-      pendingContext.delete(sessionId);
-      // The turn changes the transcript: the next read must not be the old parse.
-      recordCache.delete(sessionId);
-      const selection = selections.get(sessionId) || {};
-      // Only a model picked from the Claude catalog is held (see /model);
-      // without one the runtime keeps its own.
-      const modelId = typeof selection.model?.id === 'string' ? selection.model.id.trim() : '';
-      const directory = await workingDirectoryOf(sessionId, directoryOf(req));
-      const now = Date.now();
-      const messageID = typeof body.id === 'string' && body.id.startsWith('msg_')
-        ? body.id
-        : `msg_${String(now).padStart(14, '0')}_000000_local`;
-      // `prompt` answers once the turn is accepted, as OpenCode's does; the
-      // turn itself streams over the event channel. Only a rejection before
-      // acceptance (session held by another process, backend unavailable) can
-      // still become this request's error response.
-      let answered = false;
-      const answer = (send) => {
-        if (answered) return;
-        answered = true;
-        send();
-      };
-      const accepted = () => answer(() => res.json({
-        data: {
-          id: messageID,
-          sessionID: req.params.id,
-          time: { created: now },
-          type: 'user',
-          payload: { text, ...(files.length > 0 ? { files } : {}) },
-          delivery: body.delivery || 'queue',
-        },
-      }));
-      runtime
-        .promptAsync({
-          sessionID: sessionId,
-          directory,
-          parts,
-          model: modelId ? { modelID: modelId } : undefined,
-          agent: selection.agent,
-          variant: selection.model?.variant,
-          messageID,
-          onStarted: accepted,
+      const args = typeof body.text === 'string' ? body.text.trim() : '';
+      return startTurn(req, res, sessionId, {
+        text: args ? `/${name} ${args}` : `/${name}`,
+        files: Array.isArray(body.files) ? body.files : [],
+        body,
+        answer: 'empty',
+        withContext: false,
+      });
+    });
+
+    // Compaction is Claude Code's `/compact`: the CLI summarizes its own
+    // context, as it does when it runs out, and the transcript records it.
+    app.post('/api/session/:id/compact', async (req, res, next) => {
+      const sessionId = fromPublicId(req.params.id);
+      if (!sessionId) return next();
+      const body = await readJsonBody(req);
+      return startTurn(req, res, sessionId, { text: '/compact', body, withContext: false });
+    });
+
+    // A fork is a sibling transcript up to (and excluding) `before`, or all of it.
+    app.post('/api/session/:id/fork', async (req, res, next) => {
+      const sessionId = fromPublicId(req.params.id);
+      if (!sessionId) return next();
+      const body = await readJsonBody(req);
+      const before = typeof body.before === 'string' && body.before.trim() ? body.before.trim() : undefined;
+      return runtime
+        .forkSession({ sessionID: sessionId, directory: await workingDirectoryOf(sessionId, directoryOf(req)), before })
+        .then(async (session) => {
+          if (session.directory) workingDirectories.set(session.id, session.directory);
+          await Promise.all([refreshProjects(), refreshArchived()]);
+          res.json({ data: toSession(session) });
         })
-        .then(accepted)
-        .catch((error) => answer(() => sendPromptError(res, error)));
+        .catch((error) => (error?.code === 'CLAUDE_FORK_POINT_NOT_FOUND'
+          ? sendTagged(res, 404, 'MessageNotFoundError', error.message)
+          : sendTagged(res, 500, 'UnknownError', error?.message || 'Failed to fork the session')));
     });
 
     // The front end still shows a session another process is writing: keep
@@ -579,18 +749,22 @@ export const createClaudeSurface = (dependencies = {}) => {
         .catch((error) => sendTagged(res, 500, 'UnknownError', error?.message || 'Failed to delete'));
     });
 
-    // Anything else OpenCode would answer for a session it does not have: a
-    // Claude session has no inbox, forms, permissions or revert to report.
+    // Anything else is an operation the Claude engine does not have (see
+    // lib/engines/engines.js). Reads of lists a Claude session simply has none
+    // of answer empty; everything else gets the typed refusal naming the
+    // engine and the operation — never a fall-through to OpenCode, which does
+    // not know the id and would report "session not found".
     app.all('/api/session/:id/*rest', (req, res, next) => {
       if (!fromPublicId(req.params.id)) return next();
       if (req.method === 'GET' && /\/(inbox|form|permission|diff)\/?$/.test(req.path)) return res.json({ data: [] });
       if (req.method === 'POST' && /\/view\/?$/.test(req.path)) return res.status(204).end();
       if (req.method === 'GET') return sendNotFound(res);
-      return sendTagged(res, 400, 'InvalidRequestError', 'Not supported for Claude Code sessions');
+      const rest = Array.isArray(req.params.rest) ? req.params.rest.join('/') : String(req.params.rest || '');
+      return sendUnsupportedOperation(res, 'claude', operationOfPath(rest));
     });
 
     return runtime;
   };
 
-  return { register, listClaudeSessions, listClaudeActive, runtime };
+  return { register, listClaudeSessions, listClaudeActive, queueTransport, announceSession, runtime };
 };

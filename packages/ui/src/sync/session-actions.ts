@@ -52,6 +52,8 @@ import { createChatDraftIdentity } from "@/lib/chatDraftPersistence"
 import { cancelSessionTitleGeneration } from "./session-title-generation"
 import { recordSessionActionFailure } from "./session-action-failures"
 import { applyForkInheritance } from "@/lib/sessionForkInheritance"
+import { engineInfoForSession } from "@/stores/useEngineStore"
+import { EngineUnsupportedError } from "@/lib/sessionEngine"
 import { getSessionGoal } from "@/lib/sessionGoalMetadata"
 import { fetchGoalObjectiveContent, writeGoalObjectiveFile } from "@/lib/goalObjectiveFiles"
 
@@ -2381,6 +2383,10 @@ export async function dismissOpenFormsForSession(sessionId: string): Promise<boo
 export async function revertToMessage(sessionId: string, messageId: string): Promise<void> {
   const { store, directory } = dirStoreForSession(sessionId)
   const state = store.getState()
+  // Backstop for a path that still reaches here for an engine without revert
+  // (the UI hides it): refused before the optimistic marker is set.
+  const engine = engineInfoForSession(state.session.find((candidate) => candidate.id === sessionId) ?? { id: sessionId })
+  if (!engine.capabilities.revert) throw new EngineUnsupportedError(engine, "revert")
 
   const localTarget = state.message[sessionId]?.find((message) => message.id === messageId)
   const targetMessage = localTarget

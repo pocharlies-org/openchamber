@@ -1,3 +1,4 @@
+import { engineInfoForSession } from '@/stores/useEngineStore';
 import type { Session } from '@/lib/opencode/model';
 import type { I18nKey } from '@/lib/i18n';
 import { toast } from '@/components/ui';
@@ -349,5 +350,12 @@ const executeSessionTreeMove = (intent: SessionTreeMoveIntent): void => {
 
 export const requestSessionTreeMove = (intent: SessionTreeMoveIntent): void => {
   if (useSessionMoveState.getState().pendingSessionIds.has(intent.root.id)) return;
+  // Backstop for an engine that cannot move a session (a Claude Code
+  // transcript is tied to its directory; the menus hide the action): refused
+  // before a worktree or branch is created for it.
+  if (!engineInfoForSession(intent.root).capabilities.move) {
+    console.warn(`[worktree-move] ${intent.root.id}: its engine cannot move sessions`);
+    return;
+  }
   executeSessionTreeMove(intent);
 };

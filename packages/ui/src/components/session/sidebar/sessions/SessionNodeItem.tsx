@@ -1,3 +1,4 @@
+import { engineInfoForSession } from '@/stores/useEngineStore';
 import { DirectoryActionIndicator } from './DirectoryActionIndicator';
 import { useSessionTurnActive } from '@/sync/global-session-status';
 import React from 'react';
@@ -1157,7 +1158,13 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
           {t('sessions.sidebar.project.actions.edit')}
         </Item>
       ) : null}
-      {canShowSessionWorktreeMenu({ isSubtaskSession, archivedBucket: Boolean(archivedBucket), isVSCode, sessionDirectory }) ? (() => {
+      {canShowSessionWorktreeMenu({
+        isSubtaskSession,
+        archivedBucket: Boolean(archivedBucket),
+        isVSCode,
+        sessionDirectory,
+        engineCanMove: engineInfoForSession(session).capabilities.move,
+      }) ? (() => {
         const isWorktreeMenuDisabled = getSessionWorktreeMenuDisabled({
           sessionDirectory,
           isStreaming,

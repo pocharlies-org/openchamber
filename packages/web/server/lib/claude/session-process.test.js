@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import nodeCrypto from 'crypto';
 
-import { createClaudeSessionProcess } from './session-process.js';
+import { asCliContent, createClaudeSessionProcess } from './session-process.js';
 
 /** A channel the fake CLI writes its output to. */
 const createChannel = () => {
@@ -226,5 +226,21 @@ describe('claude session process', () => {
     expect(onExit).toHaveBeenCalledTimes(1);
     expect(proc.hasExited()).toBe(true);
     await expect(proc.send([{ type: 'text', text: 'late' }])).rejects.toThrow(/exited/);
+  });
+});
+
+describe('asCliContent', () => {
+  it('sends a lone slash command as the plain string Claude Code recognizes', () => {
+    expect(asCliContent([{ type: 'text', text: '/compact' }])).toBe('/compact');
+    expect(asCliContent([{ type: 'text', text: '/review src/app.ts' }])).toBe('/review src/app.ts');
+  });
+
+  it('keeps blocks for everything else: prose, several blocks, attachments', () => {
+    const prose = [{ type: 'text', text: 'hello /not-a-command' }];
+    expect(asCliContent(prose)).toBe(prose);
+    const withContext = [{ type: 'text', text: 'context' }, { type: 'text', text: '/compact' }];
+    expect(asCliContent(withContext)).toBe(withContext);
+    const image = [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'x' } }];
+    expect(asCliContent(image)).toBe(image);
   });
 });

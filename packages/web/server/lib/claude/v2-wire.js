@@ -150,6 +150,33 @@ export const toV2Message = (record) => {
   const info = record?.info || {};
   const parts = Array.isArray(record?.parts) ? record.parts : [];
   const created = toMillis(info.time?.created);
+  // What a compaction left behind: the UI shows it as its compaction notice
+  // (summary on demand), not as a message the user wrote.
+  if (info.role === 'compaction') {
+    return {
+      type: 'compaction',
+      id: info.id,
+      time: { created },
+      status: 'completed',
+      reason: info.reason === 'manual' ? 'manual' : 'auto',
+      summary: typeof info.summary === 'string' ? info.summary : '',
+      recent: '',
+    };
+  }
+  // A `!command` run in the terminal or VS Code, with its output.
+  if (info.role === 'shell') {
+    const output = typeof info.output === 'string' ? info.output : '';
+    return withoutUndefined({
+      type: 'shell',
+      id: info.id,
+      time: withoutUndefined({ created, completed: info.time?.completed !== undefined ? toMillis(info.time.completed, created) : undefined }),
+      shellID: info.id,
+      command: typeof info.command === 'string' ? info.command : '',
+      status: 'exited',
+      exit: typeof info.exit === 'number' ? info.exit : undefined,
+      output: { output, cursor: output.length, size: output.length, truncated: false },
+    });
+  }
   if (info.role === 'user') {
     const files = parts.filter((part) => part?.type === 'file').map(toV2File);
     return withoutUndefined({
@@ -418,6 +445,10 @@ export const createClaudeV2EventTranslator = ({
 
   const onMessageUpdated = (info, directory) => {
     if (!info || typeof info.id !== 'string') return;
+    // A compaction notice or a terminal `!command` read back from a followed
+    // transcript is not an assistant step: streamed as one it would render as
+    // an empty answer. The next read of the transcript shows it as itself.
+    if (info.role === 'compaction' || info.role === 'shell') return;
     const sessionID = toPublicId(info.sessionID);
     if (info.role === 'user') {
       if (messages.has(info.id) || pendingUsers.has(info.id)) return;

@@ -15,6 +15,7 @@
 
 import type { I18nKey } from '@/lib/i18n';
 import type { MagicPromptId } from '@/lib/magicPrompts';
+import type { EngineCapabilities, EngineOperation } from '@/lib/sessionEngine';
 
 /** What a command needs before it can run. */
 export type CommandRequirement = 'session' | 'session-or-draft';
@@ -152,6 +153,36 @@ const LOCAL_ACTION_COMMANDS = new Set([
 ]);
 
 /**
+ * The engine operation each local command relies on (see lib/sessionEngine.ts).
+ * A session whose engine lacks it is not offered the command, and typing it
+ * does not run it: the text goes to the engine as written. `null` means the
+ * command works on any engine — a prompt pair is a prompt everywhere, and
+ * `init` becomes the engine's own `/init`.
+ *
+ * - undo/redo stage a revert; the timeline only navigates (its revert action
+ *   is gated where it is rendered).
+ * - `/btw` keeps its link to the parent in session metadata.
+ */
+export const LOCAL_COMMAND_REQUIRES: Readonly<Record<string, EngineOperation | null>> = {
+    init: null,
+    review: null,
+    undo: 'revert',
+    redo: 'revert',
+    timeline: null,
+    compact: 'compact',
+    fork: 'fork',
+    btw: 'metadata',
+    'handoff-review': null,
+    ...Object.fromEntries(MAGIC_PROMPT_COMMANDS.map((command) => [command.name, null])),
+};
+
+/** Whether a session whose engine has `capabilities` gets the local command `name`. */
+export function localCommandAvailable(name: string, capabilities: EngineCapabilities): boolean {
+    const requirement = LOCAL_COMMAND_REQUIRES[name];
+    return requirement === undefined || requirement === null || capabilities[requirement];
+}
+
+/**
  * Read the leading slash command out of a message, if there is one. Only the
  * first word counts as the command; the rest is its argument.
  */
@@ -179,10 +210,13 @@ export function planLocalSlashCommand(
     inputMode: 'normal' | 'shell' | undefined,
     hasAttachedContext: boolean,
     hasSession: boolean,
+    capabilities?: EngineCapabilities,
 ): LocalSlashCommandPlan | null {
     if (inputMode !== 'normal') return null;
     const command = parseSlashCommand(text);
     if (!command) return null;
+    // A command the session's engine cannot run is not a local command there.
+    if (capabilities && !localCommandAvailable(command.name, capabilities)) return null;
 
     if (LOCAL_ACTION_COMMANDS.has(command.name)) {
         if (!hasSession) return null;
