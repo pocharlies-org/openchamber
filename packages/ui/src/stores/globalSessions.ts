@@ -22,7 +22,7 @@ export const filterManagedChatsForRuntime = (sessions: Session[], vscode: boolea
 );
 
 /** OpenChamber owns archive state; a session is archived when it carries a timestamp. */
-const isArchivedSession = (session: GlobalSessionRecord): boolean => Boolean(session.time?.archived);
+export const isArchivedSession = (session: GlobalSessionRecord): boolean => Boolean(session.time?.archived);
 
 /**
  * Split a session list into active and archived buckets. Restored sessions

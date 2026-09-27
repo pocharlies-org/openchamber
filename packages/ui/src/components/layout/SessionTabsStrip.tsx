@@ -34,6 +34,7 @@ import { useI18n } from '@/lib/i18n';
 import { useSessionTabsStore } from '@/stores/useSessionTabsStore';
 import { closeSessionTabAndActivateNeighbour } from '@/lib/sessionTabs';
 import { useGlobalSessionsStore, resolveGlobalSessionDirectory } from '@/stores/useGlobalSessionsStore';
+import { isArchivedSession } from '@/stores/globalSessions';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useSessionUnseenCount } from '@/sync/notification-store';
 import { useIsSessionAiRenamePending } from '@/sync/use-session-ai-rename';
@@ -115,6 +116,9 @@ const SessionTabItem: React.FC<{
   const unseenCount = useSessionUnseenCount(tab.id);
   const showUnread = unseenCount > 0 && !isActive && !isStreaming;
   const showDot = isStreaming || showUnread;
+  // Archive state rides on the session record the strip already reads, so a
+  // tab shows it without a second lookup.
+  const isArchivedTab = isArchivedSession(tab.session);
 
   const menuArgsFor = (components: SessionTabMenuComponents): SessionTabMenuArgs => ({
     session: tab.session,
@@ -204,6 +208,13 @@ const SessionTabItem: React.FC<{
                         state={turnActivity ?? 'unread'}
                         className={cn('ml-1.5 shrink-0', !suppressControls && 'group-hover/session-tab:opacity-0', overlayVisible && 'opacity-0')}
                       />
+                    ) : isArchivedTab ? (
+                      <span
+                        className="ml-1.5 inline-flex shrink-0 items-center text-muted-foreground/70"
+                        title={t('header.session.archived')}
+                      >
+                        <Icon name="inbox-archive" className="size-3" aria-label={t('header.session.archived')} />
+                      </span>
                     ) : null}
                   </div>
                   {!suppressControls ? (
@@ -277,8 +288,10 @@ const SessionTabItem: React.FC<{
  * current renders `children` — the header's title/rename block — inside a
  * selected pill. Closing a tab only removes it from the strip; closing the
  * active one activates its neighbour. Ids whose session has not loaded (or
- * was archived/deleted) stay in the store but do not render, so a partial
- * session list never destroys the working set.
+ * was deleted) stay in the store but do not render, so a partial session list
+ * never destroys the working set. An archived session does render: archiving
+ * does not close it, and dropping its tab left the strip showing the
+ * new-draft pill in its place.
  */
 export const SessionTabsStrip: React.FC<{
   /** Menu items for one tab's session, supplied by the header. */
@@ -298,6 +311,7 @@ export const SessionTabsStrip: React.FC<{
   const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
   const setCurrentSession = useSessionUIStore((state) => state.setCurrentSession);
   const activeSessions = useGlobalSessionsStore((state) => state.activeSessions);
+  const archivedSessions = useGlobalSessionsStore((state) => state.archivedSessions);
 
   // Opening a session anywhere (sidebar, palette, deep link) adds its tab. The
   // lanes of one multi-run share a tab: opening another lane reuses it.
@@ -309,8 +323,13 @@ export const SessionTabsStrip: React.FC<{
   const sessionsById = React.useMemo(() => {
     const map = new Map<string, Session>();
     for (const session of activeSessions) map.set(session.id, session);
+    // Archived sessions keep their tab. Archiving does not close the session:
+    // it stays open on screen, and leaving it out of the strip dropped its tab
+    // and made the strip render the new-draft pill in its place — the session
+    // looked unsaved rather than archived.
+    for (const session of archivedSessions) map.set(session.id, session);
     return map;
-  }, [activeSessions]);
+  }, [activeSessions, archivedSessions]);
 
   // Only tabs with a known live session render; unknown ids stay stored.
   const tabs = React.useMemo<SessionTab[]>(() => {
