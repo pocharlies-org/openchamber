@@ -30,6 +30,13 @@ Directories beneath the managed `~/.config/openchamber/chats` root resolve to th
 of what the session is carrying. It lives with the session, so it survives the
 tab closing and is visible to every sender, including the ones with no tab.
 
+A Claude Code session has no metadata of its own, so both keys live for it in
+OpenChamber's engine metadata store (`../openchamber-sessions/engine-metadata-store.js`,
+`engine-session-metadata.json` in the data directory), behind the same
+metadata store API. Before that store existed the cursor could not be written
+for such a session, and the whole knowledge block went out again with every
+message.
+
 The signature covers content revisions, not just identity: editing a pinned note
 must re-send it, not merely renaming one.
 

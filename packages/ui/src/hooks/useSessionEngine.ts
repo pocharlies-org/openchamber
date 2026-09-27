@@ -1,7 +1,7 @@
 import React from 'react';
 
 import { getRuntimeKey } from '@/lib/runtime-switch';
-import { resolveSessionEngine, type EngineOperation, type SessionEngineInfo } from '@/lib/sessionEngine';
+import { resolveSessionEngine, type SessionEngineInfo } from '@/lib/sessionEngine';
 import { selectEngineTable, useEngineStore } from '@/stores/useEngineStore';
 import { useSession } from '@/sync/sync-context';
 
@@ -19,12 +19,6 @@ export const useSessionEngine = (sessionId: string | null | undefined, directory
     void load(runtimeKey);
   }, [load, runtimeKey]);
   return table[resolveSessionEngine(session ?? (sessionId ? { id: sessionId } : null))];
-};
-
-/** Whether the engine that owns the session can do `operation` (true without a session: nothing to refuse yet). */
-export const useSessionCan = (sessionId: string | null | undefined, operation: EngineOperation, directory?: string): boolean => {
-  const engine = useSessionEngine(sessionId, directory);
-  return sessionId ? engine.capabilities[operation] : true;
 };
 
 /**

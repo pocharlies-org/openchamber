@@ -9,7 +9,7 @@ import { runtimeFetch } from '@/lib/runtime-fetch';
  */
 export type ClaudeCommand = { name: string; description: string; argumentHint: string };
 
-const cache = new Map<string, { at: number; request: Promise<ClaudeCommand[]> }>();
+const cache = new Map<string, { at: number; request: Promise<ClaudeCommand[] | null> }>();
 const TTL_MS = 30_000;
 
 const isCommand = (value: unknown): value is ClaudeCommand => {
@@ -17,22 +17,25 @@ const isCommand = (value: unknown): value is ClaudeCommand => {
   return Boolean(record) && typeof record?.name === 'string' && record.name.trim().length > 0;
 };
 
-export const fetchClaudeCommands = (directory: string | null | undefined): Promise<ClaudeCommand[]> => {
+/** The commands, or `null` when they could not be read: a failure never reads as "no commands". */
+export const fetchClaudeCommands = (directory: string | null | undefined): Promise<ClaudeCommand[] | null> => {
   const key = directory ?? '';
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < TTL_MS) return hit.request;
   const request = runtimeFetch('/api/claude/commands', { query: directory ? { directory } : undefined })
-    .then((response) => (response.ok ? response.json() : null))
-    .then((payload: { commands?: unknown } | null) => (Array.isArray(payload?.commands)
-      ? payload.commands.filter(isCommand).map((command) => ({
+    .then(async (response) => {
+      if (!response.ok) throw new Error(`GET /api/claude/commands answered ${response.status}`);
+      const payload = await response.json() as { commands?: unknown } | null;
+      if (!Array.isArray(payload?.commands)) throw new Error('GET /api/claude/commands: unexpected payload');
+      return payload.commands.filter(isCommand).map((command) => ({
         name: command.name.trim(),
         description: typeof command.description === 'string' ? command.description : '',
         argumentHint: typeof command.argumentHint === 'string' ? command.argumentHint : '',
-      }))
-      : []))
+      }));
+    })
     .catch(() => {
       cache.delete(key);
-      return [];
+      return null;
     });
   cache.set(key, { at: Date.now(), request });
   return request;

@@ -90,9 +90,18 @@ export const createEngineSessionMetadata = ({
     },
     write: async (sessionID, metadata) => {
       await load();
+      const previous = records.get(sessionID);
       if (isPlainObject(metadata) && Object.keys(metadata).length > 0) records.set(sessionID, metadata);
       else records.delete(sessionID);
-      await persist();
+      try {
+        await persist();
+      } catch (error) {
+        // A write that did not reach the disk must not linger in memory as if
+        // it had: the next read, and the file after a restart, disagree.
+        if (previous === undefined) records.delete(sessionID);
+        else records.set(sessionID, previous);
+        throw error;
+      }
     },
     /** The last loaded record, synchronously, for a stream that cannot wait; undefined before load. */
     peek: (sessionID) => records.get(sessionID),
