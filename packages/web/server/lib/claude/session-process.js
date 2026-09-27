@@ -63,19 +63,17 @@ const humanText = (content) => {
 };
 
 /**
- * A lone text block starting with `/` goes to the CLI as a plain string: that
- * is the shape in which Claude Code recognizes a slash command (`/compact`,
- * `/review`, a project command). Anything else keeps its blocks.
+ * The content of a prompt as the CLI receives it. A command (`/name args`,
+ * sent through the command route) goes as one plain string: that is the shape
+ * in which Claude Code parses a slash command. Everything else keeps its
+ * blocks, which the CLI reads as prose even when the text starts with `/` —
+ * `/usr/local/bin/node --version` in a prompt is a question, not a command.
  */
-export const asCliContent = (content) => (
-  Array.isArray(content)
-  && content.length === 1
-  && content[0]?.type === 'text'
-  && typeof content[0].text === 'string'
-  && content[0].text.startsWith('/')
-    ? content[0].text
-    : content
-);
+export const toCliContent = (content, { asCommand = false } = {}) => {
+  if (!asCommand || !Array.isArray(content)) return content;
+  const texts = content.filter((block) => block?.type === 'text' && typeof block.text === 'string');
+  return texts.length === content.length ? texts.map((block) => block.text).join('\n\n') : content;
+};
 
 /**
  * @param {object} dependencies
@@ -434,7 +432,7 @@ export const createClaudeSessionProcess = (dependencies) => {
         uuid,
         session_id: sessionId,
         parent_tool_use_id: null,
-        message: { role: 'user', content: asCliContent(content) },
+        message: { role: 'user', content: toCliContent(content, { asCommand: options.asCommand === true }) },
       });
     });
   };

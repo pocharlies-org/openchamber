@@ -509,14 +509,15 @@ export function createMessageQueueRuntime({
       ? await sessionKnowledgeRuntime.resolvePendingForSession(sessionId, directory)
         .catch(() => ({ text: '', signature: '' }))
       : { text: '', signature: '' };
-    const context = item.context.flatMap(toContextMessages).map((message) => message.text);
-    if (knowledge.text) context.push(knowledge.text);
-    await transport.send(sessionId, directory, {
+    const result = await transport.send(sessionId, directory, {
       text: item.text,
       files: item.attachments.map(toPromptFile),
-      context,
+      context: item.context.flatMap(toContextMessages).map((message) => message.text),
+      knowledge: knowledge.text,
     });
-    if (knowledge.text && sessionKnowledgeRuntime) {
+    // Only when the engine says it went out: a command carries no knowledge,
+    // and recording it anyway would keep the next prompt from carrying it.
+    if (knowledge.text && result?.knowledgeDelivered && sessionKnowledgeRuntime) {
       await sessionKnowledgeRuntime.recordDelivered(sessionId, directory, knowledge.signature).catch(() => undefined);
     }
   };

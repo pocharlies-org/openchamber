@@ -689,6 +689,7 @@ describe('sessions of another engine (Claude Code)', () => {
       isIdle: vi.fn(async () => !state.busy),
       send: vi.fn(async (sessionId, directory, message) => {
         state.sent.push({ sessionId, directory, ...message });
+        return { knowledgeDelivered: Boolean(message.knowledge) && !message.text.startsWith('/') };
       }),
     };
     return { state, transport };
@@ -701,7 +702,7 @@ describe('sessions of another engine (Claude Code)', () => {
     await runtime.enqueue(CLAUDE, DIRECTORY, item({ content: 'continue', text: 'continue' }));
     await settle();
 
-    expect(claude.state.sent).toEqual([{ sessionId: CLAUDE, directory: DIRECTORY, text: 'continue', files: [], context: [] }]);
+    expect(claude.state.sent).toEqual([{ sessionId: CLAUDE, directory: DIRECTORY, text: 'continue', files: [], context: [], knowledge: '' }]);
     expect(openCode.fetchImpl).not.toHaveBeenCalled();
     expect(runtime.sessionSnapshot(CLAUDE).items ?? []).toEqual([]);
   });
@@ -735,8 +736,23 @@ describe('sessions of another engine (Claude Code)', () => {
     }));
     await settle();
 
-    expect(claude.state.sent[0].context).toEqual(['quoted selection', 'project notes']);
+    expect(claude.state.sent[0].context).toEqual(['quoted selection']);
+    expect(claude.state.sent[0].knowledge).toBe('project notes');
     expect(knowledge.recordDelivered).toHaveBeenCalledWith(CLAUDE, DIRECTORY, 'sig-1');
+  });
+
+  it('does not record knowledge as delivered when the engine did not carry it (a command)', async () => {
+    const claude = fakeClaude();
+    const knowledge = {
+      resolvePendingForSession: vi.fn(async () => ({ text: 'project notes', signature: 'sig-1' })),
+      recordDelivered: vi.fn(async () => {}),
+    };
+    const { runtime } = createRuntime({ getEngineTransport: () => claude.transport, knowledge });
+    runtime.start();
+    await runtime.enqueue(CLAUDE, DIRECTORY, item({ content: '/review', text: '/review' }));
+    await settle();
+    expect(claude.state.sent).toHaveLength(1);
+    expect(knowledge.recordDelivered).not.toHaveBeenCalled();
   });
 
   it('does not switch an OpenCode model or agent for it', async () => {
