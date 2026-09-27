@@ -18,9 +18,33 @@ export const takeOverClaudeSession = async (sessionId: string, directory: string
   }
 };
 
+export type ClaudeReleaseResult = { released: boolean; busy: boolean };
+
+/**
+ * Free a Claude session this server itself hosts: the process is closed so the
+ * transcript has no live writer. The Claude Code VS Code extension refuses to
+ * open a session another process holds, so "Open in VS Code" calls this before
+ * the link. A no-op when this server holds nothing; a foreign holder is left
+ * alone (POST /api/session/:id/claude/release).
+ */
+export const releaseClaudeSession = async (sessionId: string, directory: string | null): Promise<ClaudeReleaseResult> => {
+  try {
+    const response = await runtimeFetch(`/api/session/${encodeURIComponent(sessionId)}/claude/release`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ directory }),
+    });
+    if (response.status === 409) return { released: false, busy: true };
+    if (!response.ok) return { released: false, busy: false };
+    const body = await response.json().catch(() => null);
+    return { released: body?.data?.released !== false, busy: false };
+  } catch {
+    return { released: false, busy: false };
+  }
+};
+
 /** How often a session shown live keeps its server-side follow alive (the follow lapses after 15 min). */
 export const CLAUDE_FOLLOW_KEEPALIVE_MS = 4 * 60 * 1000;
-
 /**
  * Tell the server this window still shows a session another process is
  * writing, so it keeps publishing that process's messages here.

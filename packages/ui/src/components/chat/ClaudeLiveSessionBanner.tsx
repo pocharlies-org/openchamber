@@ -5,7 +5,7 @@ import { BusyDots } from '@/components/chat/message/parts/BusyDots';
 import { toast } from '@/components/ui';
 import { Button } from '@/components/ui/button';
 import { claudeVSCodeUrl, getClaudeLiveState, type ClaudeLiveOwnerKind } from '@/lib/claudeSessionMetadata';
-import { CLAUDE_FOLLOW_KEEPALIVE_MS, keepFollowingClaudeSession, takeOverClaudeSession } from '@/lib/claudeTakeOver';
+import { CLAUDE_FOLLOW_KEEPALIVE_MS, keepFollowingClaudeSession, releaseClaudeSession, takeOverClaudeSession } from '@/lib/claudeTakeOver';
 import { useI18n } from '@/lib/i18n';
 import { useSession } from '@/sync/sync-context';
 
@@ -57,6 +57,25 @@ export const ClaudeLiveSessionBanner = memo(({ sessionId, directory }: ClaudeLiv
     setTakingOver(false);
   }, [directory, sessionId, t]);
 
+  const [releasingVSCode, setReleasingVSCode] = React.useState(false);
+  // The VS Code extension refuses a transcript a live process holds (single
+  // writer): release ours first — a no-op when this server hosts nothing — and
+  // only then open the link, as the handoff does.
+  const handleOpenVSCode = React.useCallback((event: React.MouseEvent<HTMLAnchorElement>) => {
+    const url = claudeVSCodeUrl(sessionId);
+    if (!sessionId || !url) return;
+    event.preventDefault();
+    setReleasingVSCode(true);
+    void releaseClaudeSession(sessionId, directory).then((result) => {
+      setReleasingVSCode(false);
+      if (!result.released) {
+        toast.error(t(result.busy ? 'chat.claudeLive.toast.vscodeBusy' : 'chat.claudeLive.toast.vscodeFailed'));
+        return;
+      }
+      window.open(url, '_blank', 'noopener');
+    });
+  }, [directory, sessionId, t]);
+
   if (!sessionId || (!liveElsewhere && !remoteControlUrl)) {
     return null;
   }
@@ -73,7 +92,7 @@ export const ClaudeLiveSessionBanner = memo(({ sessionId, directory }: ClaudeLiv
   const vscodeUrl = claudeVSCodeUrl(sessionId);
   const vscodeLink = vscodeUrl ? (
     <Button asChild type="button" variant="secondary" size="xs">
-      <a href={vscodeUrl} target="_blank" rel="noreferrer">
+      <a href={vscodeUrl} target="_blank" rel="noreferrer" onClick={handleOpenVSCode} aria-disabled={releasingVSCode || undefined}>
         <Icon name="code" className="h-3.5 w-3.5" aria-hidden="true" />
         {t('chat.claudeLive.actions.openVSCode')}
       </a>
