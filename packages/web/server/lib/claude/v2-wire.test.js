@@ -215,3 +215,16 @@ describe('createClaudeV2EventTranslator', () => {
     expect(events[4].data).toEqual({ sessionID: 'ses_cccs2' });
   });
 });
+
+describe('toV2Message for Claude bookkeeping records', () => {
+  it('a compaction record is a completed v2 compaction message', () => {
+    expect(toV2Message({ info: { id: 'msg_c', role: 'compaction', time: { created: '1970-01-01T00:00:01.000Z' }, reason: 'manual', summary: 'S' } }))
+      .toEqual({ type: 'compaction', id: 'msg_c', time: { created: 1000 }, status: 'completed', reason: 'manual', summary: 'S', recent: '' });
+  });
+
+  it('a shell record is an exited v2 shell message with its output', () => {
+    const message = toV2Message({ info: { id: 'msg_s', role: 'shell', time: { created: '1970-01-01T00:00:01.000Z', completed: '1970-01-01T00:00:02.000Z' }, command: 'ls', output: 'a', exit: 0 } });
+    expect(message).toMatchObject({ type: 'shell', id: 'msg_s', shellID: 'msg_s', command: 'ls', status: 'exited', exit: 0, time: { created: 1000, completed: 2000 } });
+    expect(message.output).toEqual({ output: 'a', cursor: 1, size: 1, truncated: false });
+  });
+});

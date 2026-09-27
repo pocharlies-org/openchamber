@@ -1,3 +1,4 @@
+import { registerEnginesRoute } from '../engines/engines.js';
 import http from 'node:http';
 import https from 'node:https';
 
@@ -929,6 +930,13 @@ export const registerOpenCodeProxy = (app, deps) => {
   if (claudeSurface) {
     claudeSurface.register(app);
   }
+
+  // Which session engines run here and what each can do (lib/engines). The UI
+  // gates every engine-specific affordance on this, never on ids or labels.
+  registerEnginesRoute(app, {
+    isClaudeEnabled: () => Boolean(claudeSurface) && process.env.OPENCHAMBER_CLAUDE_LIST_DISABLED !== '1',
+    isClaudeAvailable: () => claudeSurface?.runtime?.ensureAvailable?.() ?? false,
+  });
 
   // V2 lists sessions across directories on every platform and owns pagination.
   app.get('/api/session', (req, res, next) => {

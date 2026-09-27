@@ -18,9 +18,10 @@ const TITLE_KEYS = {
 } as const satisfies Record<ClaudeLiveOwnerKind, string>;
 
 // Below `sm` the text takes the whole row after the icon (1rem + 0.5rem gap)
-// and the actions wrap under it, indented to the text.
+// and the actions take the next row, indented to the text, wrapping among
+// themselves: a row that may not shrink ran off a 390px screen (measured).
 const OWN_LINE_ON_PHONE = 'basis-[calc(100%-1.5rem)] sm:basis-auto';
-const ACTIONS_CLASS = 'flex shrink-0 flex-wrap items-center gap-2 pl-6 sm:pl-0';
+const ACTIONS_CLASS = 'flex min-w-0 basis-full flex-wrap items-center gap-2 pl-6 sm:basis-auto sm:shrink-0 sm:pl-0';
 
 type ClaudeLiveSessionBannerProps = {
   sessionId: string | null;

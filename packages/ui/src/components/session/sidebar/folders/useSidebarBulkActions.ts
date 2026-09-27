@@ -3,6 +3,7 @@ import { toast } from '@/components/ui';
 import { useI18n } from '@/lib/i18n';
 import { takeSessionActionFailure } from '@/sync/session-action-failures';
 import { describeSessionActionError } from '../sessions/sessionActionError';
+import { resolveSessionEngine } from '@/lib/sessionEngine';
 import { useSessionMultiSelectStore } from '@/stores/useSessionMultiSelectStore';
 import type { SessionFolder } from '@/stores/useSessionFoldersStore';
 import { deriveSessionRowBulkSelectAll, deriveSessionRowSelectionArchived, useSessionRowOrderRegistry } from '../sessions/sessionRowOrder';
@@ -78,7 +79,8 @@ export const useSidebarBulkActions = (args: Args) => {
   const { t } = useI18n();
   const failureDescription = React.useCallback((ids: readonly string[]): { description: string } | undefined => {
     const error = takeSessionActionFailure(ids);
-    return error ? { description: describeSessionActionError(error, t) } : undefined;
+    // The engine of the sessions acted on: a Claude session's failure is Claude Code's.
+    return error ? { description: describeSessionActionError(error, t, resolveSessionEngine({ id: ids[0] })) } : undefined;
   }, [t]);
   const {
     isInlineEditing,

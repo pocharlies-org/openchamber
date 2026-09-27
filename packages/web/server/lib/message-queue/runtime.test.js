@@ -75,7 +75,7 @@ const createOpenCode = () => {
   return { state, fetchImpl };
 };
 
-const createRuntime = ({ dataDir = makeDataDir(), openCode = createOpenCode(), knowledge = null, retryDelayMs, resolveAutoSelection, now } = {}) => {
+const createRuntime = ({ dataDir = makeDataDir(), openCode = createOpenCode(), knowledge = null, retryDelayMs, resolveAutoSelection, now, getEngineTransport } = {}) => {
   let eventHandler = () => {};
   let statusHandler = () => {};
   const broadcasts = [];
@@ -98,6 +98,7 @@ const createRuntime = ({ dataDir = makeDataDir(), openCode = createOpenCode(), k
   if (retryDelayMs) options.retryDelayMs = retryDelayMs;
   if (resolveAutoSelection) options.resolveAutoSelection = resolveAutoSelection;
   if (now) options.now = now;
+  if (getEngineTransport) options.getEngineTransport = getEngineTransport;
   const runtime = createMessageQueueRuntime(options);
   return {
     runtime,
@@ -641,5 +642,100 @@ describe('message queue runtime', () => {
       agents: [{ name: 'reviewer' }],
     });
     expect(recorded).toEqual([{ sessionId: SESSION, directory: DIRECTORY, signature: 'sig-1' }]);
+  });
+});
+
+
+describe('sessions of another engine (Claude Code)', () => {
+  const CLAUDE = 'ses_ccc0b1e16d4-d15a-4616-b6d9-42db61f876f3';
+  const fakeClaude = ({ busy = false } = {}) => {
+    const state = { busy, sent: [] };
+    const transport = {
+      owns: (sessionId) => sessionId.startsWith('ses_ccc'),
+      isIdle: vi.fn(async () => !state.busy),
+      send: vi.fn(async (sessionId, directory, message) => {
+        state.sent.push({ sessionId, directory, ...message });
+      }),
+    };
+    return { state, transport };
+  };
+
+  it('delivers through the engine, never to OpenCode, which does not know the id', async () => {
+    const claude = fakeClaude();
+    const { runtime, openCode } = createRuntime({ getEngineTransport: () => claude.transport });
+    runtime.start();
+    await runtime.enqueue(CLAUDE, DIRECTORY, item({ content: 'continue', text: 'continue' }));
+    await settle();
+
+    expect(claude.state.sent).toEqual([{ sessionId: CLAUDE, directory: DIRECTORY, text: 'continue', files: [], context: [] }]);
+    expect(openCode.fetchImpl).not.toHaveBeenCalled();
+    expect(runtime.sessionSnapshot(CLAUDE).items ?? []).toEqual([]);
+  });
+
+  it('waits while the Claude turn runs and drains on its idle status', async () => {
+    const claude = fakeClaude({ busy: true });
+    const { runtime, emit } = createRuntime({ getEngineTransport: () => claude.transport });
+    runtime.start();
+    await runtime.enqueue(CLAUDE, DIRECTORY, item({ content: 'next', text: 'next' }));
+    await settle();
+    expect(claude.state.sent).toEqual([]);
+
+    claude.state.busy = false;
+    emit({ type: 'session.status', properties: { sessionID: CLAUDE, status: { type: 'idle' } } });
+    await settle();
+    expect(claude.state.sent.map((entry) => entry.text)).toEqual(['next']);
+  });
+
+  it('admits captured context and pending knowledge ahead of the text', async () => {
+    const claude = fakeClaude();
+    const knowledge = {
+      resolvePendingForSession: vi.fn(async () => ({ text: 'project notes', signature: 'sig-1' })),
+      recordDelivered: vi.fn(async () => {}),
+    };
+    const { runtime } = createRuntime({ getEngineTransport: () => claude.transport, knowledge });
+    runtime.start();
+    await runtime.enqueue(CLAUDE, DIRECTORY, item({
+      content: 'go',
+      text: 'go',
+      context: [{ kind: 'context', text: 'quoted selection', metadata: { source: 'selection' } }],
+    }));
+    await settle();
+
+    expect(claude.state.sent[0].context).toEqual(['quoted selection', 'project notes']);
+    expect(knowledge.recordDelivered).toHaveBeenCalledWith(CLAUDE, DIRECTORY, 'sig-1');
+  });
+
+  it('does not switch an OpenCode model or agent for it', async () => {
+    const claude = fakeClaude();
+    const resolveAutoSelection = vi.fn(async () => null);
+    const { runtime, openCode } = createRuntime({ getEngineTransport: () => claude.transport, resolveAutoSelection });
+    runtime.start();
+    await runtime.enqueue(CLAUDE, DIRECTORY, item());
+    await settle();
+    expect(openCode.state.switched).toEqual([]);
+    expect(resolveAutoSelection).not.toHaveBeenCalled();
+  });
+
+  it('keeps OpenCode sessions on OpenCode when an engine transport is present', async () => {
+    const claude = fakeClaude();
+    const { runtime, openCode } = createRuntime({ getEngineTransport: () => claude.transport });
+    runtime.start();
+    await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'plain', text: 'plain' }));
+    await settle();
+    expect(claude.transport.send).not.toHaveBeenCalled();
+    expect(openCode.state.sent.map((entry) => entry.path)).toContain(`/api/session/${SESSION}/prompt`);
+  });
+
+  it('retries a failed engine delivery instead of dropping the message', async () => {
+    const claude = fakeClaude();
+    claude.transport.send.mockRejectedValueOnce(new Error('held by another process'));
+    const { runtime } = createRuntime({ getEngineTransport: () => claude.transport, retryDelayMs: () => 5 });
+    runtime.start();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await runtime.enqueue(CLAUDE, DIRECTORY, item({ content: 'again', text: 'again' }));
+    await settle(80);
+    warn.mockRestore();
+    expect(claude.transport.send).toHaveBeenCalledTimes(2);
+    expect(claude.state.sent.map((entry) => entry.text)).toEqual(['again']);
   });
 });

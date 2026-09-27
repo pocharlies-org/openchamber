@@ -55,6 +55,8 @@ import {
 } from "./session-directory-resolution"
 import { markSessionViewed } from "./notification-store"
 import { setActiveSession } from "./sync-context"
+import { engineInfoForSession } from "@/stores/useEngineStore"
+import { EngineUnsupportedError } from "@/lib/sessionEngine"
 import {
   createSession as createSessionAction,
   type SessionCreateSelection,
@@ -164,6 +166,12 @@ export function resolveSendSelection(
   }
 }
 
+/** The synced record of a session, from its directory's store or any. */
+function findSyncSession(sessionId: string, directory: string | undefined): Session | undefined {
+  const sessions = getDirectoryState(directory)?.session ?? getAllSyncSessions()
+  return sessions.find((candidate) => candidate.id === sessionId)
+}
+
 export async function routeMessage(params: {
   runtimeKey?: string
   sessionId: string
@@ -204,6 +212,38 @@ export async function routeMessage(params: {
   }
   const contextFiles = (params.additionalParts ?? []).flatMap((part) => part.files ?? [])
   const sendFiles = [...(params.files ?? []), ...contextFiles]
+  // The engine that owns the session decides how a message travels
+  // (lib/sessionEngine.ts): OpenCode resolves commands and skills itself;
+  // Claude Code gets every `/name` as its own command and has no shell.
+  const engine = engineInfoForSession(findSyncSession(params.sessionId, requestDirectory) ?? { id: params.sessionId })
+
+  if (params.inputMode === "shell" && !engine.capabilities.shell) {
+    throw new EngineUnsupportedError(engine, "shell")
+  }
+
+  if (params.content.startsWith("/") && engine.capabilities.commands === "prompt") {
+    const [head, ...tail] = params.content.split(" ")
+    const cmdName = head.slice(1)
+    // `/name args` goes on the command route, where the engine expands it and
+    // the context admitted ahead of it waits for the next prompt instead of
+    // burying the command. Anything that is not a clean name is prose.
+    if (cmdName && !/\s/.test(cmdName)) {
+      params.appendSubmissions?.()
+      await opencodeClient.sendCommand({
+        runtimeKey: params.runtimeKey,
+        id: params.sessionId,
+        model: selection.model,
+        agent: selection.agent,
+        command: cmdName,
+        arguments: tail.join(" "),
+        files: sendFiles,
+        context: contextItems.length > 0 ? contextItems : undefined,
+        delivery: params.delivery,
+        directory: requestDirectory,
+      })
+      return 'command'
+    }
+  }
 
   if (params.inputMode === "shell") {
     await opencodeClient.shellSession({
@@ -1716,7 +1756,11 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     const draft = options?.draftSnapshot ?? get().newSessionDraft
     const trimmedAgent = typeof agent === "string" && agent.trim().length > 0 ? agent.trim() : undefined
 
-    const goalArm = inputMode !== "shell" && content.trim().length > 0
+    // An armed goal belongs to an engine that runs goals: a Claude Code session
+    // leaves it armed for the next OpenCode send instead of consuming it.
+    const goalTargetId = capturedTarget?.sessionId ?? options?.sessionId ?? (draft?.open ? null : get().currentSessionId)
+    const goalEngine = goalTargetId ? engineInfoForSession(findSyncSession(goalTargetId, undefined) ?? { id: goalTargetId }) : null
+    const goalArm = inputMode !== "shell" && content.trim().length > 0 && (goalEngine?.capabilities.goals ?? true)
       ? useSessionGoalArmStore.getState().consume()
       : { armed: false, objectiveOverride: null }
     const goalArmed = goalArm.armed

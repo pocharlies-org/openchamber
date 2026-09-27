@@ -1,4 +1,6 @@
 
+import { engineInfoForSession } from '@/stores/useEngineStore';
+import { EngineUnsupportedError } from '@/lib/sessionEngine';
 import * as gitHttp from './gitApiHttp';
 import { opencodeClient } from './opencode/client';
 import { renderMagicPrompt } from './magicPrompts';
@@ -599,6 +601,10 @@ const GENERATION_CONFIG_ERROR = 'No default provider or model configured. Please
 async function resolveGenerationSessionContext(): Promise<SessionGenerationContext> {
   const activeSession = resolveSessionGenerationContext();
   if (activeSession) {
+    // Generating in a session's context is OpenCode's; a Claude Code session
+    // has no side generation, so say so instead of failing inside the request.
+    const engine = engineInfoForSession({ id: activeSession.sessionId });
+    if (!engine.capabilities.generate) throw new EngineUnsupportedError(engine, 'generate');
     return activeSession;
   }
 

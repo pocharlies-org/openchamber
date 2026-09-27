@@ -12,7 +12,7 @@
 
 import os from 'os';
 import path from 'path';
-import { mapClaudeSessionMessages, deriveClaudeTitle } from './claude-transcript.js';
+import { mapClaudeSessionMessages, deriveClaudeTitle, findForkCut } from './claude-transcript.js';
 import { createClaudeSessionProcess } from './session-process.js';
 import { remoteControlUrl } from './live-sessions.js';
 
@@ -37,6 +37,15 @@ const DEFAULT_AUTO_ARCHIVE_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_MODE_ID = 'default';
 const DEFAULT_EFFORT_ID = 'high';
 const SDK_IMPORT_PATH = '@anthropic-ai/claude-agent-sdk';
+
+/** A fork named a record the transcript does not have (a stale view, or another session's id). */
+export class ClaudeForkPointNotFoundError extends Error {
+  constructor(recordId) {
+    super(`The message to fork from (${recordId}) is not in this session's transcript; reload the session and try again`);
+    this.name = 'ClaudeForkPointNotFoundError';
+    this.code = 'CLAUDE_FORK_POINT_NOT_FOUND';
+  }
+}
 
 const MODE_DEFINITIONS = Object.freeze({
   default: {
@@ -718,6 +727,20 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     return records;
   };
 
+  /**
+   * The transcript uuid each prompt sent from here went out with, keyed by the
+   * record id the UI holds it under. Bounded: only recent prompts can still be
+   * named by a live id; older ones are read back from the transcript.
+   */
+  const promptUuids = new Map();
+  const MAX_PROMPT_UUIDS = 500;
+  const promptUuidKey = (sessionId, recordId) => `${sessionId}\u0000${recordId}`;
+  const rememberPromptUuid = (sessionId, recordId, uuid) => {
+    promptUuids.set(promptUuidKey(sessionId, recordId), uuid);
+    while (promptUuids.size > MAX_PROMPT_UUIDS) promptUuids.delete(promptUuids.keys().next().value);
+  };
+  const forkTitleOf = (title) => (title ? clampText(`${title} (fork)`, 120) : 'Fork');
+
   const createSession = async (input = {}) => {
     await loadOverlay();
     const sessionId = createSessionId(crypto);
@@ -740,21 +763,56 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     return { ...session };
   };
 
+  /**
+   * Fork a session, as OpenCode's `fork({ before })`: a sibling session with the
+   * transcript up to, and excluding, the record `before` names — the whole
+   * transcript without it. The Agent SDK copies the transcript with fresh
+   * uuids; the source is not touched.
+   *
+   * `before` is a record id as the UI holds it: the transcript's own
+   * (`mapClaudeSessionMessages`), or the id a live turn streamed it under —
+   * the prompt's client id (resolved through the uuid it was sent with) or
+   * `msg_<API message id>` for an answer.
+   */
   const forkSession = async (input = {}) => {
     const sdk = await ensureSdk();
     const sessionId = typeof input.sessionID === 'string' ? input.sessionID.trim() : '';
     if (!sdk || !sessionId) throw new Error('Session not found');
 
-    const directory = normalizeDirectory(input.directory);
-    const result = await sdk.forkSession(sessionId, directory ? { dir: directory } : {});
+    const known = await getSession({ sessionID: sessionId, directory: input.directory }).catch(() => null);
+    const directory = normalizeDirectory(input.directory) || normalizeDirectory(known?.directory);
+    const dirOption = directory ? { dir: directory } : {};
+    const before = typeof input.before === 'string' ? input.before.trim() : '';
+    const title = clampText(input.title, 120) || undefined;
+
+    let upToMessageId;
+    if (before) {
+      const messages = await sdk.getSessionMessages(sessionId, dirOption);
+      const cut = findForkCut(messages, before, { uuid: promptUuids.get(promptUuidKey(sessionId, before)) });
+      if (!cut.found) throw new ClaudeForkPointNotFoundError(before);
+      if (cut.upToMessageId === null) {
+        // Nothing precedes the cut: the fork is an empty session where the
+        // source runs, which is what a fork before the first prompt holds.
+        return createSession({ directory, title: title || forkTitleOf(known?.title) });
+      }
+      upToMessageId = cut.upToMessageId;
+    }
+
+    const result = await sdk.forkSession(sessionId, {
+      ...dirOption,
+      ...(upToMessageId ? { upToMessageId } : {}),
+      ...(title ? { title } : {}),
+    });
     const forkedId = typeof result?.sessionId === 'string' ? result.sessionId : '';
     if (!forkedId) throw new Error('Claude did not fork the session');
 
     const session = await getSession({ sessionID: forkedId, directory });
     if (!session) throw new Error('Forked session could not be read');
-    const withParent = { ...session, parentID: sessionId };
-    emitSessionUpdate('session.created', withParent);
-    return withParent;
+    invalidateList();
+    // A sibling, not a child: `parentID` means a subagent session to the UI,
+    // which nests it under the source instead of listing it.
+    emitSessionUpdate('session.created', session);
+    return session;
   };
 
   const buildPrompt = (parts) => {
@@ -1082,12 +1140,53 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
         })),
     });
 
-    const turnDone = proc.send(blocks);
+    const promptUuid = createSessionId(crypto);
+    rememberPromptUuid(sessionId, userRecordId, promptUuid);
+    const turnDone = proc.send(blocks, { uuid: promptUuid });
     // The turn is accepted from here on: every later failure is reported as a
     // `session.error` event, so an HTTP caller can be answered now instead of
     // being held open for the whole turn.
     input.onStarted?.();
     return turnDone;
+  };
+
+  /**
+   * Slash commands for sessions in `directory`, as the Claude CLI reports them.
+   * Only a running CLI can say, so the list comes from a live process here
+   * (preferring one in that directory) and is kept per directory for when none
+   * runs. Empty until a Claude session has run once: typing `/name` still
+   * reaches Claude Code, which answers unknown commands itself.
+   */
+  const commandCache = new Map();
+  const COMMANDS_TIMEOUT_MS = 5_000;
+  const listCommands = async (input = {}) => {
+    const directory = normalizeDirectory(input.directory);
+    const live = [...processes.values()].filter((proc) => !proc.hasExited());
+    const proc = live.find((candidate) => directory && candidate.directory === directory) || live[0];
+    if (proc) {
+      try {
+        let timer;
+        const commands = await Promise.race([
+          proc.supportedCommands(),
+          new Promise((_, reject) => {
+            timer = setTimeout(() => reject(new Error('timed out')), COMMANDS_TIMEOUT_MS);
+            timer.unref?.();
+          }),
+        ]).finally(() => clearTimeout(timer));
+        const normalized = commands
+          .filter((command) => typeof command?.name === 'string' && command.name.trim())
+          .map((command) => ({
+            name: command.name.trim().replace(/^\//, ''),
+            description: typeof command.description === 'string' ? command.description : '',
+            argumentHint: typeof command.argumentHint === 'string' ? command.argumentHint : '',
+          }));
+        commandCache.set(proc.directory || '', normalized);
+        if (!directory || proc.directory === directory) return normalized;
+      } catch (error) {
+        console.warn('[claude-backend] supportedCommands failed:', error?.message || error);
+      }
+    }
+    return commandCache.get(directory) || commandCache.get('') || [...commandCache.values()][0] || [];
   };
 
   const abortSession = async (input = {}) => {
@@ -1312,6 +1411,7 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     listSessions,
     createSession,
     forkSession,
+    listCommands,
     getSession,
     getMessages,
     promptAsync,

@@ -1,3 +1,4 @@
+import { useSessionEngineById } from '@/hooks/useSessionEngine';
 import React from 'react';
 import { Icon } from '@/components/icon/Icon';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -36,6 +37,9 @@ export const SessionGoalButton: React.FC<SessionGoalButtonProps> = React.memo(({
 }) => {
   const { t } = useI18n();
   const { goal, enabled } = useSessionGoal(sessionId ?? '', directory);
+  // Goals are driven through OpenCode: a session whose engine has none
+  // (Claude Code) is not offered the switch. A draft is always OpenCode.
+  const engineRunsGoals = useSessionEngineById(sessionId).capabilities.goals;
   const armed = useSessionGoalArmStore((state) => state.armed);
   const setArmed = useSessionGoalArmStore((state) => state.setArmed);
   const [dialogOpen, setDialogOpen] = React.useState(false);
@@ -48,7 +52,7 @@ export const SessionGoalButton: React.FC<SessionGoalButtonProps> = React.memo(({
   // The goal loop runs in the web server; the VS Code extension only renders
   // goal state. Arming a goal there would create one nothing drives, so the
   // entry point is hidden entirely.
-  if (isVSCodeRuntime() || !enabled || (!sessionId && !draftOpen)) {
+  if (isVSCodeRuntime() || !enabled || (!sessionId && !draftOpen) || (sessionId && !engineRunsGoals)) {
     return null;
   }
 

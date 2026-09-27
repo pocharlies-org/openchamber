@@ -72,7 +72,7 @@ import {
 import { registerOpenChamberRoutes } from './lib/opencode/openchamber-routes.js';
 import { registerForkUpdateRoutes } from './lib/fork-update/routes.js';
 import { createServerUtilsRuntime } from './lib/opencode/server-utils-runtime.js';
-import { createClaudeSurface } from './lib/claude/routes.js';
+import { createClaudeSurface, isClaudeSessionId } from './lib/claude/routes.js';
 import { createLiveSessionRegistry } from './lib/claude/live-sessions.js';
 import { createRemoteAttachments } from './lib/claude/remote-attach.js';
 import { createStaticRoutesRuntime } from './lib/opencode/static-routes-runtime.js';
@@ -131,6 +131,7 @@ import { registerBrowserControlRoutes } from './lib/browser-control/routes.js';
 import { createManagedConfigRuntime } from './lib/opencode/managed-config-file.js';
 import { createOpenChamberSessionService } from './lib/openchamber-sessions/routes.js';
 import { createSessionMetadataStore, createOpenCodeSessionMetadata } from './lib/openchamber-sessions/session-metadata-store.js';
+import { createEngineSessionMetadata } from './lib/openchamber-sessions/engine-metadata-store.js';
 import { createScheduledTaskService } from './lib/scheduled-tasks/service.js';
 import { createOpenChamberControlService } from './lib/openchamber-control/service.js';
 import { createPluginNotificationEmitter } from './lib/notifications/emit-route.js';
@@ -514,8 +515,18 @@ const broadcastOpenChamberUiEvent = createGlobalUiEventBroadcaster({
  * metadata. The store merge-patches it there and migrates what older
  * OpenChamber versions kept in `sessions-metadata.json`.
  */
+// A Claude Code session has no metadata of its own: OpenChamber keeps it here.
+const engineSessionMetadata = createEngineSessionMetadata({
+  dataDir: OPENCHAMBER_DATA_DIR,
+  owns: isClaudeSessionId,
+});
+void engineSessionMetadata.load().catch((error) => {
+  console.warn('[openchamber-sessions] engine session metadata unavailable:', error?.message ?? error);
+});
+
 const sessionMetadataStore = createSessionMetadataStore({
   dataDir: OPENCHAMBER_DATA_DIR,
+  engineMetadata: engineSessionMetadata,
   // Called, not captured: the OpenCode URL and auth helpers are declared
   // further down and only ever used once a request arrives.
   openCode: {
@@ -528,16 +539,27 @@ const readStoredSessionMetadata = (sessionID) => sessionMetadataStore.get(sessio
 
 const persistSessionMetadataPatch = async (sessionID, patch, { directory = '' } = {}) => {
   const metadata = await sessionMetadataStore.setSessionMetadata(sessionID, patch, { directory });
-  // The full merged object, so a client that missed an earlier patch does not
-  // have to reconstruct it.
-  broadcastOpenChamberUiEvent({
-    type: 'openchamber:session-metadata',
-    properties: { sessionID, metadata },
-  });
+  if (isClaudeSessionId(sessionID)) {
+    // The UI replaces a session's metadata with what it is sent; a Claude
+    // session's record carries the engine's own fields too, so the surface
+    // announces all of it. Called, not captured: it is created further down.
+    void Promise.resolve()
+      .then(() => claudeSurface.announceSession(sessionID))
+      .catch((error) => console.warn('[claude-backend] could not announce session metadata:', error?.message ?? error));
+  } else {
+    // The full merged object, so a client that missed an earlier patch does not
+    // have to reconstruct it.
+    broadcastOpenChamberUiEvent({
+      type: 'openchamber:session-metadata',
+      properties: { sessionID, metadata },
+    });
+  }
   // The write itself arms the goal loop: it is the authoritative signal and
   // does not depend on the event stream being connected.
   // Called, not captured: the runtime is declared further down.
-  if (patch?.openchamber && 'goal' in patch.openchamber) {
+  // Goals drive continuation prompts through OpenCode; an engine of its own
+  // (Claude Code) does not run them, so its sessions never arm the loop.
+  if (patch?.openchamber && 'goal' in patch.openchamber && !isClaudeSessionId(sessionID)) {
     void Promise.resolve(sessionGoalRuntime.notifyGoalChanged(sessionID, directory, metadata))
       .catch((error) => console.warn('[session-goal] could not arm after a goal change:', error?.message ?? error));
   }
@@ -1000,6 +1022,16 @@ const messageQueueRuntime = createMessageQueueRuntime({
   broadcastGlobalUiEvent: broadcastOpenChamberUiEvent,
   resolveAutoSelection: (send) => routingRuntime.resolveAutoSelection(send),
   onPromptSent: (sessionId) => sessionRuntime.markUserMessageSent(sessionId),
+  // Claude Code sessions are delivered through their own engine. Read at
+  // dispatch time: the Claude surface is created further down, and a restored
+  // queue may tick before it exists (then it is simply not there yet).
+  getEngineTransport: () => {
+    try {
+      return claudeSurface?.queueTransport ?? null;
+    } catch {
+      return null;
+    }
+  },
   dataDir: OPENCHAMBER_DATA_DIR,
 });
 messageQueueRuntime.start();
@@ -1125,6 +1157,10 @@ const claudeSurface = createClaudeSurface({
   // Archiving from the UI writes OpenChamber's archive store; read lazily, the
   // store is created with the session service further down.
   getArchivedSessions: () => openChamberSessionService.archiveStore.getAll(),
+  // OpenChamber's own per-session metadata (pins, /btw links, knowledge
+  // cursor) for Claude sessions, laid over each record this surface serves.
+  getStoredMetadata: async (publicId) => engineSessionMetadata.read(publicId),
+  peekStoredMetadata: (publicId) => engineSessionMetadata.peek(publicId),
   // Opt-in: link every Claude process OpenChamber starts to claude.ai / the
   // Claude app. The base URL override is for hosts whose settings route the
   // CLI through a local proxy, which Remote Control refuses.
@@ -1155,6 +1191,10 @@ const claudeSurface = createClaudeSurface({
       ...(directory ? { directory } : {}),
       ...(typeof eventId === 'string' ? { eventId } : {}),
     });
+    // The queue drains on a session's idle status. OpenCode's reach it through
+    // the event hub; a Claude session's are these, in the same wire shape, so
+    // they go through the same translation to the same consumer.
+    for (const translated of translateWireEvent(payload)) messageQueueRuntime.processPayload(translated);
   },
 });
 
