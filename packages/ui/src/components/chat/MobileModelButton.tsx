@@ -2,6 +2,7 @@ import React from 'react';
 import { cn } from '@/lib/utils';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { getModelDisplayName } from './mobileControlsUtils';
+import { compactClaudeQuotaName } from '@/lib/claudeQuotaName';
 import { ProviderLogo } from '@/components/ui/ProviderLogo';
 import { useI18n } from '@/lib/i18n';
 import { isAutoModel } from '@/lib/routing/autoModel';
@@ -21,7 +22,9 @@ export const MobileModelButton: React.FC<MobileModelButtonProps> = ({ onOpenMode
     const isAuto = isAutoModel(currentProviderId, currentModelId);
     const modelLabel = isAuto
         ? t('chat.modelControls.autoModel')
-        : getModelDisplayName(currentProvider, currentModelId, t('chat.modelControls.selectModel'));
+        : compactClaudeQuotaName(
+            getModelDisplayName(currentProvider, currentModelId, t('chat.modelControls.selectModel')),
+        );
 
     return (
         <button
