@@ -21,6 +21,7 @@ import { handleDropdownNavigationKey } from '@/components/ui/dropdown-navigation
 import { getCurrentIntlLocale } from '@/lib/i18n';
 import { mergeModelMetadataWithLiveModel } from '@/lib/modelMetadata';
 import { getModelDisplayName as getSharedModelDisplayName } from '@/lib/modelDisplay';
+import { collapseFamilyDuplicates } from './modelPickerDedup';
 import { cn } from '@/lib/utils';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { useModelPickerSectionsStore } from '@/stores/useModelPickerSectionsStore';
@@ -622,7 +623,7 @@ export const ModelPickerList: React.FC<ModelPickerListProps> = ({
     return [...ranked, ...unranked];
   }, [providerOrder, providers]);
 
-  const filteredProviders = React.useMemo(() => orderedProviders
+  const filteredProviders = React.useMemo(() => collapseFamilyDuplicates(orderedProviders
     .filter((provider) => !allowedProviderSet || allowedProviderSet.has(provider.id))
     .map((provider) => {
       const models = Array.isArray(provider.models) ? provider.models : [];
@@ -634,7 +635,7 @@ export const ModelPickerList: React.FC<ModelPickerListProps> = ({
       });
       return { ...provider, models: filteredModels };
     })
-    .filter((provider) => provider.models.length > 0), [allowedProviderSet, isHidden, isModelAllowed, matchesQuery, orderedProviders]);
+    .filter((provider) => provider.models.length > 0)), [allowedProviderSet, isHidden, isModelAllowed, matchesQuery, orderedProviders]);
 
   const visibleSectionKeys = React.useMemo(() => [
     ...(filteredFavorites.length > 0 ? ['favorites'] : []),
