@@ -309,6 +309,24 @@ describe('reading a Claude session through the OpenCode 2 routes', () => {
     });
   });
 
+  it('answers a session archived in the archive store as archived', async () => {
+    const { app } = surfaceApp({ sdk, getArchivedSessions: async () => ({ 'ses_cccsess-1': 1_234 }) });
+
+    const response = await request(app).get('/api/session/ses_cccsess-1');
+
+    expect(response.status).toBe(200);
+    expect(response.body.data.time.archived).toBe(1_234);
+  });
+
+  it('leaves a session the archive store does not name un-archived', async () => {
+    const recent = { ...sdk, listSessions: async () => [{ sessionId: 'sess-1', cwd: '/repo/sub', summary: 'Una sesión', lastModified: Date.now() }] };
+    const { app } = surfaceApp({ sdk: recent, getArchivedSessions: async () => ({ ses_other: 1_234 }) });
+
+    const response = await request(app).get('/api/session/ses_cccsess-1');
+
+    expect(response.body.data.time.archived).toBeUndefined();
+  });
+
   it('lists every Claude session under a directory for the proxy to merge', async () => {
     const { surface } = surfaceApp({ sdk, readProjects: async () => [{ id: 'p1', worktree: '/repo' }] });
 

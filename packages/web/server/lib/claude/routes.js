@@ -139,9 +139,11 @@ const positiveInteger = (value) => {
  * @param {(event: object) => void} [dependencies.publishEvent] receives `{ payload, directory, eventId }`
  * @param {() => Promise<Array<{ id: string, worktree: string }>>} [dependencies.readProjects]
  *   the directories the sidebar treats as projects (settings.json `projects`)
+ * @param {() => Promise<Record<string, number>>} [dependencies.getArchivedSessions]
+ *   OpenChamber's archive store (sessions-archive.json), keyed by public id
  */
 export const createClaudeSurface = (dependencies = {}) => {
-  const { publishEvent, readProjects, ...rest } = dependencies;
+  const { publishEvent, readProjects, getArchivedSessions, ...rest } = dependencies;
   const crypto = rest.crypto;
 
   /**
@@ -159,14 +161,39 @@ export const createClaudeSurface = (dependencies = {}) => {
     return resolveProject;
   };
 
-  const toSession = (session) => toV2Session(
-    {
-      ...session,
-      id: toPublicId(session.id),
-      parentID: session.parentID ? toPublicId(session.parentID) : undefined,
-    },
-    resolveProject,
-  );
+  /**
+   * The UI archives a Claude session in OpenChamber's archive store, as it does
+   * an OpenCode one. The proxy lays that store over the list, but a single
+   * session is answered here, so the same overlay goes on every record this
+   * surface serves — otherwise the detail read and the live stream hand the UI
+   * the session un-archived and it comes back to the sidebar. The last snapshot
+   * read is reused by the stream, which cannot wait for the store.
+   */
+  let archivedSessions = {};
+  const refreshArchived = async () => {
+    if (typeof getArchivedSessions !== 'function') return archivedSessions;
+    try {
+      const archived = await getArchivedSessions();
+      if (archived && typeof archived === 'object') archivedSessions = archived;
+    } catch (error) {
+      console.warn('[claude-backend] archive state unavailable:', error?.message ?? error);
+    }
+    return archivedSessions;
+  };
+
+  const toSession = (session) => {
+    const id = toPublicId(session.id);
+    const archivedAt = archivedSessions[id];
+    return toV2Session(
+      {
+        ...session,
+        id,
+        parentID: session.parentID ? toPublicId(session.parentID) : undefined,
+        time: typeof archivedAt === 'number' ? { ...session.time, archived: archivedAt } : session.time,
+      },
+      resolveProject,
+    );
+  };
 
   const translator = createClaudeV2EventTranslator({
     publish: (event) => publishEvent?.({ payload: event, directory: event.location?.directory, eventId: event.id }),
@@ -211,7 +238,7 @@ export const createClaudeSurface = (dependencies = {}) => {
     // reading them whole.
     if (claudeSurfaceDisabled()) return [];
     const { directory = null, search = null } = options || {};
-    await refreshProjects();
+    await Promise.all([refreshProjects(), refreshArchived()]);
     const [active, archived] = await Promise.all([
       runtime.listSessions({ archived: false }),
       runtime.listSessions({ archived: true }),
@@ -300,7 +327,7 @@ export const createClaudeSurface = (dependencies = {}) => {
         .getSession({ sessionID: sessionId })
         .then(async (session) => {
           if (!session) return sendNotFound(res);
-          await refreshProjects();
+          await Promise.all([refreshProjects(), refreshArchived()]);
           res.json({ data: toSession(session) });
         })
         .catch((error) => sendTagged(res, 500, 'UnknownError', error?.message || 'Failed'));
@@ -497,7 +524,11 @@ export const createClaudeSurface = (dependencies = {}) => {
           agent: selection.agent,
           variant: selection.model?.variant,
         })
-        .then((session) => (session ? res.json({ data: toSession(session) }) : sendNotFound(res)))
+        .then(async (session) => {
+          if (!session) return sendNotFound(res);
+          await refreshArchived();
+          res.json({ data: toSession(session) });
+        })
         .catch((error) => sendTagged(res, 500, 'UnknownError', error?.message || 'Failed to take the session over'));
     });
 
