@@ -13,8 +13,11 @@ import { useMobileAutocompleteMaxHeight } from './useMobileAutocompleteMaxHeight
 import { commandMatchesSearch, mergeCommandAutocompleteItems } from './commandAutocompleteItems';
 import { useGuestCommands } from '@/hooks/useGuestSurfaces';
 import { AutocompleteRowTooltip } from './composer/ui/AutocompleteRowTooltip';
+import { useSessionEngine } from '@/hooks/useSessionEngine';
+import { fetchClaudeCommands, type ClaudeCommand } from '@/lib/claudeCommands';
+import { localCommandAvailable } from './composer/submit/slashCommands';
 
-type CommandSource = 'openchamber' | 'opencode' | 'skill' | 'extension';
+type CommandSource = 'openchamber' | 'opencode' | 'claude' | 'skill' | 'extension';
 
 export interface CommandInfo {
   id: string;
@@ -94,6 +97,23 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
   const loadSkillsForDirectory = useSkillsStore((s) => s.loadSkills);
   const refreshCommands = React.useCallback(() => loadCommandsForDirectory(effectiveDirectory), [effectiveDirectory, loadCommandsForDirectory]);
   const refreshSkills = React.useCallback(() => loadSkillsForDirectory(effectiveDirectory), [effectiveDirectory, loadSkillsForDirectory]);
+  // The session's engine decides the list: a Claude Code session is offered
+  // Claude Code's own commands and the local commands its engine can run,
+  // never OpenCode's commands or skills (see lib/sessionEngine.ts).
+  const engine = useSessionEngine(currentSessionId, effectiveDirectory ?? undefined);
+  const engineCommandsArePrompts = engine.capabilities.commands === 'prompt';
+  const engineCapabilities = engine.capabilities;
+  const [claudeCommands, setClaudeCommands] = React.useState<ClaudeCommand[]>([]);
+  React.useEffect(() => {
+    if (!engineCommandsArePrompts) return undefined;
+    let cancelled = false;
+    void fetchClaudeCommands(effectiveDirectory).then((commands) => {
+      if (!cancelled) setClaudeCommands(commands);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [engineCommandsArePrompts, effectiveDirectory]);
   const [selectedIndex, setSelectedIndex] = React.useState(0);
   const selectedIndexRef = React.useRef(0);
   const keyboardNavigationRef = React.useRef(false);
@@ -231,8 +251,17 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
           description: entry.command.description,
           extensionName: entry.guestName,
         }));
+        const engineBuiltIns = builtInCommands.filter((command) => localCommandAvailable(command.name, engineCapabilities));
+        const engineCommands: CommandInfo[] = engineCommandsArePrompts
+          ? claudeCommands.map((command, index) => ({
+            id: `claude:${command.name}:${index}`,
+            name: command.name,
+            source: 'claude',
+            description: command.argumentHint ? `${command.description} ${command.argumentHint}`.trim() : command.description,
+          }))
+          : customCommands;
         const allCommands = [
-          ...mergeCommandAutocompleteItems(builtInCommands, customCommands, skillCommands),
+          ...mergeCommandAutocompleteItems(engineBuiltIns, engineCommands, engineCommandsArePrompts ? [] : skillCommands),
           ...extensionCommands,
         ];
 
@@ -315,12 +344,13 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
           ),
         ];
 
+        const available = builtInCommands.filter((command) => localCommandAvailable(command.name, engineCapabilities));
         const filtered = searchQuery
-          ? builtInCommands.filter(cmd =>
+          ? available.filter(cmd =>
               fuzzyMatch(cmd.name, searchQuery) ||
               (cmd.description && fuzzyMatch(cmd.description, searchQuery))
             )
-          : builtInCommands;
+          : available;
 
         setCommands(filtered);
       } finally {
@@ -329,7 +359,7 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
     };
 
     loadCommands();
-  }, [searchQuery, hasSession, canStartSessionCommand, canUseReviewHandoffFlow, commandsWithMetadata, guestCommands, skills, t]);
+  }, [searchQuery, hasSession, canStartSessionCommand, canUseReviewHandoffFlow, commandsWithMetadata, guestCommands, skills, engineCapabilities, engineCommandsArePrompts, claudeCommands, t]);
 
   React.useEffect(() => {
     setSelectedIndex(0);

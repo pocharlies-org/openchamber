@@ -93,14 +93,18 @@ export const canShowSessionWorktreeMenu = ({
   archivedBucket,
   isVSCode,
   sessionDirectory,
+  engineCanMove = true,
 }: {
   isSubtaskSession: boolean;
   archivedBucket: boolean;
   isVSCode: boolean;
   sessionDirectory: string | null;
+  /** The session's engine can move it between directories (a Claude transcript cannot). */
+  engineCanMove?: boolean;
 }): boolean => !isSubtaskSession
   && !archivedBucket
   && !isVSCode
+  && engineCanMove
   && !isChatDirectoryPath(sessionDirectory);
 
 export const getSessionWorktreeMenuDisabled = ({

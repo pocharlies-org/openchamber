@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { getSessionEngineInfo, resolveSessionEngine, SESSION_ENGINE_INFO } from './sessionEngine';
+import { getSessionEngineInfo, mergeDeclaredEngine, resolveSessionEngine, SESSION_ENGINE_INFO } from './sessionEngine';
 
 describe('resolveSessionEngine', () => {
   test('el motor declarado por el servidor manda sobre el id', () => {
@@ -37,5 +37,37 @@ describe('getSessionEngineInfo', () => {
 
   test('Claude espera más que OpenCode antes de dar un turno por no empezado', () => {
     expect(SESSION_ENGINE_INFO.claude.unansweredAfterMs).toBeGreaterThan(SESSION_ENGINE_INFO.opencode.unansweredAfterMs);
+  });
+});
+
+describe('capabilities', () => {
+  test('the fallback mirrors the server: Claude Code forks, compacts and keeps metadata; no shell, revert, move or goals', () => {
+    const claude = SESSION_ENGINE_INFO.claude.capabilities;
+    expect(claude).toMatchObject({ fork: true, forkAtMessage: true, compact: true, metadata: true, prompt: true });
+    expect(claude).toMatchObject({ shell: false, revert: false, move: false, goals: false, generate: false });
+    expect(claude.commands).toBe('prompt');
+    expect(SESSION_ENGINE_INFO.claude.ownModelCatalog).toBe(true);
+    expect(Object.values(SESSION_ENGINE_INFO.opencode.capabilities).filter((value) => value === false)).toEqual([]);
+  });
+
+  test('what the server declares wins, field by field, and junk is ignored', () => {
+    const merged = mergeDeclaredEngine(SESSION_ENGINE_INFO.claude, {
+      label: 'Claude Code (canary)',
+      available: false,
+      capabilities: { shell: true, revert: 'yes', unknownOperation: true, models: 'providers', commands: 'nonsense' },
+    });
+    expect(merged.label).toBe('Claude Code (canary)');
+    expect(merged.available).toBe(false);
+    expect(merged.capabilities.shell).toBe(true);
+    expect(merged.capabilities.revert).toBe(false);
+    expect(merged.capabilities.models).toBe('providers');
+    expect(merged.ownModelCatalog).toBe(false);
+    expect(merged.capabilities.commands).toBe('prompt');
+    expect('unknownOperation' in merged.capabilities).toBe(false);
+  });
+
+  test('an answer that is not an object leaves the fallback as it is', () => {
+    expect(mergeDeclaredEngine(SESSION_ENGINE_INFO.claude, null)).toBe(SESSION_ENGINE_INFO.claude);
+    expect(mergeDeclaredEngine(SESSION_ENGINE_INFO.claude, 'claude')).toBe(SESSION_ENGINE_INFO.claude);
   });
 });

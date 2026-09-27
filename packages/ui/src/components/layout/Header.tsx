@@ -1,3 +1,4 @@
+import { useSessionEngineById } from '@/hooks/useSessionEngine';
 import React, { useEffect } from 'react';
 import { useGuestsStore } from '@/lib/guests/store';
 import {
@@ -668,6 +669,9 @@ export const Header: React.FC = () => {
     return null;
   })();
 
+  // A Claude Code transcript is tied to its directory: its engine cannot move it.
+  const currentEngineCanMove = useSessionEngineById(currentSessionId).capabilities.move;
+
   const worktreePath = useSessionUIStore((state) => {
     if (!currentSessionId) return '';
     return state.worktreeMetadata.get(currentSessionId)?.path ?? '';
@@ -1317,7 +1321,7 @@ export const Header: React.FC = () => {
 
   const renderSessionTabMenu = React.useCallback(({ session, open, isActive, select, closeOtherTabs, components }: SessionTabMenuArgs) => {
     const { Item, Separator } = components;
-    const canMoveToWorktree = isActive && !isVSCode && !isChatContext && currentSession && !currentSession.parentId;
+    const canMoveToWorktree = isActive && !isVSCode && !isChatContext && currentSession && !currentSession.parentId && currentEngineCanMove;
     return (
       <>
         <Item onClick={() => { if (!isActive) select(); pendingHeaderRenameRef.current = session.id; }}>
@@ -1372,7 +1376,7 @@ export const Header: React.FC = () => {
         </Item>
       </>
     );
-  }, [copySessionIdFor, currentSession, exportCurrentSession, isChatContext, isCurrentSessionActive, isCurrentSessionMovingToWorktree, isVSCode, moveCurrentSessionToWorktree, renderGuestSessionActionItems, sessionDirectory, t]);
+  }, [copySessionIdFor, currentEngineCanMove, currentSession, exportCurrentSession, isChatContext, isCurrentSessionActive, isCurrentSessionMovingToWorktree, isVSCode, moveCurrentSessionToWorktree, renderGuestSessionActionItems, sessionDirectory, t]);
 
   const renderDesktop = () => (
     <div
@@ -1541,7 +1545,7 @@ export const Header: React.FC = () => {
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onClick={() => void exportCurrentSession()}><Icon name="download" className="mr-1 size-4" />{t('sessions.sidebar.session.menu.exportMarkdown')}</DropdownMenuItem>
                     {renderGuestSessionActionItems(DropdownMenuItem)}
-                    {!isVSCode && !isChatContext && currentSession && !currentSession.parentId ? (
+                    {!isVSCode && !isChatContext && currentSession && !currentSession.parentId && currentEngineCanMove ? (
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <span className="block">

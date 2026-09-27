@@ -1179,3 +1179,137 @@ describe('claude backend sessions live in another process', () => {
     await runtime.shutdownAll();
   });
 });
+
+describe('claude backend forkSession', () => {
+  const line = (type, uuid, at, extra = {}) => ({
+    type,
+    uuid,
+    timestamp: new Date(at).toISOString(),
+    message: type === 'user'
+      ? { role: 'user', content: [{ type: 'text', text: 'q' }] }
+      : { id: `api-${uuid}`, role: 'assistant', content: [{ type: 'text', text: 'a' }] },
+    ...extra,
+  });
+  const transcript = [line('user', 'u1', 1000), line('assistant', 'a1', 2000), line('user', 'u2', 3000)];
+  const forkedInfo = sessionInfo({ sessionId: 'forked-1', customTitle: 'fork' });
+
+  const setup = (overrides = {}) => {
+    const sdk = makeSdk({
+      getSessionMessages: vi.fn(async () => transcript),
+      getSessionInfo: vi.fn(async (id) => (id === 'forked-1' ? forkedInfo : sessionInfo({ sessionId: id }))),
+      ...overrides,
+    });
+    const publishEvent = vi.fn();
+    return { ...createRuntime({ sdk, publishEvent }), publishEvent };
+  };
+
+  it('copies the whole transcript without `before`, as a sibling (no parentID)', async () => {
+    const { runtime, sdk, publishEvent } = setup();
+    const session = await runtime.forkSession({ sessionID: 'sess-1', directory: '/repo/project' });
+    expect(sdk.forkSession).toHaveBeenCalledWith('sess-1', { dir: '/repo/project' });
+    expect(session.id).toBe('forked-1');
+    expect(session.parentID ?? null).toBeNull();
+    const created = publishEvent.mock.calls.map(([event]) => event.payload ?? event).find((event) => event?.type === 'session.created');
+    expect(created).toBeDefined();
+  });
+
+  it('cuts before the named record: everything up to the previous entry is kept', async () => {
+    const { runtime, sdk } = setup();
+    const records = await runtime.getMessages({ sessionID: 'sess-1', directory: '/repo/project', internal: true });
+    const secondPrompt = records.filter((record) => record.info.role === 'user')[1].info.id;
+    await runtime.forkSession({ sessionID: 'sess-1', directory: '/repo/project', before: secondPrompt });
+    expect(sdk.forkSession).toHaveBeenCalledWith('sess-1', { dir: '/repo/project', upToMessageId: 'a1' });
+  });
+
+  it('forks before the first prompt as an empty session in the same directory', async () => {
+    const { runtime, sdk } = setup();
+    const records = await runtime.getMessages({ sessionID: 'sess-1', directory: '/repo/project', internal: true });
+    const session = await runtime.forkSession({ sessionID: 'sess-1', directory: '/repo/project', before: records[0].info.id });
+    expect(sdk.forkSession).not.toHaveBeenCalled();
+    expect(session.directory).toBe('/repo/project');
+    expect(session.id).not.toBe('sess-1');
+  });
+
+  it('refuses a cut point the transcript does not have, with a code the route can map', async () => {
+    const { runtime, sdk } = setup();
+    await expect(runtime.forkSession({ sessionID: 'sess-1', directory: '/repo/project', before: 'msg_nope' }))
+      .rejects.toMatchObject({ code: 'CLAUDE_FORK_POINT_NOT_FOUND' });
+    expect(sdk.forkSession).not.toHaveBeenCalled();
+  });
+});
+
+describe('claude backend prompt uuids for later fork cuts', () => {
+  it('sends each prompt with a uuid and resolves the client id to it', async () => {
+    let sentUuid;
+    const sdk = makeSdk({
+      query: vi.fn(({ prompt }) => {
+        const iterator = prompt[Symbol.asyncIterator]();
+        return (async function* stream() {
+          const first = await iterator.next();
+          sentUuid = first.value.uuid;
+          yield { type: 'result', is_error: false };
+        })();
+      }),
+      getSessionInfo: vi.fn(async (id) => sessionInfo({ sessionId: id })),
+    });
+    const { runtime } = createRuntime({ sdk });
+    await runtime.promptAsync({
+      sessionID: 'sess-1',
+      directory: '/repo/project',
+      parts: [{ type: 'text', text: 'second' }],
+      messageID: 'msg_client_2',
+    });
+    expect(typeof sentUuid).toBe('string');
+
+    sdk.getSessionMessages.mockImplementation(async () => [
+      { type: 'user', uuid: 'u1', timestamp: new Date(1000).toISOString(), message: { role: 'user', content: [{ type: 'text', text: 'first' }] } },
+      { type: 'assistant', uuid: 'a1', timestamp: new Date(2000).toISOString(), message: { id: 'x', role: 'assistant', content: [{ type: 'text', text: 'a' }] } },
+      { type: 'user', uuid: sentUuid, timestamp: new Date(3000).toISOString(), message: { role: 'user', content: [{ type: 'text', text: 'second' }] } },
+    ]);
+    await runtime.forkSession({ sessionID: 'sess-1', directory: '/repo/project', before: 'msg_client_2' });
+    expect(sdk.forkSession).toHaveBeenCalledWith('sess-1', { dir: '/repo/project', upToMessageId: 'a1' });
+  });
+});
+
+describe('claude backend listCommands', () => {
+  it('is empty before any Claude process ran', async () => {
+    const { runtime } = createRuntime();
+    await expect(runtime.listCommands({ directory: '/repo/project' })).resolves.toEqual([]);
+  });
+
+  it('reads the commands a live CLI reports and keeps them for when none runs', async () => {
+    let finishTurn;
+    const hold = new Promise((resolve) => { finishTurn = resolve; });
+    const supportedCommands = vi.fn(async () => [
+      { name: '/review', description: 'Review a PR', argumentHint: '<pr>' },
+      { name: 'compact', description: 'Compact the context', argumentHint: '' },
+      { name: '  ', description: 'blank names are dropped' },
+    ]);
+    const sdk = makeSdk({
+      query: vi.fn(() => makeQuery([], {
+        supportedCommands,
+        [Symbol.asyncIterator]() {
+          return (async function* stream() {
+            await hold;
+            yield { type: 'result', is_error: false };
+          })();
+        },
+      })),
+    });
+    const { runtime } = createRuntime({ sdk });
+    const turn = runtime.promptAsync({ sessionID: 'sess-1', directory: '/repo/project', parts: [{ type: 'text', text: 'hi' }] });
+    await vi.waitFor(() => expect(sdk.query).toHaveBeenCalled());
+
+    const commands = await runtime.listCommands({ directory: '/repo/project' });
+    expect(commands).toEqual([
+      { name: 'review', description: 'Review a PR', argumentHint: '<pr>' },
+      { name: 'compact', description: 'Compact the context', argumentHint: '' },
+    ]);
+    finishTurn();
+    await turn;
+    supportedCommands.mockRejectedValue(new Error('process gone'));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await expect(runtime.listCommands({ directory: '/repo/project' })).resolves.toEqual(commands);
+    warn.mockRestore();
+  });
+});

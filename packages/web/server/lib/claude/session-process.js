@@ -63,6 +63,21 @@ const humanText = (content) => {
 };
 
 /**
+ * A lone text block starting with `/` goes to the CLI as a plain string: that
+ * is the shape in which Claude Code recognizes a slash command (`/compact`,
+ * `/review`, a project command). Anything else keeps its blocks.
+ */
+export const asCliContent = (content) => (
+  Array.isArray(content)
+  && content.length === 1
+  && content[0]?.type === 'text'
+  && typeof content[0].text === 'string'
+  && content[0].text.startsWith('/')
+    ? content[0].text
+    : content
+);
+
+/**
  * @param {object} dependencies
  * @param {object} dependencies.sdk Agent SDK module (`query`)
  * @param {string} dependencies.sessionId
@@ -404,10 +419,13 @@ export const createClaudeSessionProcess = (dependencies) => {
    * runs the prompt is queued in the CLI, as OpenCode queues one, instead of
    * being refused.
    */
-  const send = (content) => {
+  const send = (content, options = {}) => {
     if (exited) return Promise.reject(new Error('Claude process has exited'));
     return new Promise((resolve, reject) => {
-      const uuid = createUuid();
+      // The caller may name the prompt's transcript uuid, so a record the UI
+      // still holds under its own id can be found in the transcript later
+      // (a fork cut, see runtime `forkSession`).
+      const uuid = typeof options.uuid === 'string' && options.uuid ? options.uuid : createUuid();
       if (turn) queued.set(uuid, { resolve, reject });
       else beginTurn({ resolve, reject });
       sentUuids.add(uuid);
@@ -416,7 +434,7 @@ export const createClaudeSessionProcess = (dependencies) => {
         uuid,
         session_id: sessionId,
         parent_tool_use_id: null,
-        message: { role: 'user', content },
+        message: { role: 'user', content: asCliContent(content) },
       });
     });
   };
@@ -454,10 +472,21 @@ export const createClaudeSessionProcess = (dependencies) => {
     await endTurn();
   };
 
+  /**
+   * The slash commands this CLI answers (built-ins, the user's and the
+   * project's commands, skills, plugins). Only a running CLI knows them.
+   */
+  const supportedCommands = async () => {
+    if (exited || typeof query.supportedCommands !== 'function') return [];
+    const commands = await query.supportedCommands();
+    return Array.isArray(commands) ? commands : [];
+  };
+
   return {
     send,
     interrupt,
     close,
+    supportedCommands,
     applyModel,
     applyPermissionMode,
     exited: pump,
