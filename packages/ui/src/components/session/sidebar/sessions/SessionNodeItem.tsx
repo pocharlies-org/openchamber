@@ -1,4 +1,5 @@
 import { engineInfoForSession } from '@/stores/useEngineStore';
+import { rowOffersRestore } from './sessionRowActions';
 import { DirectoryActionIndicator } from './DirectoryActionIndicator';
 import { useSessionTurnActivity } from '@/sync/global-session-status';
 import React from 'react';
@@ -240,12 +241,16 @@ const holdSessionRowPosition = (target: HTMLElement): void => {
 
 type QuickSessionActionProps = {
   archiveLabel: string;
+  restoreLabel: string;
   deleteLabel: string;
+  /** The row's own archive state: an archived session is restored, not archived. */
+  archived: boolean;
   buttonSizeClass: string;
   iconSizeClass: string;
   onPointerDown: (event: React.PointerEvent<HTMLButtonElement>) => void;
   onMouseDown: (event: React.MouseEvent<HTMLButtonElement>) => void;
   onArchive: (event: React.MouseEvent<HTMLButtonElement>) => void;
+  onRestore: (event: React.MouseEvent<HTMLButtonElement>) => void;
   onDelete: (event: React.MouseEvent<HTMLButtonElement>) => void;
 };
 
@@ -253,20 +258,29 @@ type QuickSessionActionProps = {
 // instead of every mounted session row.
 const QuickSessionAction = React.memo(function QuickSessionAction({
   archiveLabel,
+  restoreLabel,
   deleteLabel,
+  archived,
   buttonSizeClass,
   iconSizeClass,
   onPointerDown,
   onMouseDown,
   onArchive,
+  onRestore,
   onDelete,
 }: QuickSessionActionProps): React.ReactNode {
   const shiftHeld = useShiftKeyHeld();
-  const label = shiftHeld ? deleteLabel : archiveLabel;
+  // Shift keeps meaning delete whichever way the row is going; only the plain
+  // click follows the session's archive state.
+  const label = shiftHeld ? deleteLabel : archived ? restoreLabel : archiveLabel;
 
   const handleClick = (event: React.MouseEvent<HTMLButtonElement>) => {
     if (shiftHeld || event.shiftKey) {
       onDelete(event);
+      return;
+    }
+    if (archived) {
+      onRestore(event);
       return;
     }
     onArchive(event);
@@ -290,7 +304,7 @@ const QuickSessionAction = React.memo(function QuickSessionAction({
           onClick={handleClick}
           onKeyDown={(event) => event.stopPropagation()}
         >
-          <Icon name={shiftHeld ? 'delete-bin' : 'archive'} className={iconSizeClass} />
+          <Icon name={shiftHeld ? 'delete-bin' : archived ? 'inbox-unarchive' : 'archive'} className={iconSizeClass} />
         </button>
       </TooltipTrigger>
       <TooltipContent side="left" sideOffset={8}>
@@ -361,7 +375,8 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
     ? 'group-hover:opacity-0'
     : 'group-hover:opacity-0 group-has-[:focus-visible]:opacity-0';
   const showOpenInEditorAction = isVSCode;
-  const showQuickArchiveAction = !archivedBucket && !mobileVariant;
+  // The same hover slot carries archive or restore, whichever the row offers.
+  const showQuickRowAction = !archivedBucket && !mobileVariant;
   const sessionWorkEnabled = useUIStore((state) => state.sessionWorkEnabled);
   const sessionRecapEnabled = useUIStore((state) => state.sessionRecapEnabled);
   // Track / Done belongs to top-level project sessions: Chats are plain
@@ -372,11 +387,11 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
   const showWorkAction = canTrackWork && !alwaysShowActions;
   // Hover-revealed actions besides the menu: work, quick archive, and in VS
   // Code open-in-editor.
-  const extraHoverActions = (showWorkAction ? 1 : 0) + (showQuickArchiveAction ? 1 : 0) + (showOpenInEditorAction ? 1 : 0);
+  const extraHoverActions = (showWorkAction ? 1 : 0) + (showQuickRowAction ? 1 : 0) + (showOpenInEditorAction ? 1 : 0);
   // VS Code reveals its permanent-size actions on hover, so the title makes
   // room for them there.
   const vscodeAlwaysActionPaddingClass = ['group-hover:pr-8', 'group-hover:pr-14', 'group-hover:pr-18', 'group-hover:pr-22'][extraHoverActions];
-  const alwaysActionPaddingClass = showQuickArchiveAction ? 'pr-13' : 'pr-7';
+  const alwaysActionPaddingClass = showQuickRowAction ? 'pr-13' : 'pr-7';
   const suppressNextSelectRef = React.useRef(false);
   const [isTouchPressed, setIsTouchPressed] = React.useState(false);
   const editingIdRef = React.useRef(editingId);
@@ -395,6 +410,8 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
 
   const session = node.session;
   const resolvedSession = session;
+  // One source of truth for both affordances of the row (hover button and menu).
+  const offersRestore = rowOffersRestore({ archivedBucket, session });
   // Tooltip context: recent rows receive project/branch via secondaryMeta;
   // project rows resolve them from the row's own props/node instead.
   const projectLabelFromStore = useProjectsStore(
@@ -1090,6 +1107,13 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
     handleDeleteSession(session, { archivedBucket });
   };
 
+  const handleQuickRestoreClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setOpenSidebarMenuKey(null);
+    handleRestoreSession(session);
+  };
+
   const handleQuickDeleteClick = (event: React.MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
@@ -1525,22 +1549,21 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
       ) : null}
 
       <Separator />
-      {!archivedBucket ? (
-        <SessionMenuItemHint hint={t('sessions.sidebar.session.menuHint.archive')}>
-        <Item className="[&>svg]:mr-1" onClick={() => handleDeleteSession(session, { archivedBucket })}>
-          <Icon name="inbox-archive" className="mr-1 h-4 w-4" />
-          {t('sessions.sidebar.bulkActions.archive')}
-        </Item>
-        </SessionMenuItemHint>
-      ) : null}
-      {archivedBucket ? (
+      {offersRestore ? (
         <SessionMenuItemHint hint={t('sessions.sidebar.session.menuHint.restore')}>
         <Item className="[&>svg]:mr-1" onClick={() => handleRestoreSession(session)}>
           <Icon name="inbox-unarchive" className="mr-1 h-4 w-4" />
           {t('sessions.sidebar.bulkActions.restore')}
         </Item>
         </SessionMenuItemHint>
-      ) : null}
+      ) : (
+        <SessionMenuItemHint hint={t('sessions.sidebar.session.menuHint.archive')}>
+        <Item className="[&>svg]:mr-1" onClick={() => handleDeleteSession(session, { archivedBucket })}>
+          <Icon name="inbox-archive" className="mr-1 h-4 w-4" />
+          {t('sessions.sidebar.bulkActions.archive')}
+        </Item>
+        </SessionMenuItemHint>
+      )}
       <SessionMenuItemHint hint={t('sessions.sidebar.session.menuHint.delete')}>
       <Item className="text-destructive focus:text-destructive [&>svg]:mr-1" onClick={() => handleDeleteSession(session, { archivedBucket, hardDelete: true })}>
         <Icon name="delete-bin" className="mr-1 h-4 w-4" />
@@ -1652,7 +1675,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
       doneHint={doneHintBadge()}
       providerId={resolvedSession.model?.providerID ?? null}
       metaPaddingClass={alwaysShowActions
-        ? (showQuickArchiveAction ? 'pr-13' : 'pr-7')
+        ? (showQuickRowAction ? 'pr-13' : 'pr-7')
         : undefined}
       hideMetaOnHoverClass={alwaysShowActions && !isVSCode ? '' : coveredMetaFadeClass}
       actionsReserveClass={actionsReserveClass}
@@ -1976,15 +1999,18 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
                 </TooltipContent>
               </Tooltip>
             ) : null}
-            {showQuickArchiveAction ? (
+            {showQuickRowAction ? (
               <QuickSessionAction
                 archiveLabel={t('sessions.sidebar.bulkActions.archive')}
+                restoreLabel={t('sessions.sidebar.bulkActions.restore')}
                 deleteLabel={t('sessions.sidebar.bulkActions.delete')}
+                archived={offersRestore}
                 buttonSizeClass={actionButtonSizeClass}
                 iconSizeClass={actionIconSizeClass}
                 onPointerDown={handleRowActionPointerDown}
                 onMouseDown={handleRowActionMouseDown}
                 onArchive={handleQuickArchiveClick}
+                onRestore={handleQuickRestoreClick}
                 onDelete={handleQuickDeleteClick}
               />
             ) : null}
