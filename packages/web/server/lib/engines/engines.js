@@ -70,10 +70,11 @@ export const ENGINES = Object.freeze({
       generate: false,
       // Turn diffs come from OpenCode's snapshots; Claude has none to diff.
       diff: false,
-      // Permission and question prompts are Claude Code's own; OpenChamber has
-      // no channel for them in a Claude session.
-      permissions: false,
-      forms: false,
+      // Claude Code's permission prompts, questions (AskUserQuestion) and plan
+      // approvals arrive through the Agent SDK's canUseTool and are served as
+      // OpenCode's permission and form requests (lib/claude/claude-requests.js).
+      permissions: true,
+      forms: true,
       // OpenChamber's per-session state (pins, `/btw` links, the knowledge
       // cursor) is kept for it in OpenChamber's own store
       // (openchamber-sessions/engine-metadata-store.js). Goals are not: the

@@ -63,6 +63,56 @@ export const getClaudeLiveState = (session: Session | null | undefined): ClaudeL
   };
 };
 
+/**
+ * What the Claude engine knows about a session as it runs (server
+ * runtime.js `sessionState`, published as `metadata.claude`): the permission
+ * mode it is in, the prompt cache's lifetime, the model's context window.
+ */
+type ClaudeEngineState = {
+  mode: string | null;
+  cacheTtlMs: number | null;
+  contextWindow: number | null;
+};
+
+const positive = z.number().positive().finite();
+const engineStateSchema = z.object({
+  mode: z.string().min(1).nullable().catch(null),
+  cacheTtlMs: positive.nullable().catch(null),
+  contextWindow: positive.nullable().catch(null),
+}).partial();
+
+export const getClaudeEngineState = (session: Session | null | undefined): ClaudeEngineState => {
+  const parsed = engineStateSchema.safeParse(getSessionMetadata(session).claude ?? {});
+  const data = parsed.success ? parsed.data : {};
+  return { mode: data.mode ?? null, cacheTtlMs: data.cacheTtlMs ?? null, contextWindow: data.contextWindow ?? null };
+};
+
+/** A subagent's child session: what it is and whether it still runs (`metadata.subagent`). */
+type ClaudeSubagentState = {
+  agentType: string;
+  status: string;
+  startedAt: number | null;
+  endedAt: number | null;
+};
+
+const subagentSchema = z.object({
+  agentType: z.string().catch(''),
+  status: z.string().catch('completed'),
+  startedAt: z.number().nullable().catch(null).optional(),
+  endedAt: z.number().nullable().catch(null).optional(),
+});
+
+export const getClaudeSubagentState = (session: Session | null | undefined): ClaudeSubagentState | null => {
+  const parsed = subagentSchema.safeParse(getSessionMetadata(session).subagent);
+  if (!parsed.success) return null;
+  return {
+    agentType: parsed.data.agentType,
+    status: parsed.data.status,
+    startedAt: parsed.data.startedAt ?? null,
+    endedAt: parsed.data.endedAt ?? null,
+  };
+};
+
 const CLAUDE_SESSION_PREFIX = 'ses_ccc';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

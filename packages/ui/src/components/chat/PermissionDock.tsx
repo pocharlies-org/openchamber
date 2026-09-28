@@ -148,7 +148,7 @@ const PermissionDockRequest: React.FC<{
                     <PermissionActions
                         permission={permission}
                         isResponding={isResponding}
-                        onRespond={(response) => void respond(response)}
+                        onRespond={(response, message) => void respond(response, message)}
                         variant="dock"
                     />
                 </div>

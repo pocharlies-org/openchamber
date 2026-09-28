@@ -12,8 +12,10 @@
 
 import os from 'os';
 import path from 'path';
-import { mapClaudeSessionMessages, deriveClaudeTitle, findForkCut } from './claude-transcript.js';
+import { mapClaudeSessionMessages, deriveClaudeTitle, findForkCut, findPromptUuid } from './claude-transcript.js';
+import { createClaudeRequests } from './claude-requests.js';
 import { createClaudeSessionProcess } from './session-process.js';
+import { createTranscriptSidecar, isSafeId } from './transcript-sidecar.js';
 import { remoteControlUrl } from './live-sessions.js';
 
 const BACKEND_ID = 'claude';
@@ -47,26 +49,48 @@ export class ClaudeForkPointNotFoundError extends Error {
   }
 }
 
+/**
+ * Claude Code's permission modes, named as the VS Code extension's mode
+ * indicator names them. Bypass is offered only where the user already
+ * accepted it for the CLI (`skipDangerousModePermissionPrompt`) or the host
+ * opts in (OPENCHAMBER_CLAUDE_ALLOW_BYPASS=1).
+ */
 const MODE_DEFINITIONS = Object.freeze({
   default: {
     id: 'default',
-    label: 'Default',
-    description: 'Ask before tool use that needs permission',
+    label: 'Manual',
+    description: 'Asks before edits and most shell commands',
     permissionMode: 'default',
+  },
+  acceptEdits: {
+    id: 'acceptEdits',
+    label: 'Edit automatically',
+    description: 'Edits files without asking',
+    permissionMode: 'acceptEdits',
   },
   plan: {
     id: 'plan',
     label: 'Plan',
-    description: 'Read-only: Claude proposes, nothing executes',
+    description: 'Plans first and waits for your approval before changing anything',
     permissionMode: 'plan',
   },
-  acceptEdits: {
-    id: 'acceptEdits',
-    label: 'Accept edits',
-    description: 'Auto-accept file edits',
-    permissionMode: 'acceptEdits',
+  auto: {
+    id: 'auto',
+    label: 'Auto',
+    description: 'A classifier reviews most actions instead of asking',
+    permissionMode: 'auto',
+  },
+  bypassPermissions: {
+    id: 'bypassPermissions',
+    label: 'Bypass permissions',
+    description: 'Runs every tool without asking',
+    permissionMode: 'bypassPermissions',
+    dangerous: true,
   },
 });
+
+/** The mode id a permission mode is offered under. */
+const modeIdOf = (permissionMode) => Object.values(MODE_DEFINITIONS).find((mode) => mode.permissionMode === permissionMode)?.id ?? null;
 
 const EFFORT_OPTIONS = Object.freeze([
   { id: 'low', label: 'Low' },
@@ -134,12 +158,12 @@ const parseDataUrl = (url) => {
 
 const isImageMime = (mime) => typeof mime === 'string' && mime.toLowerCase().startsWith('image/');
 
-const buildSession = ({ sessionId, directory, title, createdAt, updatedAt, metadata }) => {
+const buildSession = ({ sessionId, directory, title, createdAt, updatedAt, metadata, parentId = null }) => {
   const session = {
     id: sessionId,
     title: clampText(title, 120) || 'Untitled session',
     directory: normalizeDirectory(directory),
-    parentID: null,
+    parentID: parentId,
     time: {
       created: Number.isFinite(createdAt) ? createdAt : Date.now(),
       updated: Number.isFinite(updatedAt) ? updatedAt : Date.now(),
@@ -151,6 +175,25 @@ const buildSession = ({ sessionId, directory, title, createdAt, updatedAt, metad
     session.metadata = metadata;
   }
   return session;
+};
+
+/**
+ * A subagent is served as a child session of the session that ran it:
+ * `<session>~<agentId>`. Every depth hangs off the root session, which is where
+ * Claude Code files all its subagents (`<session>/subagents/agent-<id>.jsonl`).
+ */
+const CHILD_SEPARATOR = '~';
+
+const childSessionIdOf = (sessionId, agentId) => `${sessionId}${CHILD_SEPARATOR}${agentId}`;
+
+export const parseChildSessionId = (id) => {
+  const at = typeof id === 'string' ? id.indexOf(CHILD_SEPARATOR) : -1;
+  if (at <= 0 || at === id.length - 1) return null;
+  const parentId = id.slice(0, at);
+  const agentId = id.slice(at + 1);
+  // Both halves name files (transcripts, `agent-<id>.jsonl`): plain ids only.
+  if (!isSafeId(parentId) || !isSafeId(agentId)) return null;
+  return { parentId, agentId };
 };
 
 /** Selector option shape: description is present only when the model has one. */
@@ -198,10 +241,19 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     // Our own CLI children are in Claude Code's registry too; they are told
     // apart by their parent pid.
     selfPid = process.pid,
+    // What the SDK's transcript reader drops (transcript-sidecar.js).
+    transcriptSidecar = null,
+    // The public id of a session, for links the records carry (a subagent call
+    // → its child session). routes.js owns the id scheme.
+    toPublicId = (id) => id,
     livePollMs = DEFAULT_LIVE_POLL_MS,
     liveFollowWindowMs = LIVE_FOLLOW_WINDOW_MS,
     // 0 turns automatic archiving off.
     autoArchiveAfterMs = DEFAULT_AUTO_ARCHIVE_AFTER_MS,
+    // OpenChamber's auto-accept policy and routing safety net
+    // (lib/permission-auto-accept, lib/routing), keyed by public session id.
+    isAutoAccepting = null,
+    evaluatePermission = null,
   } = dependencies;
 
   const eventClients = new Set();
@@ -394,6 +446,46 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
 
   const isAvailable = () => sdkAvailable;
 
+  const sidecar = transcriptSidecar || createTranscriptSidecar({
+    fsPromises,
+    configDir: process.env.CLAUDE_CONFIG_DIR || path.join(homeDir, '.claude'),
+  });
+
+  /**
+   * What the engine learns about a session as it runs — the mode it is in,
+   * the prompt cache's lifetime, the model's context window — published on
+   * the session as `metadata.claude`.
+   */
+  const sessionState = new Map();
+  const rememberState = (sessionId, patch) => {
+    const previous = sessionState.get(sessionId) || {};
+    const next = { ...previous, ...patch };
+    const changed = Object.keys(patch).some((key) => previous[key] !== next[key]);
+    sessionState.set(sessionId, next);
+    return changed;
+  };
+
+  /** Subagents seen running here, by child session id, until their process ends. */
+  const liveSubagents = new Map();
+
+  /** Claude Code's permission prompts, questions and plan approvals (claude-requests.js). */
+  const requests = createClaudeRequests({
+    emit: (payload) => emitEvent(payload.properties?.directory, payload),
+    createId: () => createId(crypto),
+    isAutoAccepting: typeof isAutoAccepting === 'function'
+      ? (sessionId, directory) => Promise.resolve(isAutoAccepting(toPublicId(sessionId), directory))
+      : null,
+    evaluatePermission: typeof evaluatePermission === 'function'
+      ? (request, directory) => Promise.resolve(evaluatePermission({ ...request, sessionID: toPublicId(request.sessionID) }, directory))
+      : null,
+  });
+
+  /** Re-publish a session after the engine's facts about it changed. */
+  const announce = async (sessionId) => {
+    const session = await getSession({ sessionID: sessionId }).catch(() => null);
+    if (session) emitSessionUpdate('session.updated', session);
+  };
+
   const readSettings = async () => {
     try {
       const raw = await fsPromises.readFile(path.join(homeDir, '.claude', 'settings.json'), 'utf8');
@@ -434,7 +526,11 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
   });
 
   /** A session with a live process advertises its Remote Control link. */
-  const withLiveState = (session) => {
+  const withLiveState = (input) => {
+    const state = sessionState.get(input.id);
+    const session = state && Object.keys(state).length > 0
+      ? { ...input, metadata: { ...(input.metadata || {}), claude: { ...(input.metadata?.claude || {}), ...state } } }
+      : input;
     const link = processes.get(session.id)?.remoteControl();
     if (link) {
       return { ...session, metadata: { ...(session.metadata || {}), remoteControl: { url: link.url } } };
@@ -544,10 +640,76 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     return result.map(withLiveState);
   };
 
+  /**
+   * A subagent as a read-only child session of the session that ran it: its
+   * title is what it was asked to do, its time the span of its transcript.
+   */
+  /**
+   * One subagent as a child session. `live` is what `task_started` said (a
+   * subagent that just started may have no `.meta.json` yet); `stored` is its
+   * `.meta.json`. The status is the live one while this server watched it.
+   */
+  const subagentSession = ({ parentId, agentId, directory, live = null, stored = null, parent = null }) => {
+    const description = live?.description || stored?.description || '';
+    const agentType = live?.agentType || stored?.agentType || '';
+    return buildSession({
+      sessionId: childSessionIdOf(parentId, agentId),
+      directory: directory || parent?.directory || '',
+      title: description || agentType || 'Subagent',
+      createdAt: live?.startedAt ?? parent?.time?.created,
+      updatedAt: live?.endedAt ?? live?.startedAt ?? parent?.time?.updated,
+      parentId,
+      metadata: {
+        subagent: {
+          agentType,
+          toolUseId: live?.toolUseId || stored?.toolUseId || undefined,
+          status: live?.status || 'completed',
+          ...(live?.startedAt ? { startedAt: live.startedAt } : {}),
+          ...(live?.endedAt ? { endedAt: live.endedAt } : {}),
+        },
+      },
+    });
+  };
+
+  const getSubagentSession = async ({ parentId, agentId }, directory) => {
+    const live = liveSubagents.get(childSessionIdOf(parentId, agentId)) || null;
+    const parent = await getSession({ sessionID: parentId, directory }).catch(() => null);
+    if (!parent && !live) return null;
+    const stored = await sidecar.readSubagent(parentId, parent?.directory || live?.directory, agentId).catch(() => null);
+    if (!stored && !live) return null;
+    return subagentSession({ parentId, agentId, directory: parent?.directory || live?.directory, live, stored, parent });
+  };
+
+  /** The subagents a session ran, as its child sessions. */
+  const listSubagentSessions = async (input = {}) => {
+    const parentId = typeof input.sessionID === 'string' ? input.sessionID.trim() : '';
+    if (!parentId || parseChildSessionId(parentId)) return [];
+    const parent = await getSession({ sessionID: parentId, directory: input.directory }).catch(() => null);
+    const liveOnes = Array.from(liveSubagents.values()).filter((entry) => entry.parentId === parentId);
+    if (!parent && liveOnes.length === 0) return [];
+    const { subagents } = parent
+      ? await sidecar.read(parentId, parent.directory).catch(() => ({ subagents: new Map() }))
+      : { subagents: new Map() };
+    const byAgent = new Map();
+    for (const stored of subagents.values()) byAgent.set(stored.agentId, { stored, live: null });
+    for (const live of liveOnes) byAgent.set(live.agentId, { stored: byAgent.get(live.agentId)?.stored ?? null, live });
+    return Array.from(byAgent.entries()).map(([agentId, { stored, live }]) => subagentSession({
+      parentId,
+      agentId,
+      directory: parent?.directory || live?.directory,
+      live,
+      stored,
+      parent,
+    }));
+  };
+
   const getSession = async (input = {}) => {
     const sdk = await ensureSdk();
     const sessionId = typeof input.sessionID === 'string' ? input.sessionID.trim() : '';
     if (!sdk || !sessionId) return null;
+
+    const child = parseChildSessionId(sessionId);
+    if (child) return getSubagentSession(child, normalizeDirectory(input.directory));
 
     await loadOverlay();
     const directory = normalizeDirectory(input.directory);
@@ -704,17 +866,36 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     const sessionId = typeof input.sessionID === 'string' ? input.sessionID.trim() : '';
     if (!sdk || !sessionId) return [];
 
-    const directory = normalizeDirectory(input.directory);
+    const child = parseChildSessionId(sessionId);
+    let directory = normalizeDirectory(input.directory);
+    if (child && !directory) {
+      directory = normalizeDirectory((await getSession({ sessionID: child.parentId }).catch(() => null))?.directory);
+    }
+    const dirOption = directory ? { dir: directory } : {};
     let messages;
     try {
-      messages = await sdk.getSessionMessages(sessionId, directory ? { dir: directory } : {});
+      messages = child
+        ? await sdk.getSubagentMessages(child.parentId, child.agentId, dirOption)
+        : await sdk.getSessionMessages(sessionId, dirOption);
     } catch (error) {
       console.warn('[claude-backend] getSessionMessages failed:', error?.message || error);
       return [];
     }
 
-    let records = mapClaudeSessionMessages(messages, { sessionId, providerId: PROVIDER_ID });
-    if (!input.internal) {
+    // What the SDK reader drops: exact edit hunks, the subagent each call started.
+    const rootId = child ? child.parentId : sessionId;
+    const { toolResults, subagents } = await sidecar
+      .read(rootId, directory, { agentId: child?.agentId ?? null })
+      .catch(() => ({ toolResults: new Map(), subagents: new Map() }));
+    let records = mapClaudeSessionMessages(messages, {
+      sessionId,
+      providerId: PROVIDER_ID,
+      toolResults,
+      subagents,
+      childSessionId: (agentId) => toPublicId(childSessionIdOf(rootId, agentId)),
+      subagent: Boolean(child),
+    });
+    if (!input.internal && !child) {
       rememberFollowed(sessionId, directory, records);
       ensureLivePolling();
     }
@@ -813,6 +994,46 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     // which nests it under the source instead of listing it.
     emitSessionUpdate('session.created', session);
     return session;
+  };
+
+  /**
+   * "Rewind code to here": the files Claude changed go back to how they were
+   * when the prompt `messageID` was sent (the conversation stays). Needs the
+   * session's process — started for it when none runs — and never under a
+   * running turn or another process's hold.
+   */
+  const rewindFiles = async (input = {}) => {
+    const sdk = await ensureSdk();
+    if (!sdk) throw new Error('Claude backend is not available');
+    await loadOverlay();
+    const sessionId = typeof input.sessionID === 'string' ? input.sessionID.trim() : '';
+    const messageID = typeof input.messageID === 'string' ? input.messageID.trim() : '';
+    if (!sessionId || parseChildSessionId(sessionId)) throw new Error('Session not found');
+    const owner = await readForeignOwner(sessionId);
+    if (owner) throw new ClaudeSessionLiveElsewhereError(owner);
+    let proc = processes.get(sessionId);
+    if (proc?.isBusy()) throw Object.assign(new Error('Claude is answering in this session; stop it before rewinding'), { code: 'CLAUDE_BUSY' });
+
+    const known = await getSession({ sessionID: sessionId, directory: input.directory }).catch(() => null);
+    const directory = normalizeDirectory(input.directory) || normalizeDirectory(known?.directory) || proc?.directory || '';
+    const messages = await sdk.getSessionMessages(sessionId, directory ? { dir: directory } : {});
+    const uuid = findPromptUuid(messages, messageID, { uuid: promptUuids.get(promptUuidKey(sessionId, messageID)) });
+    if (!uuid) throw new ClaudeForkPointNotFoundError(messageID);
+
+    if (!proc) {
+      const { permissionMode, effort, model, allowBypass } = await resolveTurnSettings({ sessionID: sessionId });
+      proc = await startProcess({ sdk, sessionId, directory, model, effort, permissionMode, allowBypass, title: known?.title });
+    }
+    const result = await proc.rewindFiles(uuid, { dryRun: input.dryRun === true });
+    if (!proc.isBusy()) scheduleIdleClose(sessionId);
+    return {
+      canRewind: result?.canRewind === true,
+      ...(typeof result?.error === 'string' && result.error ? { error: result.error } : {}),
+      filesChanged: Array.isArray(result?.filesChanged) ? result.filesChanged.filter((file) => typeof file === 'string') : [],
+      insertions: Number.isFinite(result?.insertions) ? result.insertions : 0,
+      deletions: Number.isFinite(result?.deletions) ? result.deletions : 0,
+      ...(Number.isFinite(result?.skippedLinks) && result.skippedLinks > 0 ? { skippedLinks: result.skippedLinks } : {}),
+    };
   };
 
   const buildPrompt = (parts) => {
@@ -920,7 +1141,7 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     await closeProcess(idle[0][0]);
   };
 
-  const startProcess = async ({ sdk, sessionId, directory, model, effort, permissionMode, title, reattachSessionId }) => {
+  const startProcess = async ({ sdk, sessionId, directory, model, effort, permissionMode, title, reattachSessionId, allowBypass = false }) => {
     await makeRoomForProcess();
     const executable = await resolveExecutable();
     const resume = (await transcriptExists(sdk, sessionId, directory)) && !overlay.pendingTitles[sessionId];
@@ -936,6 +1157,21 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
         model,
         effort,
         permissionMode,
+        // Needed at start for Bypass to be reachable later in the session.
+        ...(allowBypass ? { allowDangerouslySkipPermissions: true } : {}),
+        // Checkpoints before each prompt's edits, as the VS Code extension
+        // keeps them: "rewind code to here" (`rewindFiles`).
+        enableFileCheckpointing: true,
+        // Every tool that needs approval, every question, every plan comes
+        // here and waits for the user (claude-requests.js).
+        canUseTool: requests.canUseToolFor({
+          sessionId,
+          directory,
+          onModeChange: (permission) => {
+            proc.notePermissionMode(permission);
+            if (rememberState(sessionId, { mode: modeIdOf(permission) || permission })) void announce(sessionId);
+          },
+        }),
         settingSources,
         includePartialMessages: true,
         env: { ...process.env },
@@ -951,6 +1187,32 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
         : null,
       emit: (payload) => emitEvent(directory, payload),
       setStatus: (status) => setBusyStatus(sessionId, directory, status),
+      childSessionId: (agentId) => toPublicId(childSessionIdOf(sessionId, agentId)),
+      childInternalId: (agentId) => childSessionIdOf(sessionId, agentId),
+      onSubagentStarted: ({ agentId, toolUseId, description, agentType }) => {
+        const childId = childSessionIdOf(sessionId, agentId);
+        const live = { parentId: sessionId, agentId, toolUseId, description, agentType, directory, status: 'running', startedAt: Date.now() };
+        liveSubagents.set(childId, live);
+        emitSessionUpdate('session.created', subagentSession({ parentId: sessionId, agentId, directory, live }));
+        setBusyStatus(childId, directory, { type: 'busy' });
+      },
+      onSubagentEnded: ({ agentId, status }) => {
+        const childId = childSessionIdOf(sessionId, agentId);
+        const live = liveSubagents.get(childId);
+        if (live) Object.assign(live, { status, endedAt: Date.now() });
+        setBusyStatus(childId, directory, { type: 'idle' });
+        if (live) emitSessionUpdate('session.updated', subagentSession({ parentId: sessionId, agentId, directory, live }));
+      },
+      onModeReported: (permission) => {
+        const modeId = modeIdOf(permission);
+        if (modeId && rememberState(sessionId, { mode: modeId })) void announce(sessionId);
+      },
+      onUsage: (usage) => {
+        const patch = {};
+        if (Number.isFinite(usage?.cacheTtlMs)) patch.cacheTtlMs = usage.cacheTtlMs;
+        if (Number.isFinite(usage?.contextWindow)) patch.contextWindow = usage.contextWindow;
+        if (Object.keys(patch).length > 0 && rememberState(sessionId, patch)) void announce(sessionId);
+      },
       onRemotePrompt: (text) => {
         const now = Date.now();
         const recordId = `msg_${String(now).padStart(14, '0')}_000000_remote`;
@@ -985,6 +1247,13 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
         scheduleIdleClose(sessionId);
       },
       onExit: () => {
+        // A question the process can no longer take an answer to closes.
+        requests.withdrawSession(sessionId);
+        for (const [childId, live] of liveSubagents) {
+          if (live.parentId !== sessionId || live.status !== 'running') continue;
+          Object.assign(live, { status: 'stopped', endedAt: Date.now() });
+          setBusyStatus(childId, directory, { type: 'idle' });
+        }
         if (processes.get(sessionId) === proc) {
           processes.delete(sessionId);
           clearTimeout(idleTimers.get(sessionId));
@@ -997,9 +1266,61 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     return proc;
   };
 
+  /** Whether Bypass permissions may be offered (see MODE_DEFINITIONS). */
+  const bypassAllowedBy = (settings) => settings?.skipDangerousModePermissionPrompt === true
+    || process.env.OPENCHAMBER_CLAUDE_ALLOW_BYPASS === '1';
+
+  /** The mode a session starts in: the settings' `permissions.defaultMode` when offered, else Manual. */
+  const defaultModeIdOf = (settings) => {
+    const configured = modeIdOf(settings?.permissions?.defaultMode);
+    if (!configured) return DEFAULT_MODE_ID;
+    if (MODE_DEFINITIONS[configured].dangerous && !bypassAllowedBy(settings)) return DEFAULT_MODE_ID;
+    return configured;
+  };
+
+  /** The modes this host offers, for the composer's mode menu. */
+  const listModes = async () => {
+    const settings = await readSettings();
+    const allowBypass = bypassAllowedBy(settings);
+    const defaultId = defaultModeIdOf(settings);
+    return Object.values(MODE_DEFINITIONS)
+      .filter((mode) => !mode.dangerous || allowBypass)
+      .map((mode) => ({
+        id: mode.id,
+        label: mode.label,
+        description: mode.description,
+        isDefault: mode.id === defaultId,
+        ...(mode.dangerous ? { dangerous: true } : {}),
+      }));
+  };
+
+  /**
+   * Put a session in a mode, as the mode indicator does: at once when its
+   * process runs (a turn in flight included), else from its next turn.
+   */
+  const setSessionMode = async (input = {}) => {
+    const sessionId = typeof input.sessionID === 'string' ? input.sessionID.trim() : '';
+    if (!sessionId) throw new Error('Session not found');
+    const mode = MODE_DEFINITIONS[input.mode];
+    const settings = await readSettings();
+    if (!mode || (mode.dangerous && !bypassAllowedBy(settings))) {
+      throw Object.assign(new Error(`Claude Code has no mode "${input.mode}" here`), { code: 'UNKNOWN_MODE' });
+    }
+    const proc = processes.get(sessionId);
+    if (proc) await proc.applyPermissionMode(mode.permissionMode);
+    if (rememberState(sessionId, { mode: mode.id })) await announce(sessionId);
+    return mode.id;
+  };
+
   const resolveTurnSettings = async (input = {}) => {
     const settings = await readSettings();
-    const modeId = MODE_DEFINITIONS[input.agent] ? input.agent : DEFAULT_MODE_ID;
+    // The session's own mode (the mode menu, a plan approval); OpenCode's
+    // agent never picks it — its `plan` agent is not Claude's plan mode.
+    const sessionKey = typeof input.sessionID === 'string' ? input.sessionID.trim() : '';
+    const picked = typeof input.mode === 'string' && MODE_DEFINITIONS[input.mode] ? input.mode : sessionState.get(sessionKey)?.mode;
+    const modeId = picked && MODE_DEFINITIONS[picked] && (!MODE_DEFINITIONS[picked].dangerous || bypassAllowedBy(settings))
+      ? picked
+      : defaultModeIdOf(settings);
     const effort = EFFORT_OPTIONS.some((option) => option.id === input.variant)
       ? input.variant
       : (typeof settings?.effortLevel === 'string' && EFFORT_OPTIONS.some((option) => option.id === settings.effortLevel)
@@ -1008,7 +1329,7 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     const model = typeof input.model?.modelID === 'string' && input.model.modelID.trim().length > 0
       ? input.model.modelID.trim()
       : (typeof settings?.model === 'string' && settings.model.trim() ? settings.model.trim() : undefined);
-    return { permissionMode: MODE_DEFINITIONS[modeId].permissionMode, effort, model };
+    return { permissionMode: MODE_DEFINITIONS[modeId].permissionMode, effort, model, allowBypass: bypassAllowedBy(settings) };
   };
 
   /** The foreign owner of a session, read now rather than from the last poll. */
@@ -1041,7 +1362,7 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     }
     if (!processes.get(sessionId)) {
       const existing = await getSession({ sessionID: sessionId, directory }).catch(() => null);
-      const { permissionMode, effort, model } = await resolveTurnSettings(input);
+      const { permissionMode, effort, model, allowBypass } = await resolveTurnSettings(input);
       await startProcess({
         sdk,
         sessionId,
@@ -1049,6 +1370,7 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
         model,
         effort,
         permissionMode,
+        allowBypass,
         title: existing?.title,
         reattachSessionId: owner?.bridgeSessionId || undefined,
       });
@@ -1085,7 +1407,7 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     const live = processes.get(sessionId);
 
     const directory = normalizeDirectory(input.directory) || live?.directory || '';
-    const { permissionMode, effort, model } = await resolveTurnSettings(input);
+    const { permissionMode, effort, model, allowBypass } = await resolveTurnSettings(input);
 
     const { blocks, unsupported } = buildPrompt(input.parts);
     if (blocks.length === 0) {
@@ -1128,6 +1450,7 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
         model,
         effort,
         permissionMode,
+        allowBypass,
         title: overlay.pendingTitles[sessionId] || existing?.title,
       });
     } else if (!proc.isBusy()) {
@@ -1213,9 +1536,16 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
 
   const abortSession = async (input = {}) => {
     const sessionId = typeof input.sessionID === 'string' ? input.sessionID.trim() : '';
+    // A subagent stops alone; the session that ran it goes on.
+    const child = parseChildSessionId(sessionId);
+    if (child) {
+      const parentProc = processes.get(child.parentId);
+      return parentProc ? parentProc.stopTask(child.agentId) : false;
+    }
     const proc = processes.get(sessionId);
     if (proc) {
       await proc.interrupt();
+      requests.withdrawSession(sessionId);
       return true;
     }
     const entry = await getSession({ sessionID: sessionId }).catch(() => null);
@@ -1345,12 +1675,7 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
       ? settings.effortLevel
       : DEFAULT_EFFORT_ID;
 
-    const interactionModes = Object.values(MODE_DEFINITIONS).map((mode) => ({
-      id: mode.id,
-      label: mode.label,
-      description: mode.description,
-      isDefault: mode.id === DEFAULT_MODE_ID,
-    }));
+    const interactionModes = await listModes();
 
     const effortOptionDescriptor = {
       id: 'effort',
@@ -1435,6 +1760,7 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     forkSession,
     listCommands,
     getSession,
+    listSubagentSessions,
     getMessages,
     promptAsync,
     takeOverSession,
@@ -1446,6 +1772,10 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     getStatusSnapshot,
     addEventClient,
     getControlSurface,
+    listModes,
+    setSessionMode,
+    rewindFiles,
+    requests,
     shutdownAll,
   };
 };

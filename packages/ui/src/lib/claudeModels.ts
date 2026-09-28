@@ -8,11 +8,16 @@ import { runtimeFetch } from '@/lib/runtime-fetch';
  */
 export type ClaudeModelOption = { id: string; label: string; description?: string };
 export type ClaudeEffortOption = { id: string; label: string };
+/** A permission mode as the VS Code extension's mode indicator offers it. */
+export type ClaudeModeOption = { id: string; label: string; description?: string; isDefault?: boolean; dangerous?: boolean };
 export type ClaudeModelCatalog = {
   models: ClaudeModelOption[];
   defaultModelId: string | null;
   efforts: ClaudeEffortOption[];
   defaultEffort: string | null;
+  /** Absent from a server older than the mode menu. */
+  modes?: ClaudeModeOption[];
+  defaultMode?: string | null;
 };
 
 /** `providerID` the server keeps a Claude pick under. */
@@ -39,6 +44,20 @@ export const selectClaudeModel = async (sessionId: string, pick: { id: string; v
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ model: { providerID: CLAUDE_PROVIDER_ID, id: pick.id, variant: pick.variant } }),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+};
+
+/** Put a Claude session in a permission mode, at once (a running turn included). */
+export const selectClaudeMode = async (sessionId: string, mode: string): Promise<boolean> => {
+  try {
+    const response = await runtimeFetch(`/api/session/${encodeURIComponent(sessionId)}/claude/mode`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ mode }),
     });
     return response.ok;
   } catch {

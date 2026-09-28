@@ -20,6 +20,8 @@ import type { GuestAttachItem } from '@/hooks/useGuestSurfaces';
 import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { ModelControls } from '../../ModelControls';
+import { ClaudeAgentMap } from '../../ClaudeAgentMap';
+import { ClaudeTodoPill } from '../../ClaudeTodos';
 import { ClaudeModelControls } from '../../ClaudeModelControls';
 import { useSessionEngine } from '@/hooks/useSessionEngine';
 import { ComposerActionButtons } from './ComposerActionButtons';
@@ -181,6 +183,12 @@ export function ComposerFooter(props: ComposerFooterProps) {
                             {!isBtw ? <SessionGoalObjectiveCounter length={messageLength} /> : null}
                         </div>
                         <div className="flex items-center min-w-0 gap-x-1 justify-end">
+                            {!isBtw && currentSessionId && sessionEngine.id === 'claude'
+                                ? <>
+                                    <ClaudeTodoPill sessionId={currentSessionId} directory={directory ?? undefined} />
+                                    <ClaudeAgentMap sessionId={currentSessionId} directory={directory ?? undefined} />
+                                </>
+                                : null}
                             <ComposerCacheTimer sessionId={currentSessionId} directory={directory} />
                             <ComposerMetricsSurface
                                 isMobile
@@ -279,6 +287,12 @@ export function ComposerFooter(props: ComposerFooterProps) {
                             placement="footer"
                             className="max-w-[22rem] flex-[1_1_12rem] justify-end"
                         />
+                        {!isBtw && currentSessionId && sessionEngine.id === 'claude'
+                            ? <>
+                                <ClaudeTodoPill sessionId={currentSessionId} directory={directory ?? undefined} />
+                                <ClaudeAgentMap sessionId={currentSessionId} directory={directory ?? undefined} />
+                            </>
+                            : null}
                         <ComposerCacheTimer sessionId={currentSessionId} directory={directory} />
                         {isBtw ? <ModelControls className="flex-1 min-w-0 justify-end" sessionId={modelSessionId ?? null} selection={btwSelection} />
                             : currentSessionId && sessionEngine.ownModelCatalog

@@ -1,3 +1,4 @@
+import { mergeActiveSnapshot, mergePendingList } from './claude-merge.js';
 import { registerEnginesRoute } from '../engines/engines.js';
 import http from 'node:http';
 import https from 'node:https';
@@ -962,16 +963,7 @@ export const registerOpenCodeProxy = (app, deps) => {
         }),
       ]);
       if (!result.upstream.ok || !result.isJson || result.parseError) return next();
-      const base = result.payload && typeof result.payload === 'object' && !Array.isArray(result.payload)
-        ? result.payload
-        : {};
-      // The SDK's snapshot schema accepts only `{ type: 'running' }` entries.
-      const merged = { ...base };
-      for (const sessionId of Object.keys(claude)) {
-        if (claude[sessionId]?.type === 'busy' || claude[sessionId]?.type === 'retry') {
-          merged[sessionId] = { type: 'running' };
-        }
-      }
+      const merged = mergeActiveSnapshot(result.payload, claude);
       res.status(result.upstream.status);
       res.setHeader('content-type', 'application/json; charset=utf-8');
       res.json(merged);
@@ -985,6 +977,42 @@ export const registerOpenCodeProxy = (app, deps) => {
       res.end();
     }
   });
+
+  // Claude Code's open questions (permission prompts, AskUserQuestion forms,
+  // plan approvals) join OpenCode's pending lists. The UI rebuilds its cards
+  // from these lists on every (re)connect: a Claude request missing here
+  // would vanish from the screen while the CLI still waits for its answer.
+  const mergeClaudePending = (kind) => async (req, res, next) => {
+    if (typeof claudeSurface?.listClaudePending !== 'function') return next();
+    try {
+      const upstreamPath = await getRequestUpstreamPath(req);
+      const result = await fetchSessionListPayload(upstreamPath, { req });
+      if (!result.upstream.ok || !result.isJson || result.parseError) return next();
+      const header = req.get('x-opencode-directory');
+      const directory = typeof req.query?.directory === 'string' && req.query.directory
+        ? req.query.directory
+        : (header ? decodeURIComponent(header) : null);
+      const claude = claudeSurface.listClaudePending(kind, { directory });
+      const merged = claude.length > 0 ? mergePendingList(result.payload, claude) : null;
+      res.status(result.upstream.status);
+      res.setHeader('content-type', 'application/json; charset=utf-8');
+      if (!merged) {
+        res.end(result.bodyText);
+        return;
+      }
+      res.json(merged);
+    } catch (error) {
+      if (isAbortError(error)) return;
+      console.error(`[proxy] Claude pending ${kind} merge error:`, error?.message ?? error);
+      if (!res.headersSent) {
+        next(error);
+        return;
+      }
+      res.end();
+    }
+  };
+  app.get('/api/permission/request', mergeClaudePending('permission'));
+  app.get('/api/form', mergeClaudePending('form'));
 
   // One session: the same overlay, so a detail read agrees with the list it
   // came from. Everything else about the record is forwarded untouched.

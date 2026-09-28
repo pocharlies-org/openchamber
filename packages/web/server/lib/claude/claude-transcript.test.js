@@ -4,6 +4,7 @@ import {
   buildClaudeRecordId,
   deriveClaudeTitle,
   findForkCut,
+  findPromptUuid,
   mapClaudeSessionMessages,
 } from './claude-transcript.js';
 
@@ -82,9 +83,10 @@ describe('mapClaudeSessionMessages', () => {
 
     expect(toolParts).toHaveLength(1);
     expect(toolParts[0].callID).toBe('toolu_1');
-    expect(toolParts[0].tool).toBe('Bash');
+    // Claude Code's `Bash` is OpenCode's `shell`: the UI's command renderer.
+    expect(toolParts[0].tool).toBe('shell');
     expect(toolParts[0].state.status).toBe('completed');
-    expect(toolParts[0].state.input).toEqual({ command: 'ls' });
+    expect(toolParts[0].state.input).toEqual({ command: 'ls', description: undefined });
     expect(toolParts[0].state.output).toBe('file.txt');
   });
 
@@ -342,5 +344,24 @@ describe('Claude Code bookkeeping entries under type "user"', () => {
     for (const record of records.filter((entry) => entry.info.role === 'user' || entry.info.role === 'assistant')) {
       expect(findForkCut(transcript, record.info.id).found).toBe(true);
     }
+  });
+});
+
+describe('findPromptUuid', () => {
+  it('names the transcript uuid of the prompt a record stands for', () => {
+    const messages = [
+      userText('first', 'u-1', at(0)),
+      assistantBlock('msg_a', { type: 'text', text: 'ok' }, 'a-1', at(100)),
+      userText('second', 'u-2', at(200)),
+    ];
+    const records = mapClaudeSessionMessages(messages, { sessionId: 's' });
+    const second = records.filter((record) => record.info.role === 'user')[1];
+    expect(findPromptUuid(messages, second.info.id)).toBe('u-2');
+    // A prompt the UI still holds under its client id, by the uuid it went out with.
+    expect(findPromptUuid(messages, 'msg_client', { uuid: 'u-1' })).toBe('u-1');
+    // An answer is not a prompt: no checkpoint is taken there.
+    const answer = records.find((record) => record.info.role === 'assistant');
+    expect(findPromptUuid(messages, answer.info.id)).toBeNull();
+    expect(findPromptUuid(messages, 'msg_nope')).toBeNull();
   });
 });
