@@ -96,6 +96,10 @@ const EFFORT_OPTIONS = Object.freeze([
   { id: 'low', label: 'Low' },
   { id: 'medium', label: 'Medium' },
   { id: 'high', label: 'High' },
+  // The CLI's slider has five stops and calls xhigh "Extra"; a session pinned
+  // to xhigh in settings.json was unrepresentable here, so the picker showed
+  // the default instead of the level the turn actually runs on.
+  { id: 'xhigh', label: 'Extra' },
   { id: 'max', label: 'Max' },
 ]);
 
