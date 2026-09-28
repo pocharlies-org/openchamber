@@ -1997,13 +1997,16 @@ export async function respondToPermission(
   requestId: string,
   response: "once" | "always" | "reject",
   directoryOverride?: string,
+  /** What the agent should do instead (a refusal) or change (a plan sent back). */
+  message?: string,
 ): Promise<void> {
   await waitForConnectionOrThrow()
   const directory = directoryOverride
     || resolveDirectoryForBlockingRequest("permission", sessionId, requestId)
     || getSessionDirectory(sessionId)
     || dir()
-  if (await opencodeClient.replyToPermission(sessionId, requestId, response, { directory }) !== true) {
+  const note = message?.trim() ? message.trim() : undefined
+  if (await opencodeClient.replyToPermission(sessionId, requestId, response, { directory, message: note }) !== true) {
     throw new Error("Permission reply failed")
   }
 }

@@ -16,6 +16,8 @@ import { toolFileDiffs } from '@/lib/opencode/tools';
 import { getPermissionToolPresentation, getToolDisplayName } from './permissionToolPresentation';
 import { describeSavePatterns, permissionSummaryMetadataSchema, summarizePermission, type PermissionTarget } from './permissionSummary';
 import { usePermissionFromSubagent, usePermissionResponse } from './usePermissionResponse';
+import { FormMarkdown } from './FormMarkdown';
+import { isIMECompositionEvent } from '@/lib/ime';
 
 const PERMISSION_BASH_CUSTOM_STYLE: React.CSSProperties = {
   margin: 0,
@@ -51,6 +53,48 @@ interface PermissionCardProps {
   permission: PermissionRequest;
   onResponse?: (response: 'once' | 'always' | 'reject') => void;
 }
+
+/** Claude Code's plan approval (ExitPlanMode): the plan, to approve or send back. */
+const isPlanApproval = (permission: PermissionRequest): boolean => permission.action === 'plan_exit';
+
+/** A note sent with a refusal: what to do instead, or what to change in a plan. */
+const FeedbackInput: React.FC<{
+  placeholder: string;
+  sendLabel: string;
+  disabled: boolean;
+  onSend: (text: string) => void;
+  autoFocus?: boolean;
+  className?: string;
+}> = ({ placeholder, sendLabel, disabled, onSend, autoFocus = false, className }) => {
+  const [text, setText] = React.useState('');
+  const send = () => {
+    const note = text.trim();
+    if (note) onSend(note);
+  };
+  return (
+    <div className={cn('flex items-end gap-1.5', className)}>
+      <textarea
+        rows={2}
+        value={text}
+        autoFocus={autoFocus}
+        placeholder={placeholder}
+        disabled={disabled}
+        onChange={(event) => setText(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key !== 'Enter' || event.shiftKey || event.altKey || isIMECompositionEvent(event)) return;
+          event.preventDefault();
+          send();
+        }}
+        className="typography-meta min-w-0 flex-1 resize-none rounded-md border border-border/40 bg-transparent px-2 py-1 text-foreground placeholder:text-muted-foreground/70 focus:outline-none focus:ring-1 focus:ring-primary/40"
+        data-permission-feedback="true"
+      />
+      <Button variant="outline" size="xs" disabled={disabled || !text.trim()} onClick={send}>
+        <Icon name="send-plane-2" className="size-3.5" />
+        {sendLabel}
+      </Button>
+    </div>
+  );
+};
 
 const SAFETY_KIND_LABEL_KEYS = new Map<string, I18nKey>([
   ['read_only', 'routing.safetyKind.readOnly'],
@@ -111,6 +155,17 @@ export const PermissionRequestContent: React.FC<{ permission: PermissionRequest 
   const showTarget = (target: PermissionTarget): string => (target.isPath ? formatPathForDisplay(target.value, homeDirectory) : target.value);
 
   const renderToolContent = () => {
+
+    if (tool === 'plan_exit') {
+      const plan = getMeta('plan');
+      return plan ? (
+        <ScrollableOverlay outerClassName="max-h-[50vh]" className="p-0">
+          <div className="rounded-lg border border-border/30 bg-background/40 px-3 py-2" data-plan-approval="true">
+            <FormMarkdown content={plan} size="meta" />
+          </div>
+        </ScrollableOverlay>
+      ) : null;
+    }
 
     if (displayToolName === 'edit' || displayToolName === 'write') {
       const files = permissionFilePreviewsSchema.parse(permission.metadata?.files);
@@ -308,14 +363,17 @@ export const PermissionRequestContent: React.FC<{ permission: PermissionRequest 
       ) : null}
 
       <div className="px-2 py-2">
+        {tool === 'plan_exit' ? (
+          <div className="typography-meta font-medium text-foreground mb-2">{t('chat.planApproval.title')}</div>
+        ) : null}
         {/* v2 lets the agent explain in its own words why it needs this. */}
-        {permission.message ? (
+        {tool !== 'plan_exit' && permission.message ? (
           <div className="typography-meta text-foreground/80 mb-2 whitespace-pre-wrap break-words">
             {permission.message}
           </div>
         ) : null}
 
-        <div className="mb-2">
+        <div className={cn('mb-2', tool === 'plan_exit' && 'hidden')}>
           <div className="typography-meta font-medium text-foreground">
             {summary.tool ? t(summary.titleKey, { tool: summary.tool }) : t(summary.titleKey)}
             {summary.scope ? (
@@ -360,15 +418,79 @@ const useAlwaysLabel = (permission: PermissionRequest): { label: string; full: s
 };
 
 /** Allow once / always / deny. The dock uses the shared buttons; the inline card keeps its status-coloured row. */
+/**
+ * A plan approval, as the VS Code extension offers it: approve and let Claude
+ * edit without asking, approve and keep approving each edit, or send the plan
+ * back with what to change.
+ */
+const PlanApprovalActions: React.FC<{
+  isResponding: boolean;
+  onRespond: (response: PermissionReply, message?: string) => void;
+}> = ({ isResponding, onRespond }) => {
+  const { t } = useI18n();
+  return (
+    <div className="flex flex-col gap-2 px-3 pb-2 pt-1" data-plan-approval-actions="true">
+      <div className="flex flex-wrap items-center justify-end gap-1.5">
+        <Button variant="outline" size="xs" disabled={isResponding} onClick={() => onRespond('once')}>
+          <Icon name="shield-check" className="size-3.5" />
+          {t('chat.planApproval.approveManual')}
+        </Button>
+        <Button size="xs" disabled={isResponding} onClick={() => onRespond('always')}>
+          {isResponding ? <Icon name="loader-4" className="size-3.5 animate-spin" /> : <Icon name="check" className="size-3.5" />}
+          {t('chat.planApproval.approveAuto')}
+        </Button>
+      </div>
+      <FeedbackInput
+        placeholder={t('chat.planApproval.feedbackPlaceholder')}
+        sendLabel={t('chat.planApproval.keepPlanning')}
+        disabled={isResponding}
+        onSend={(note) => onRespond('reject', note)}
+      />
+    </div>
+  );
+};
+
+/** "No, and tell Claude what to do instead", behind one button. */
+const DenyWithFeedback: React.FC<{
+  isResponding: boolean;
+  onRespond: (response: PermissionReply, message?: string) => void;
+  className?: string;
+}> = ({ isResponding, onRespond, className }) => {
+  const { t } = useI18n();
+  const [open, setOpen] = React.useState(false);
+  if (!open) {
+    return (
+      <Button variant="ghost" size="xs" disabled={isResponding} onClick={() => setOpen(true)} className={cn('text-muted-foreground', className)} data-permission-do-instead="true">
+        <Icon name="chat-4" className="size-3.5" />
+        {t('chat.permissionCard.doInstead')}
+      </Button>
+    );
+  }
+  return (
+    <FeedbackInput
+      autoFocus
+      className="w-full"
+      placeholder={t('chat.permissionCard.doInsteadPlaceholder')}
+      sendLabel={t('chat.permissionCard.doInsteadSend')}
+      disabled={isResponding}
+      onSend={(note) => onRespond('reject', note)}
+    />
+  );
+};
+
 export const PermissionActions: React.FC<{
   permission: PermissionRequest;
   isResponding: boolean;
-  onRespond: (response: PermissionReply) => void;
+  onRespond: (response: PermissionReply, message?: string) => void;
   variant: 'inline' | 'dock';
 }> = ({ permission, isResponding, onRespond, variant }) => {
   const { t } = useI18n();
   const always = useAlwaysLabel(permission);
   const hasSave = always.full !== undefined;
+
+  if (isPlanApproval(permission)) {
+    return <PlanApprovalActions isResponding={isResponding} onRespond={onRespond} />;
+  }
 
   if (variant === 'dock') {
     return (
@@ -378,6 +500,7 @@ export const PermissionActions: React.FC<{
           {t('chat.permissionCard.deny')}
           <kbd className="ml-1 hidden sm:inline typography-micro opacity-60">{formatShortcutForDisplay('alt+backspace')}</kbd>
         </Button>
+        <DenyWithFeedback isResponding={isResponding} onRespond={onRespond} />
         <div className="min-w-0 flex-1" />
         <Button variant="outline" size="xs" disabled={isResponding} onClick={() => onRespond('always')} title={always.full}>
           <Icon name="time" className="size-3.5" />
@@ -441,6 +564,8 @@ export const PermissionActions: React.FC<{
         <kbd className="ml-1 hidden sm:inline typography-micro opacity-60">{formatShortcutForDisplay('alt+backspace')}</kbd>
       </button>
 
+      <DenyWithFeedback isResponding={isResponding} onRespond={onRespond} className="w-full sm:w-auto justify-start" />
+
       {isResponding && (
         <div className="flex justify-center w-full sm:w-auto sm:ml-auto py-1 sm:py-0 typography-meta text-muted-foreground">
           <div className="animate-spin h-3 w-3 border border-primary border-t-transparent rounded-full" />
@@ -487,7 +612,7 @@ export const PermissionCard: React.FC<PermissionCardProps> = ({ permission, onRe
 
           <PermissionRequestContent permission={permission} />
 
-          <PermissionActions permission={permission} isResponding={isResponding} onRespond={(response) => void respond(response)} variant="inline" />
+          <PermissionActions permission={permission} isResponding={isResponding} onRespond={(response, message) => void respond(response, message)} variant="inline" />
         </div>
       </div>
     </div>

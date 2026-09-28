@@ -1,10 +1,12 @@
 import React from 'react';
 import { Icon } from '@/components/icon/Icon';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { getClaudeEngineState } from '@/lib/claudeSessionMetadata';
+import { claudeCacheTtlMs, compactedSince } from '@/lib/claudeCacheClock';
 import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { getLatestCompletedAssistantMessage } from '@/sync/stream-metrics';
-import { useSessionMessages } from '@/sync/sync-context';
+import { useSession, useSessionMessages } from '@/sync/sync-context';
 
 const MINUTE = 60_000;
 
@@ -55,17 +57,20 @@ type ComposerCacheTimerProps = {
 export function ComposerCacheTimer({ sessionId, directory, className }: ComposerCacheTimerProps) {
   const { t } = useI18n();
   const messages = useSessionMessages(sessionId ?? '', directory);
+  const session = useSession(sessionId ?? '', directory);
+  const sessionTtlMs = getClaudeEngineState(session).cacheTtlMs;
   const last = React.useMemo(() => getLatestCompletedAssistantMessage(messages), [messages]);
+  const compacted = React.useMemo(() => (last ? compactedSince(messages, last) : false), [messages, last]);
   const now = useNow(10_000);
 
   if (!sessionId || !last) return null;
-  const ttl = promptCacheTtlMs(last.providerID);
+  const ttl = claudeCacheTtlMs(last, sessionTtlMs) ?? promptCacheTtlMs(last.providerID);
   const endedAt = last.time.completed ?? last.time.created;
   if (ttl === null || !endedAt) return null;
 
   const elapsed = Math.max(0, now - endedAt);
   const left = ttl - elapsed;
-  const expired = left <= 0;
+  const expired = left <= 0 || compacted;
   const ago = formatCacheDuration(elapsed);
   const ttlLabel = formatCacheDuration(ttl);
 
@@ -89,9 +94,11 @@ export function ComposerCacheTimer({ sessionId, directory, className }: Composer
         </span>
       </TooltipTrigger>
       <TooltipContent side="top" sideOffset={6}>
-        {expired
-          ? t('chat.cacheTimer.tooltipExpired', { ago, ttl: ttlLabel })
-          : t('chat.cacheTimer.tooltip', { ago, ttl: ttlLabel, left: formatCacheDuration(left) })}
+        {compacted
+          ? t('chat.cacheTimer.tooltipCompacted', { ttl: ttlLabel })
+          : expired
+            ? t('chat.cacheTimer.tooltipExpired', { ago, ttl: ttlLabel })
+            : t('chat.cacheTimer.tooltip', { ago, ttl: ttlLabel, left: formatCacheDuration(left) })}
       </TooltipContent>
     </Tooltip>
   );

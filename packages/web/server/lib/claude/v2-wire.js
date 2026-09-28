@@ -85,8 +85,12 @@ export const toV2Session = (session, resolveProject = null) => {
     time,
     metadata: {
       backend: 'claude',
-      claude: { directory: cwd },
       ...(session.metadata && typeof session.metadata === 'object' ? session.metadata : {}),
+      // The engine's own facts (mode, cache tier, context window) sit beside the directory.
+      claude: {
+        directory: cwd,
+        ...(session.metadata?.claude && typeof session.metadata.claude === 'object' ? session.metadata.claude : {}),
+      },
     },
   });
 };
@@ -104,9 +108,11 @@ const toV2ToolItem = (part, fallbackTime) => {
   const created = toMillis(state.time?.start, fallbackTime);
   const time = { created, ran: created };
   let v2State;
+  // Diffs of an edit, the subagent session a call started (claude-tools.js).
+  const metadata = state.metadata && typeof state.metadata === 'object' ? state.metadata : undefined;
   switch (state.status) {
     case 'completed':
-      v2State = { status: 'completed', input, content: toolText(state.output) };
+      v2State = withoutUndefined({ status: 'completed', input, content: toolText(state.output), metadata });
       time.completed = toMillis(state.time?.end, created);
       break;
     case 'error':
@@ -115,6 +121,7 @@ const toV2ToolItem = (part, fallbackTime) => {
         input,
         error: { type: 'ToolError', message: state.error || 'Tool call failed' },
         content: typeof state.output === 'string' && state.output.length > 0 ? toolText(state.output) : undefined,
+        metadata,
       });
       time.completed = toMillis(state.time?.end, created);
       break;
@@ -123,7 +130,7 @@ const toV2ToolItem = (part, fallbackTime) => {
       delete time.ran;
       break;
     default:
-      v2State = { status: 'running', input, metadata: {} };
+      v2State = { status: 'running', input, metadata: metadata || {} };
   }
   return {
     type: 'tool',
@@ -204,6 +211,8 @@ export const toV2Message = (record) => {
     finish: completed !== undefined ? (info.finish || 'stop') : undefined,
     cost: 0,
     tokens: tokensOf(info.tokens),
+    // The prompt-cache tier this answer ran on (claude-transcript.js).
+    metadata: info.metadata && typeof info.metadata === 'object' ? info.metadata : undefined,
   });
 };
 
@@ -402,6 +411,7 @@ export const createClaudeV2EventTranslator = ({
       });
     }
     const base = { sessionID: state.sessionID, assistantMessageID: messageID, id };
+    const metadata = part.state?.metadata && typeof part.state.metadata === 'object' ? part.state.metadata : undefined;
     if (status !== 'pending' && tool.status === 'pending') {
       tool.status = 'running';
       emit('session.tool.called', state.directory, {
@@ -410,9 +420,18 @@ export const createClaudeV2EventTranslator = ({
         executed: true,
       });
     }
+    if (status === 'running' && tool.status === 'running' && metadata) {
+      // What a running call learns (its diff, the subagent it started) goes
+      // out as progress; the UI merges it into the part it shows.
+      const signature = JSON.stringify(metadata);
+      if (signature !== tool.metadata) {
+        tool.metadata = signature;
+        emit('session.tool.progress', state.directory, { ...base, metadata });
+      }
+    }
     if (status === 'completed' && tool.status === 'running') {
       tool.status = 'completed';
-      emit('session.tool.success', state.directory, { ...base, content: toolText(part.state.output), executed: true });
+      emit('session.tool.success', state.directory, { ...base, content: toolText(part.state.output), metadata, executed: true });
     } else if (status === 'error' && tool.status === 'running') {
       tool.status = 'error';
       const output = part.state?.output;
@@ -420,6 +439,7 @@ export const createClaudeV2EventTranslator = ({
         ...base,
         error: { type: 'ToolError', message: part.state?.error || 'Tool call failed' },
         content: typeof output === 'string' && output.length > 0 ? toolText(output) : undefined,
+        metadata,
         executed: true,
       });
     }
@@ -569,6 +589,35 @@ export const createClaudeV2EventTranslator = ({
         if (typeof id === 'string') emit('session.deleted', directory, { sessionID: toPublicId(id) });
         return;
       }
+      // Claude Code asking the user (claude-requests.js): already in v2's
+      // shape, with the engine's session ids.
+      case 'permission.asked': {
+        const request = properties.request;
+        if (!request || typeof request.id !== 'string') return;
+        emit('permission.asked', directory, { ...request, sessionID: toPublicId(request.sessionID) });
+        return;
+      }
+      case 'permission.replied':
+        emit('permission.replied', directory, {
+          sessionID: toPublicId(properties.sessionID),
+          requestID: properties.requestID,
+          reply: properties.reply,
+        });
+        return;
+      case 'form.created': {
+        const form = properties.form;
+        if (!form || typeof form.id !== 'string') return;
+        emit('form.created', directory, { form: { ...form, sessionID: toPublicId(form.sessionID) } });
+        return;
+      }
+      case 'form.replied':
+      case 'form.cancelled':
+        emit(payload.type, directory, {
+          sessionID: toPublicId(properties.sessionID),
+          id: properties.id,
+          ...(payload.type === 'form.replied' ? { answer: properties.answer } : {}),
+        });
+        return;
       default:
     }
   };

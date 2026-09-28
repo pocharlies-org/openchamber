@@ -216,6 +216,50 @@ describe('createClaudeV2EventTranslator', () => {
   });
 });
 
+describe('createClaudeV2EventTranslator — Claude Code parity', () => {
+  const toolPart = (status, extra = {}) => ({
+    id: 'p1', sessionID: 's1', messageID: 'msg_a', type: 'tool', callID: 'toolu_1', tool: 'subagent',
+    state: { status, input: { agent: 'Explore' }, time: { start: 1 }, ...extra },
+  });
+
+  it('sends what a running call learns as progress, once per change, and settles with it', () => {
+    const { events, translate } = translatorWithLog();
+    translate({ type: 'message.part.updated', properties: { part: toolPart('running'), directory: '/r' } });
+    translate({ type: 'message.part.updated', properties: { part: toolPart('running', { metadata: { sessionID: 'ses_cccs1~ag1' } }), directory: '/r' } });
+    translate({ type: 'message.part.updated', properties: { part: toolPart('running', { metadata: { sessionID: 'ses_cccs1~ag1' } }), directory: '/r' } });
+    translate({ type: 'message.part.updated', properties: { part: toolPart('completed', { output: 'done', metadata: { sessionID: 'ses_cccs1~ag1' } }), directory: '/r' } });
+
+    const progress = events.filter((event) => event.type === 'session.tool.progress');
+    expect(progress).toHaveLength(1);
+    expect(progress[0].data).toMatchObject({ sessionID: 'ses_cccs1', id: 'toolu_1', metadata: { sessionID: 'ses_cccs1~ag1' } });
+    expect(events.find((event) => event.type === 'session.tool.success').data.metadata).toEqual({ sessionID: 'ses_cccs1~ag1' });
+  });
+
+  it('publishes permission and form requests under public session ids', () => {
+    const { events, translate } = translatorWithLog();
+    translate({ type: 'permission.asked', properties: { directory: '/r', request: { id: 'per_ccc1', sessionID: 's1', action: 'shell', resources: ['ls'] } } });
+    translate({ type: 'permission.replied', properties: { directory: '/r', sessionID: 's1', requestID: 'per_ccc1', reply: 'once' } });
+    translate({ type: 'form.created', properties: { directory: '/r', form: { id: 'frm_ccc1', sessionID: 's1', title: 'Q', fields: [] } } });
+    translate({ type: 'form.replied', properties: { directory: '/r', sessionID: 's1', id: 'frm_ccc1', answer: { q0: 'A' } } });
+    translate({ type: 'form.cancelled', properties: { directory: '/r', sessionID: 's1', id: 'frm_ccc2' } });
+    translate({ type: 'permission.asked', properties: { directory: '/r', request: null } });
+
+    expect(events.map((event) => [event.type, event.data])).toEqual([
+      ['permission.asked', { id: 'per_ccc1', sessionID: 'ses_cccs1', action: 'shell', resources: ['ls'] }],
+      ['permission.replied', { sessionID: 'ses_cccs1', requestID: 'per_ccc1', reply: 'once' }],
+      ['form.created', { form: { id: 'frm_ccc1', sessionID: 'ses_cccs1', title: 'Q', fields: [] } }],
+      ['form.replied', { sessionID: 'ses_cccs1', id: 'frm_ccc1', answer: { q0: 'A' } }],
+      ['form.cancelled', { sessionID: 'ses_cccs1', id: 'frm_ccc2' }],
+    ]);
+    expect(events[0].location).toEqual({ directory: '/r' });
+  });
+
+  it('keeps the engine facts beside the directory in a session record', () => {
+    const session = toV2Session({ id: 'ses_ccc1', directory: '/r', metadata: { claude: { mode: 'plan', cacheTtlMs: 300000 }, pinned: true }, time: { created: 1 } });
+    expect(session.metadata).toEqual({ backend: 'claude', pinned: true, claude: { directory: '/r', mode: 'plan', cacheTtlMs: 300000 } });
+  });
+});
+
 describe('toV2Message for Claude bookkeeping records', () => {
   it('a compaction record is a completed v2 compaction message', () => {
     expect(toV2Message({ info: { id: 'msg_c', role: 'compaction', time: { created: '1970-01-01T00:00:01.000Z' }, reason: 'manual', summary: 'S' } }))
