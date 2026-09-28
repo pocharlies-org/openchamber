@@ -316,6 +316,15 @@ export const createClaudeV2EventTranslator = ({
 
   const startStep = (messageID, state, info) => {
     if (state.started) return;
+    // A Claude turn is a run of API messages, one after the other: the one
+    // before this one in the session is finished. Closed now, it carries its
+    // completion and tokens as the turn goes, instead of staying open until
+    // the turn ends — an open answer is what the UI reads as interrupted
+    // when the session looks idle.
+    for (const [otherID, other] of messages) {
+      if (otherID === messageID || other.sessionID !== state.sessionID || other.role !== 'assistant') continue;
+      if (other.started && !other.ended) endStep(otherID, other, other.tools.size > 0 ? 'tool-calls' : 'stop');
+    }
     state.started = true;
     emit('session.step.started', state.directory, {
       sessionID: state.sessionID,
