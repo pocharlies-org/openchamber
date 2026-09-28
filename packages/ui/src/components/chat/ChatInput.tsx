@@ -1596,6 +1596,12 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         if (!queuedOnly && currentSessionId && claudeLiveElsewhere && !claudeLiveElsewhere.attachable) {
             const sessionIdToTake = currentSessionId;
             const directoryToTake = currentSessionDirectoryForSync ?? currentDirectory ?? null;
+            // A dictated or preset prompt never went through the composer: it
+            // is put there now, so a take-over that is never confirmed loses
+            // nothing, and the retry sends it from there (and clears it).
+            const presetText = options?.presetText;
+            if (presetText != null) setMessage(presetText);
+            const retryOptions = presetText != null ? { ...options, presetText: undefined } : options;
             toast.warning(t('chat.claudeLive.toast.sendNeedsTakeOver'), {
                 description: t('chat.claudeLive.description'),
                 action: {
@@ -1606,7 +1612,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                                 toast.error(t('chat.claudeLive.toast.takeOverFailed'));
                                 return;
                             }
-                            await handleSubmitRef.current(options);
+                            await handleSubmitRef.current(retryOptions);
                         })();
                     },
                 },

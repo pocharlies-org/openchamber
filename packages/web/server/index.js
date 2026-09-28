@@ -1240,6 +1240,11 @@ const claudeSurface = createClaudeSurface({
     enabled: ['1', 'true'].includes(String(process.env.OPENCHAMBER_CLAUDE_REMOTE_CONTROL || '').toLowerCase()),
     baseUrl: process.env.OPENCHAMBER_CLAUDE_BASE_URL?.trim() || undefined,
   },
+  // A session set to auto-accept answers Claude Code's permission prompts too,
+  // through the same safety net: the auto-accept runtime only watches
+  // OpenCode's stream, and the UI hides requests of an auto-accepting session.
+  isAutoAccepting: (sessionId, directory) => permissionAutoAcceptRuntime.isSessionAutoAccepting(sessionId, directory),
+  evaluatePermission: (permission, directory) => routingRuntime.evaluatePermission(permission, directory),
   publishEvent: ({ payload, directory, eventId }) => {
     broadcastGlobalUiEvent(payload, {
       ...(directory ? { directory } : {}),

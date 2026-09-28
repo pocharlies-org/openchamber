@@ -9,18 +9,22 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Icon } from '@/components/icon/Icon';
+import type { IconName } from '@/components/icon/icons';
+import { toast } from '@/components/ui';
 import { useIsVSCodeRuntime } from '@/hooks/useRuntimeAPIs';
-import { getClaudeLiveState } from '@/lib/claudeSessionMetadata';
+import { getClaudeEngineState, getClaudeLiveState } from '@/lib/claudeSessionMetadata';
 import {
     catalogEntryMatches,
     claudeModelLabel,
     fetchClaudeModelCatalog,
     findClaudeAnswerKey,
+    selectClaudeMode,
     selectClaudeModel,
+    type ClaudeModeOption,
     type ClaudeModelCatalog,
 } from '@/lib/claudeModels';
 import { useDeviceInfo } from '@/lib/device';
-import { useI18n } from '@/lib/i18n';
+import { useI18n, type I18nKey } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { useUIStore } from '@/stores/useUIStore';
 import { useDirectorySync, useSession } from '@/sync/sync-context';
@@ -32,6 +36,15 @@ import { useDirectorySync, useSession } from '@/sync/sync-context';
  */
 type ClaudePick = { modelId?: string; pickedAfterAnswer: string | null; effort?: string };
 const picks = new Map<string, ClaudePick>();
+
+/** The mode indicator's names and glyphs, as the VS Code extension shows them. */
+const MODE_PRESENTATION: Record<string, { label: I18nKey; description: I18nKey; icon: IconName }> = {
+    default: { label: 'chat.claudeMode.default', description: 'chat.claudeMode.default.description', icon: 'shield-check' },
+    acceptEdits: { label: 'chat.claudeMode.acceptEdits', description: 'chat.claudeMode.acceptEdits.description', icon: 'edit-2' },
+    plan: { label: 'chat.claudeMode.plan', description: 'chat.claudeMode.plan.description', icon: 'file-list-2' },
+    auto: { label: 'chat.claudeMode.auto', description: 'chat.claudeMode.auto.description', icon: 'sparkling' },
+    bypassPermissions: { label: 'chat.claudeMode.bypassPermissions', description: 'chat.claudeMode.bypassPermissions.description', icon: 'error-warning' },
+};
 
 /**
  * The model and thinking controls of the composer for a Claude Code session.
@@ -72,7 +85,12 @@ export const ClaudeModelControls: React.FC<{ sessionId: string; directory?: stri
     );
     const answeredModelId = answerKey ? answerKey.slice(answerKey.indexOf('\n') + 1) : null;
     // Another process owns the session: its effort was fixed when it started.
-    const liveElsewhere = getClaudeLiveState(useSession(sessionId, directory)).liveElsewhere;
+    const session = useSession(sessionId, directory);
+    const liveElsewhere = getClaudeLiveState(session).liveElsewhere;
+    // The mode the engine reports for the session; a pick shows until it does.
+    const reportedMode = getClaudeEngineState(session).mode;
+    const [pickedMode, setPickedMode] = React.useState<string | null>(null);
+    React.useEffect(() => setPickedMode(null), [sessionId, reportedMode]);
 
     const [pick, setPick] = React.useState<ClaudePick | undefined>(() => picks.get(sessionId));
     React.useEffect(() => setPick(picks.get(sessionId)), [sessionId]);
@@ -95,7 +113,28 @@ export const ClaudeModelControls: React.FC<{ sessionId: string; directory?: stri
         void commit({ modelId: pick?.modelId, pickedAfterAnswer: pick?.pickedAfterAnswer ?? answerKey, effort: nextEffort });
     };
 
+    const handleModeSelect = (mode: string) => {
+        setPickedMode(mode);
+        void selectClaudeMode(sessionId, mode).then((ok) => {
+            if (ok) return;
+            setPickedMode(null);
+            toast.error(t('chat.claudeMode.changeFailed'));
+        });
+    };
+
     if (!catalog) return null;
+
+    const modes: ClaudeModeOption[] = catalog.modes ?? [];
+    const modeId = pickedMode ?? reportedMode ?? catalog.defaultMode ?? modes.find((mode) => mode.isDefault)?.id ?? 'default';
+    const modeText = (mode: ClaudeModeOption | undefined, id: string) => {
+        const presentation = MODE_PRESENTATION[id];
+        return {
+            label: presentation ? t(presentation.label) : (mode?.label ?? id),
+            description: presentation ? t(presentation.description) : (mode?.description ?? ''),
+            icon: presentation?.icon ?? ('shield-check' as IconName),
+        };
+    };
+    const currentMode = modeText(modes.find((mode) => mode.id === modeId), modeId);
 
     const modelLabel = shownModelId ? claudeModelLabel(shownModelId, catalog) : t('chat.modelControls.selectModel');
     const effortLabel = catalog.efforts.find((option) => option.id === effort)?.label ?? t('chat.modelControls.default');
@@ -106,6 +145,48 @@ export const ClaudeModelControls: React.FC<{ sessionId: string; directory?: stri
 
     return (
         <div className={cn('flex items-center justify-end min-w-0', isMobile ? 'gap-x-1' : 'gap-x-3', className)}>
+            {!liveElsewhere && modes.length > 0 ? (
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <div
+                            className={cn(triggerClass, modeId === 'bypassPermissions' && 'text-[var(--status-error)]')}
+                            data-claude-mode={modeId}
+                            title={currentMode.description}
+                        >
+                            <Icon name={currentMode.icon} className={cn(controlIconSize, 'flex-shrink-0', modeId === 'bypassPermissions' ? 'text-current' : 'text-muted-foreground')} />
+                            {!isMobile ? (
+                                <span className={cn(controlTextSize, 'font-medium truncate min-w-0', modeId === 'bypassPermissions' ? 'text-current' : 'text-muted-foreground')}>
+                                    {currentMode.label}
+                                </span>
+                            ) : null}
+                        </div>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent side="top" align="end" className="w-[min(300px,calc(100vw-2rem))]">
+                        <DropdownMenuLabel className="typography-ui-header font-semibold text-foreground">
+                            {t('chat.claudeMode.title')}
+                        </DropdownMenuLabel>
+                        {modes.map((mode) => {
+                            const text = modeText(mode, mode.id);
+                            return (
+                                <DropdownMenuItem key={mode.id} className="typography-meta" onSelect={() => handleModeSelect(mode.id)} data-claude-mode-option={mode.id}>
+                                    <div className="flex items-center justify-between gap-2 w-full min-w-0">
+                                        <div className="flex items-start gap-2 min-w-0">
+                                            <Icon name={text.icon} className={cn('size-4 flex-shrink-0 mt-0.5', mode.dangerous ? 'text-[var(--status-error)]' : 'text-muted-foreground')} />
+                                            <div className="flex flex-col min-w-0">
+                                                <span className="typography-meta font-medium text-foreground truncate">{text.label}</span>
+                                                {text.description ? (
+                                                    <span className="typography-micro text-muted-foreground whitespace-normal">{text.description}</span>
+                                                ) : null}
+                                            </div>
+                                        </div>
+                                        {mode.id === modeId && <Icon name="check" className="size-4 text-primary flex-shrink-0" />}
+                                    </div>
+                                </DropdownMenuItem>
+                            );
+                        })}
+                    </DropdownMenuContent>
+                </DropdownMenu>
+            ) : null}
             {!liveElsewhere ? (
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>

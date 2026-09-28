@@ -101,6 +101,8 @@ import { parseWebSearchOutput, webSearchProviderOf } from '@/lib/opencode/websea
 import { ApplyPatchFileButtons } from './ApplyPatchFileButtons';
 import { openApplyPatchFileInEditor } from './applyPatchEditorAction';
 import { WebSearchResults } from './WebSearchResults';
+import { TodoChecklist } from '../../ClaudeTodos';
+import { todosFromWrite } from '@/lib/claudeTodos';
 
 type ToolJsonViewMode = 'summary' | 'formatted' | 'raw';
 
@@ -1615,7 +1617,10 @@ const ToolExpandedContent: React.FC<ToolExpandedContentProps> = React.memo(({
                 'relative pr-2 pb-2 pt-2 space-y-2 pl-4'
             )}
         >
-            {isQuestionTool(part.tool) ? (
+            {normalizeToolName(part.tool) === 'todowrite' && todosFromWrite(input).length > 0 ? (
+                // Claude Code's to-do list: the checklist, not the raw call.
+                <TodoChecklist items={todosFromWrite(input)} className="py-1" />
+            ) : isQuestionTool(part.tool) ? (
                 renderResultContent()
             ) : (
                 <>

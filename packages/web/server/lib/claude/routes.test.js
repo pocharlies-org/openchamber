@@ -679,3 +679,158 @@ describe('deleting a Claude session', () => {
     expect(forgotten).toEqual(['ses_cccaaaa']);
   });
 });
+
+describe('Claude Code asking the user: permissions, questions, plan approval', () => {
+  /** A CLI that asks through canUseTool on its first prompt, then ends the turn with what it was told. */
+  const askingSdk = (toolName, input, outcomes) => ({
+    listSessions: async () => [],
+    getSessionMessages: async () => [],
+    getSessionInfo: async () => null,
+    renameSession: async () => {},
+    query: ({ prompt, options }) => (async function* stream() {
+      for await (const message of prompt) {
+        yield { ...message, isReplay: true };
+        const result = await options.canUseTool(toolName, input, { signal: new AbortController().signal, toolUseID: 'toolu_1', requestId: 'r1', suggestions: [] });
+        outcomes.push(result);
+        yield { type: 'result', is_error: false };
+      }
+    })(),
+  });
+
+  const waitFor = async (check) => {
+    for (let i = 0; i < 50; i += 1) {
+      const value = await check();
+      if (value) return value;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    throw new Error('timed out');
+  };
+
+  it('serves a permission request through OpenCode\'s routes and statuses', async () => {
+    const outcomes = [];
+    const events = [];
+    const { app, surface } = surfaceApp({ sdk: askingSdk('Bash', { command: 'ls' }, outcomes), publishEvent: ({ payload }) => events.push(payload) });
+    await request(app).post('/api/session/ses_cccsess-1/prompt').send({ id: 'msg_p1', text: 'list' });
+
+    const listed = await waitFor(async () => (await request(app).get('/api/session/ses_cccsess-1/permission')).body.data[0]);
+    expect(listed).toMatchObject({ sessionID: 'ses_cccsess-1', action: 'shell', resources: ['ls'] });
+    expect(events.find((event) => event.type === 'permission.asked').data).toMatchObject({ id: listed.id, sessionID: 'ses_cccsess-1' });
+    expect(surface.listClaudePending('permission').map((request) => request.id)).toEqual([listed.id]);
+    expect(surface.listClaudePending('permission', { directory: '/elsewhere' })).toEqual([]);
+
+    expect((await request(app).get(`/api/session/ses_cccsess-1/permission/${listed.id}`)).body.data.id).toBe(listed.id);
+    expect((await request(app).post(`/api/session/ses_cccsess-1/permission/${listed.id}/reply`).send({ decision: 'maybe' })).status).toBe(400);
+    expect((await request(app).post(`/api/session/ses_cccsess-1/permission/${listed.id}/reply`).send({ decision: 'once' })).status).toBe(204);
+    await waitFor(() => outcomes.length === 1);
+    expect(outcomes[0]).toEqual({ behavior: 'allow', updatedInput: { command: 'ls' } });
+    // Settled: a 404 is the server saying so.
+    expect((await request(app).get(`/api/session/ses_cccsess-1/permission/${listed.id}`)).status).toBe(404);
+    expect((await request(app).post(`/api/session/ses_cccsess-1/permission/${listed.id}/reply`).send({ decision: 'once' })).status).toBe(404);
+    expect(events.find((event) => event.type === 'permission.replied').data).toMatchObject({ requestID: listed.id, reply: 'once' });
+  });
+
+  it('answers AskUserQuestion through a form, and a cancelled form refuses', async () => {
+    const outcomes = [];
+    const input = { questions: [{ question: 'Which?', header: 'Pick', multiSelect: false, options: [{ label: 'A', description: '' }, { label: 'B', description: '' }] }] };
+    const { app } = surfaceApp({ sdk: askingSdk('AskUserQuestion', input, outcomes) });
+    await request(app).post('/api/session/ses_cccsess-1/prompt').send({ id: 'msg_q1', text: 'ask me' });
+
+    const form = await waitFor(async () => (await request(app).get('/api/session/ses_cccsess-1/form')).body.data[0]);
+    expect(form).toMatchObject({ sessionID: 'ses_cccsess-1', title: 'Pick', fields: [{ key: 'q0', type: 'string', custom: true }] });
+    expect((await request(app).post(`/api/session/ses_cccsess-1/form/${form.id}/reply`).send({ answer: 'A' })).status).toBe(400);
+    expect((await request(app).post(`/api/session/ses_cccsess-1/form/${form.id}/reply`).send({ answer: { q0: 'B' } })).status).toBe(204);
+    await waitFor(() => outcomes.length === 1);
+    expect(outcomes[0]).toEqual({ behavior: 'allow', updatedInput: { ...input, answers: { 'Which?': 'B' } } });
+
+    await request(app).post('/api/session/ses_cccsess-1/prompt').send({ id: 'msg_q2', text: 'again' });
+    const second = await waitFor(async () => (await request(app).get('/api/session/ses_cccsess-1/form')).body.data[0]);
+    expect((await request(app).delete(`/api/session/ses_cccsess-1/form/${second.id}`)).status).toBe(204);
+    await waitFor(() => outcomes.length === 2);
+    expect(outcomes[1].behavior).toBe('deny');
+    expect((await request(app).delete(`/api/session/ses_cccsess-1/form/${second.id}`)).status).toBe(404);
+  });
+
+  it('switches the mode from the mode menu, ignores OpenCode\'s agent, and refuses an unknown mode', async () => {
+    const queries = [];
+    const sdk = {
+      listSessions: async () => [],
+      getSessionMessages: async () => [],
+      getSessionInfo: async () => null,
+      renameSession: async () => {},
+      query: ({ prompt, options }) => {
+        queries.push(options);
+        return (async function* stream() {
+          for await (const message of prompt) {
+            yield { ...message, isReplay: true };
+            yield { type: 'result', is_error: false };
+          }
+        })();
+      },
+    };
+    const { app } = surfaceApp({ sdk });
+    expect((await request(app).post('/api/session/ses_cccsess-1/agent').send({ agent: 'plan' })).status).toBe(204);
+    expect((await request(app).post('/api/session/ses_cccsess-1/claude/mode').send({ mode: 'nope' })).status).toBe(400);
+    expect((await request(app).post('/api/session/ses_cccsess-1/claude/mode').send({ mode: 'acceptEdits' })).body).toEqual({ mode: 'acceptEdits' });
+    await request(app).post('/api/session/ses_cccsess-1/prompt').send({ id: 'msg_m1', text: 'go' });
+    await waitFor(() => queries.length === 1);
+    // OpenCode's `plan` agent did not put Claude in plan mode; the menu's pick did.
+    expect(queries[0].permissionMode).toBe('acceptEdits');
+    expect(typeof queries[0].canUseTool).toBe('function');
+
+    const models = await request(app).get('/api/claude/models');
+    expect(models.body.modes.map((mode) => mode.id)).toEqual(['default', 'acceptEdits', 'plan', 'auto']);
+    expect(models.body.defaultMode).toBe('default');
+  });
+
+  it('lets a subagent be stopped and read, and refuses every other write to it', async () => {
+    const { app } = surfaceApp({
+      sdk: {
+        listSessions: async () => [],
+        getSessionMessages: async () => [],
+        getSessionInfo: async () => null,
+        getSubagentMessages: async () => [],
+      },
+    });
+    const stop = await request(app).post('/api/session/ses_cccsess-1~ag1/interrupt');
+    expect(stop.status).toBe(200);
+    expect(stop.body).toEqual({ interrupted: false });
+    const write = await request(app).post('/api/session/ses_cccsess-1~ag1/prompt').send({ text: 'hi' });
+    expect(write.status).toBe(400);
+    expect(write.body).toMatchObject({ _tag: 'UnsupportedOperationError', engine: 'claude' });
+  });
+});
+
+describe('Claude session ids from URLs', () => {
+  it('never takes an id that could name a path outside the transcripts', async () => {
+    const { app, surface } = surfaceApp({
+      sdk: { listSessions: async () => [], getSessionMessages: async () => [], getSessionInfo: async () => null, getSubagentMessages: async () => [] },
+    });
+    // Not a Claude id: it falls through to the proxy (418 here), never to the engine.
+    for (const id of ['ses_ccc..%2F..%2Fetc', 'ses_cccsess-1~..%2Fx', 'ses_ccca.b', 'ses_ccc']) {
+      const response = await request(app).get(`/api/session/${id}/message`);
+      expect(response.status).toBe(418);
+    }
+    expect(surface.queueTransport.owns('ses_ccc../x')).toBe(false);
+    expect(surface.queueTransport.owns('ses_ccc0c4d2c1e-1b2a-4c3d-8e9f-001122334455')).toBe(true);
+    expect(surface.queueTransport.owns('ses_ccc0c4d2c1e-1b2a-4c3d-8e9f-001122334455~a5df7622fa8de0538')).toBe(true);
+  });
+});
+
+describe('POST /api/session/:id/claude/rewind', () => {
+  it('asks for the prompt it rewinds to, and answers a record that is not one as missing', async () => {
+    const { app } = surfaceApp({
+      sdk: {
+        listSessions: async () => [],
+        getSessionMessages: async () => [],
+        getSessionInfo: async () => null,
+        query: () => (async function* stream() {})(),
+      },
+    });
+    expect((await request(app).post('/api/session/ses_cccsess-1/claude/rewind').send({})).status).toBe(400);
+    const missing = await request(app).post('/api/session/ses_cccsess-1/claude/rewind').send({ messageID: 'msg_nope', dryRun: true });
+    expect(missing.status).toBe(404);
+    expect(missing.body._tag).toBe('MessageNotFoundError');
+    // A subagent's files are rewound through its session, never its child.
+    expect((await request(app).post('/api/session/ses_cccsess-1~ag1/claude/rewind').send({ messageID: 'msg_x' })).status).toBe(400);
+  });
+});

@@ -11,6 +11,7 @@ import { isolatedSpacesI18n } from './isolated-spaces.i18n';
 import { providersI18n } from './providers.i18n';
 import { mcpGridI18n } from './mcp-grid.i18n';
 import { pluginsGridI18n } from './plugins-grid.i18n';
+import { claudeParityI18n } from './claude-parity.i18n';
 
 export const dict = {
   "opencodeCompatibility.bundled": "OpenCode ist in OpenChamber enthalten. Aktualisieren Sie OpenChamber, um OpenCode v2 zu erhalten.",
@@ -68,6 +69,7 @@ export const dict = {
   ...providersI18n.de,
   ...mcpGridI18n.de,
   ...pluginsGridI18n.de,
+  ...claudeParityI18n.de,
   'common.language.german': 'Deutsch',
   'common.loading': 'Wird geladen...',
   'common.unavailable': 'Nicht verfügbar',

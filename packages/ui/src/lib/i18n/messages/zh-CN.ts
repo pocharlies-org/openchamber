@@ -12,6 +12,7 @@ import { isolatedSpacesI18n } from './isolated-spaces.i18n';
 import { providersI18n } from './providers.i18n';
 import { mcpGridI18n } from './mcp-grid.i18n';
 import { pluginsGridI18n } from './plugins-grid.i18n';
+import { claudeParityI18n } from './claude-parity.i18n';
 
 export const dict: Record<I18nKey, string> = {
   "opencodeCompatibility.bundled": "OpenCode 随 OpenChamber 一起提供。请更新 OpenChamber 以获取 OpenCode v2。",
@@ -69,6 +70,7 @@ export const dict: Record<I18nKey, string> = {
   ...providersI18n['zh-CN'],
   ...mcpGridI18n['zh-CN'],
   ...pluginsGridI18n['zh-CN'],
+  ...claudeParityI18n['zh-CN'],
   'terminalView.actions.attachSelection': '附加所选输出',
   'terminalView.actions.copySelection': '复制所选输出',
   'terminalView.toast.selectionCopied': '已复制输出',
