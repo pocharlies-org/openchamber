@@ -900,7 +900,9 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
       ensureLivePolling();
     }
     if (typeof input.before === 'string' && input.before.trim().length > 0) {
-      records = records.filter((record) => record.info.id < input.before);
+      // By position: an answer's id is its API message id, which does not sort.
+      const at = records.findIndex((record) => record.info.id === input.before.trim());
+      if (at >= 0) records = records.slice(0, at);
     }
     if (typeof input.limit === 'number' && input.limit > 0) {
       records = records.slice(-input.limit);
