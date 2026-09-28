@@ -62,6 +62,9 @@ const humanText = (content) => {
     .join('\n');
 };
 
+import { cacheTtlOf } from './claude-transcript.js';
+import { isSubagentTool, toV2Tool } from './claude-tools.js';
+
 /**
  * The content of a prompt as the CLI receives it. A command (`/name args`,
  * sent through the command route) goes as one plain string: that is the shape
@@ -91,6 +94,12 @@ export const toCliContent = (content, { asCommand = false } = {}) => {
  * @param {() => Promise<void>} [dependencies.onTurnEnd]
  * @param {() => void} [dependencies.onExit]
  * @param {() => string} dependencies.createUuid
+ * @param {(agentId: string) => string} [dependencies.childSessionId] public id of a subagent's child session
+ * @param {(agentId: string) => string} [dependencies.childInternalId] the engine's id of that child session (its events' sessionID)
+ * @param {(subagent: { agentId: string, toolUseId: string, description: string, agentType: string }) => void} [dependencies.onSubagentStarted]
+ * @param {(subagent: { agentId: string, status: string }) => void} [dependencies.onSubagentEnded]
+ * @param {(usage: { cacheTtlMs?: number, contextWindow?: number }) => void} [dependencies.onUsage]
+ * @param {(permissionMode: string) => void} [dependencies.onModeReported] the CLI switched its own mode (`/plan`, a plan approval)
  */
 export const createClaudeSessionProcess = (dependencies) => {
   const {
@@ -106,6 +115,12 @@ export const createClaudeSessionProcess = (dependencies) => {
     onTurnEnd,
     onExit,
     createUuid,
+    childSessionId = () => null,
+    childInternalId = (agentId) => `${sessionId}~${agentId}`,
+    onSubagentStarted,
+    onSubagentEnded,
+    onUsage,
+    onModeReported,
   } = dependencies;
 
   const prompts = createPromptStream();
@@ -121,18 +136,36 @@ export const createClaudeSessionProcess = (dependencies) => {
 
   const query = sdk.query({ prompt: prompts, options });
 
+  /**
+   * One session's view of the CLI's output: the parent session's, or a
+   * subagent's child session's. Each keeps its own open parts, tool calls and
+   * usage, keyed by the API message ids the CLI streams.
+   */
+  const createStream = (streamSessionId, { main = false } = {}) => ({
+    sessionId: streamSessionId,
+    main,
+    // One OpenChamber message per Claude API message id; the CLI emits
+    // several API messages per turn (one per tool round).
+    streamingParts: new Map(),
+    settledPartIds: new Set(),
+    // Tool calls stay open until the CLI hands back their `tool_result`.
+    toolParts: new Map(),
+    currentApiMessageId: null,
+    // Token usage per API message, published as it arrives so the answer's
+    // step ends with it (the UI's context meter and cache readouts).
+    usage: new Map(),
+  });
+
   const beginTurn = (pending = null) => {
     turn = {
       pending,
       // Prompts the CLI folded into this turn while it ran; they end with it.
       folded: [],
-      // One OpenChamber message per Claude API message id; the CLI emits
-      // several API messages per turn (one per tool round).
-      streamingParts: new Map(),
-      settledPartIds: new Set(),
-      // Tool calls stay open until the CLI hands back their `tool_result`.
-      toolParts: new Map(),
-      currentApiMessageId: null,
+      main: createStream(sessionId, { main: true }),
+      // Subagent call id → agent id, from `task_started`.
+      subagents: new Map(),
+      // Agent id → the stream of its child session.
+      children: new Map(),
     };
     lastActivityAt = Date.now();
     setStatus({ type: 'busy' });
@@ -157,9 +190,9 @@ export const createClaudeSessionProcess = (dependencies) => {
     }
   };
 
-  const assistantInfo = (messageId) => ({
+  const assistantInfo = (stream, messageId) => ({
     id: messageId,
-    sessionID: sessionId,
+    sessionID: stream.sessionId,
     role: 'assistant',
     model: { providerID: 'claude', modelID: model || '' },
     providerID: 'claude',
@@ -167,17 +200,40 @@ export const createClaudeSessionProcess = (dependencies) => {
     time: { created: new Date().toISOString() },
   });
 
-  const ensureStreamingPart = (apiMessageId, index, type, text) => {
+  const tokensFrom = (usage) => {
+    const count = (value) => (Number.isFinite(value) && value > 0 ? value : 0);
+    return {
+      input: count(usage?.input_tokens),
+      output: count(usage?.output_tokens),
+      reasoning: 0,
+      cache: { read: count(usage?.cache_read_input_tokens), write: count(usage?.cache_creation_input_tokens) },
+    };
+  };
+
+  /** Record an API message's usage (a later report replaces an earlier one) and publish it. */
+  const recordUsage = (stream, apiMessageId, usage) => {
+    if (!apiMessageId || !usage || typeof usage !== 'object') return;
+    const previous = stream.usage.get(apiMessageId) || {};
+    const merged = { ...previous, ...Object.fromEntries(Object.entries(usage).filter(([, value]) => value !== null && value !== undefined)) };
+    stream.usage.set(apiMessageId, merged);
+    const messageId = `msg_${apiMessageId}`;
+    emit({ type: 'message.updated', properties: { info: { ...assistantInfo(stream, messageId), tokens: tokensFrom(merged) }, directory } });
+    if (!stream.main) return;
+    const cacheTtlMs = cacheTtlOf({ usage: merged });
+    if (cacheTtlMs) onUsage?.({ cacheTtlMs });
+  };
+
+  const ensureStreamingPart = (stream, apiMessageId, index, type, text) => {
     const messageId = `msg_${apiMessageId}`;
     const partId = `${messageId}_${type}_${index}`;
-    const existingPart = turn.streamingParts.get(partId);
+    const existingPart = stream.streamingParts.get(partId);
     if (existingPart) {
       existingPart.text += text;
       return existingPart;
     }
-    const part = { id: partId, sessionID: sessionId, messageID: messageId, type, text };
-    turn.streamingParts.set(partId, part);
-    emit({ type: 'message.updated', properties: { info: assistantInfo(messageId), directory } });
+    const part = { id: partId, sessionID: stream.sessionId, messageID: messageId, type, text };
+    stream.streamingParts.set(partId, part);
+    emit({ type: 'message.updated', properties: { info: assistantInfo(stream, messageId), directory } });
     // The reducer applies deltas to an existing part only, so open it empty.
     emit({ type: 'message.part.updated', properties: { part: { ...part, text: '' }, directory } });
     return part;
@@ -192,39 +248,44 @@ export const createClaudeSessionProcess = (dependencies) => {
   // that preceded it carried the block's real index. The finished block
   // therefore settles the part its deltas already built instead of opening a
   // second one keyed by index 0, which would render the text twice.
-  const settleBlockPart = (apiMessageId, type, text) => {
+  const settleBlockPart = (stream, apiMessageId, type, text) => {
     const messageId = `msg_${apiMessageId}`;
     const finalText = typeof text === 'string' ? text : '';
-    for (const part of turn.streamingParts.values()) {
-      if (part.messageID !== messageId || part.type !== type || turn.settledPartIds.has(part.id)) continue;
+    for (const part of stream.streamingParts.values()) {
+      if (part.messageID !== messageId || part.type !== type || stream.settledPartIds.has(part.id)) continue;
       if (part.text.trim() !== finalText.trim()) continue;
       part.text = finalText;
-      turn.settledPartIds.add(part.id);
+      stream.settledPartIds.add(part.id);
       emitStreamingPart(part);
       return;
     }
     let index = 0;
-    while (turn.streamingParts.has(`${messageId}_${type}_${index}`)) index += 1;
-    const part = ensureStreamingPart(apiMessageId, index, type, finalText);
-    turn.settledPartIds.add(part.id);
+    while (stream.streamingParts.has(`${messageId}_${type}_${index}`)) index += 1;
+    const part = ensureStreamingPart(stream, apiMessageId, index, type, finalText);
+    stream.settledPartIds.add(part.id);
     emitStreamingPart(part);
   };
 
-  const handleStreamEvent = (event) => {
+  const handleStreamEvent = (stream, event) => {
     if (event?.type === 'message_start') {
-      turn.currentApiMessageId = typeof event.message?.id === 'string' ? event.message.id : null;
+      stream.currentApiMessageId = typeof event.message?.id === 'string' ? event.message.id : null;
+      recordUsage(stream, stream.currentApiMessageId, event.message?.usage);
+      return;
+    }
+    if (event?.type === 'message_delta') {
+      recordUsage(stream, stream.currentApiMessageId, event.usage);
       return;
     }
     const deltaKind = event?.type === 'content_block_delta' ? STREAM_DELTA_KINDS[event.delta?.type] : undefined;
     if (!deltaKind) return;
-    const apiMessageId = turn.currentApiMessageId || `turn-${Date.now()}`;
+    const apiMessageId = stream.currentApiMessageId || `turn-${Date.now()}`;
     const index = typeof event.index === 'number' ? event.index : 0;
     const delta = event.delta[deltaKind.field] || '';
-    ensureStreamingPart(apiMessageId, index, deltaKind.partType, delta);
+    ensureStreamingPart(stream, apiMessageId, index, deltaKind.partType, delta);
     emit({
       type: 'message.part.delta',
       properties: {
-        sessionID: sessionId,
+        sessionID: stream.sessionId,
         messageID: `msg_${apiMessageId}`,
         partID: `msg_${apiMessageId}_${deltaKind.partType}_${index}`,
         field: 'text',
@@ -233,80 +294,145 @@ export const createClaudeSessionProcess = (dependencies) => {
     });
   };
 
-  const handleAssistant = (message) => {
+  /** The public id of the child session a subagent call started, once known. */
+  const childLinkOf = (callId) => {
+    const agentId = turn?.subagents.get(callId);
+    return agentId ? childSessionId(agentId) : null;
+  };
+
+  const handleAssistant = (stream, message) => {
     const apiMessageId = typeof message.message?.id === 'string'
       ? message.message.id
-      : (turn.currentApiMessageId || `turn-${Date.now()}`);
+      : (stream.currentApiMessageId || `turn-${Date.now()}`);
     const content = Array.isArray(message.message?.content) ? message.message.content : [];
+    recordUsage(stream, apiMessageId, message.message?.usage);
     content.forEach((block, index) => {
       if (block?.type === 'text') {
-        settleBlockPart(apiMessageId, 'text', block.text || '');
+        settleBlockPart(stream, apiMessageId, 'text', block.text || '');
         return;
       }
       if (block?.type === 'thinking') {
         if (typeof block.thinking === 'string' && block.thinking.length > 0) {
-          settleBlockPart(apiMessageId, 'reasoning', block.thinking);
+          settleBlockPart(stream, apiMessageId, 'reasoning', block.thinking);
         }
         return;
       }
       if (block?.type !== 'tool_use') return;
       const messageId = `msg_${apiMessageId}`;
       const callId = typeof block.id === 'string' ? block.id : `${messageId}_tool_${index}`;
-      emit({ type: 'message.updated', properties: { info: assistantInfo(messageId), directory } });
+      emit({ type: 'message.updated', properties: { info: assistantInfo(stream, messageId), directory } });
       // Keyed by call id, not content index: every block arrives at index 0,
       // so parallel calls of one API message would overwrite each other.
+      // Claude Code's names and keys as OpenCode's (claude-tools.js).
+      const v2 = toV2Tool(block.name, block.input, { childSessionId: childLinkOf(callId) });
       const toolPart = {
         id: `${messageId}_tool_${callId}`,
-        sessionID: sessionId,
+        sessionID: stream.sessionId,
         messageID: messageId,
         type: 'tool',
         callID: callId,
-        tool: typeof block.name === 'string' ? block.name : 'tool',
+        tool: v2.tool,
+        rawName: typeof block.name === 'string' ? block.name : 'tool',
+        rawInput: block.input && typeof block.input === 'object' ? block.input : {},
         state: {
           status: 'running',
-          input: block.input && typeof block.input === 'object' ? block.input : undefined,
+          input: v2.input,
+          ...(v2.metadata ? { metadata: v2.metadata } : {}),
           time: { start: Date.now() },
         },
       };
-      turn.toolParts.set(callId, toolPart);
-      emit({ type: 'message.part.updated', properties: { part: toolPart, directory } });
+      stream.toolParts.set(callId, toolPart);
+      emit({ type: 'message.part.updated', properties: { part: publicPart(toolPart), directory } });
     });
   };
 
-  const handleToolResults = (content) => {
-    for (const block of content) {
-      if (block?.type !== 'tool_result' || typeof block.tool_use_id !== 'string') continue;
-      const toolPart = turn?.toolParts.get(block.tool_use_id);
+  /** A tool part as published: the raw Claude call it was mapped from stays private. */
+  const publicPart = (part) => {
+    const { rawName: _rawName, rawInput: _rawInput, ...rest } = part;
+    return rest;
+  };
+
+  const handleToolResults = (stream, content, structured = null) => {
+    const results = content.filter((block) => block?.type === 'tool_result' && typeof block.tool_use_id === 'string');
+    for (const block of results) {
+      const toolPart = stream.toolParts.get(block.tool_use_id);
       if (!toolPart) continue;
-      turn.toolParts.delete(block.tool_use_id);
+      stream.toolParts.delete(block.tool_use_id);
       const output = toolResultText(block.content);
       const failed = block.is_error === true;
+      // The SDK hands one structured result per tool-result message: the
+      // exact diff of an edit, the agent a subagent call started.
+      const result = results.length === 1 && structured && typeof structured === 'object' ? structured : null;
+      const agentId = isSubagentTool(toolPart.rawName)
+        ? (typeof result?.agentId === 'string' && result.agentId) || turn?.subagents.get(block.tool_use_id) || null
+        : null;
+      const v2 = toV2Tool(toolPart.rawName, toolPart.rawInput, {
+        result,
+        childSessionId: agentId ? childSessionId(agentId) : null,
+      });
       emit({
         type: 'message.part.updated',
         properties: {
-          part: {
+          part: publicPart({
             ...toolPart,
             state: {
               status: failed ? 'error' : 'completed',
               input: toolPart.state.input,
               output,
               error: failed ? (output || 'Tool call failed') : undefined,
+              ...(v2.metadata ? { metadata: v2.metadata } : {}),
               time: { start: toolPart.state.time.start, end: Date.now() },
             },
-          },
+          }),
           directory,
         },
       });
     }
   };
 
+  /**
+   * The child session a subagent frame belongs to, or null when the frame
+   * names a call no `task_started` has linked (it is dropped: a subagent's
+   * traffic is never shown inline in the parent's answer).
+   */
+  const streamForSubagentFrame = (message) => {
+    const agentId = turn?.subagents.get(message.parent_tool_use_id);
+    if (!agentId) return null;
+    let stream = turn.children.get(agentId);
+    if (!stream) {
+      stream = createStream(childInternalId(agentId));
+      turn.children.set(agentId, stream);
+    }
+    return stream;
+  };
+
+  /** A subagent's own traffic, streamed into its child session. */
+  const handleSubagentFrame = (message) => {
+    const stream = streamForSubagentFrame(message);
+    if (!stream) return;
+    if (message.type === 'stream_event') {
+      handleStreamEvent(stream, message.event);
+      return;
+    }
+    if (message.type === 'assistant') {
+      handleAssistant(stream, message);
+      return;
+    }
+    const content = message.message?.content;
+    if (Array.isArray(content) && content.some((block) => block?.type === 'tool_result')) {
+      handleToolResults(stream, content, message.tool_use_result);
+    }
+    // The prompt the subagent was given is not replayed live: its transcript
+    // record (a different id) is what a read of the child session shows, and
+    // the call that started it already carries it.
+  };
+
   const handleUser = (message) => {
     const content = message.message?.content;
     if (Array.isArray(content) && content.some((block) => block?.type === 'tool_result')) {
-      handleToolResults(content);
+      if (turn) handleToolResults(turn.main, content, message.tool_use_result);
       return;
     }
-    if (message.parent_tool_use_id) return;
     // `--replay-user-messages` echoes every prompt the process accepts. Ours
     // are already on screen; anything else was typed on another surface.
     if (typeof message.uuid === 'string' && sentUuids.delete(message.uuid)) {
@@ -326,7 +452,53 @@ export const createClaudeSessionProcess = (dependencies) => {
     if (!turn) beginTurn();
   };
 
+  /**
+   * A subagent's lifecycle: `task_started` names the agent a call started, so
+   * the call links to the child session at once; `task_notification` closes it.
+   */
+  const handleSystem = (message) => {
+    // `init` (every turn) and `status` name the mode the CLI is in: a `/plan`
+    // typed as a prompt or an approved plan changes it without asking us.
+    if ((message.subtype === 'init' || message.subtype === 'status') && typeof message.permissionMode === 'string' && message.permissionMode) {
+      if (message.permissionMode !== permissionMode) {
+        permissionMode = message.permissionMode;
+        onModeReported?.(message.permissionMode);
+      }
+      return;
+    }
+    if (message.subtype === 'task_started' && typeof message.task_id === 'string' && typeof message.tool_use_id === 'string') {
+      turn?.subagents.set(message.tool_use_id, message.task_id);
+      const owner = turn ? [turn.main, ...turn.children.values()].find((stream) => stream.toolParts.has(message.tool_use_id)) : null;
+      const toolPart = owner?.toolParts.get(message.tool_use_id);
+      if (toolPart && isSubagentTool(toolPart.rawName)) {
+        const v2 = toV2Tool(toolPart.rawName, toolPart.rawInput, { childSessionId: childSessionId(message.task_id) });
+        toolPart.state = { ...toolPart.state, ...(v2.metadata ? { metadata: v2.metadata } : {}) };
+        emit({ type: 'message.part.updated', properties: { part: publicPart(toolPart), directory } });
+      }
+      onSubagentStarted?.({
+        agentId: message.task_id,
+        toolUseId: message.tool_use_id,
+        description: typeof message.description === 'string' ? message.description : '',
+        agentType: typeof message.subagent_type === 'string' ? message.subagent_type : '',
+      });
+      return;
+    }
+    if (message.subtype === 'task_notification' && typeof message.task_id === 'string') {
+      onSubagentEnded?.({ agentId: message.task_id, status: typeof message.status === 'string' ? message.status : 'completed' });
+    }
+  };
+
   const handleMessage = async (message) => {
+    if (message?.type === 'system') {
+      handleSystem(message);
+      return;
+    }
+    if ((message?.type === 'stream_event' || message?.type === 'assistant' || message?.type === 'user') && message.parent_tool_use_id) {
+      // A subagent's traffic: its own child session's, never inline in the
+      // parent's answer.
+      handleSubagentFrame(message);
+      return;
+    }
     if (message?.type === 'user') {
       handleUser(message);
       return;
@@ -335,11 +507,14 @@ export const createClaudeSessionProcess = (dependencies) => {
       // Output with no open turn is the process answering a prompt that
       // arrived from elsewhere: it is a turn all the same.
       if (!turn) beginTurn();
-      if (message.type === 'stream_event') handleStreamEvent(message.event);
-      else handleAssistant(message);
+      if (message.type === 'stream_event') handleStreamEvent(turn.main, message.event);
+      else handleAssistant(turn.main, message);
       return;
     }
     if (message?.type === 'result') {
+      const models = message.modelUsage && typeof message.modelUsage === 'object' ? Object.values(message.modelUsage) : [];
+      const contextWindow = models.map((entry) => entry?.contextWindow).find((value) => Number.isFinite(value) && value > 0);
+      if (contextWindow) onUsage?.({ contextWindow });
       if (message.is_error) {
         emit({
           type: 'session.error',
@@ -449,6 +624,27 @@ export const createClaudeSessionProcess = (dependencies) => {
     permissionMode = nextMode;
   };
 
+  /** The CLI changed its own mode (a plan approved with a mode): only remember it. */
+  const notePermissionMode = (mode) => {
+    if (mode) permissionMode = mode;
+  };
+
+  /**
+   * Put the files Claude changed back as they were at a prompt (its file
+   * checkpoint); `dryRun` only says what would change.
+   */
+  const rewindFiles = async (userMessageId, { dryRun = false } = {}) => {
+    if (exited || typeof query.rewindFiles !== 'function') throw new Error('This Claude Code process cannot rewind files');
+    return query.rewindFiles(userMessageId, { dryRun });
+  };
+
+  /** Stop one running subagent; its `task_notification` reports it stopped. */
+  const stopTask = async (taskId) => {
+    if (exited || typeof query.stopTask !== 'function') return false;
+    await query.stopTask(taskId);
+    return true;
+  };
+
   /** Stop the running turn; the process — and its Remote Control link — stays up. */
   const interrupt = async () => {
     try {
@@ -487,6 +683,10 @@ export const createClaudeSessionProcess = (dependencies) => {
     supportedCommands,
     applyModel,
     applyPermissionMode,
+    notePermissionMode,
+    permissionMode: () => permissionMode,
+    stopTask,
+    rewindFiles,
     exited: pump,
     isBusy: () => Boolean(turn),
     hasExited: () => exited,

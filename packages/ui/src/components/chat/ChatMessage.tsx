@@ -16,6 +16,8 @@ import { useChatSurfaceMode } from './useChatSurfaceMode';
 
 import MessageBody, { type MessageExtraAction } from './message/MessageBody';
 import { GuestIcon } from '@/components/layout/GuestRailIcon';
+import { Icon } from '@/components/icon/Icon';
+import { runClaudeRewind } from './claudeRewindAction';
 import { useGuestActions } from '@/hooks/useGuestSurfaces';
 import { buildGuestMessageItem, guestMessageActionsFor } from '@/lib/guests/actions';
 import { runGuestAction } from '@/lib/guests/run-action';
@@ -663,6 +665,20 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
         }));
     }, [guestActionEntries, isUser, sessionId, t]);
 
+    // "Rewind code to here" on a Claude Code prompt (its file checkpoint).
+    const messageExtraActions = React.useMemo<MessageExtraAction[] | undefined>(() => {
+        const rewind: MessageExtraAction | null = isUser && sessionEngine.id === 'claude' && sessionId && message.info.id
+            ? {
+                id: 'claude:rewind',
+                label: t('chat.claudeRewind.action'),
+                icon: <Icon name="history" className="size-3.5" />,
+                onSelect: () => { void runClaudeRewind(sessionId, message.info.id, t); },
+            }
+            : null;
+        if (!rewind) return guestMessageActions;
+        return [...(guestMessageActions ?? []), rewind];
+    }, [guestMessageActions, isUser, message.info.id, sessionEngine.id, sessionId, t]);
+
     // NEW: Fork handler
     const handleFork = React.useCallback(() => {
         if (!sessionId || !message.info.id) return;
@@ -832,7 +848,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                                                 errorResponseBody={assistantErrorResponseBody}
                                                 userActionsMode={useExternalUserActionsRow ? 'external-content' : 'inline'}
                                                 stickyUserHeaderEnabled={stickyUserHeader}
-                                                extraActions={guestMessageActions}
+                                                extraActions={messageExtraActions}
                                             />
                                         </div>
                                         {useExternalUserActionsRow ? (
@@ -869,7 +885,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                                                 errorResponseBody={assistantErrorResponseBody}
                                                 userActionsMode="external-actions"
                                                 stickyUserHeaderEnabled={stickyUserHeader}
-                                                extraActions={guestMessageActions}
+                                                extraActions={messageExtraActions}
                                             />
                                         ) : null}
                                     </div>
@@ -916,7 +932,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                                 footerAgentName={headerAgentName}
                                 footerVariant={headerVariant}
                                 isDarkTheme={isDarkTheme}
-                                extraActions={guestMessageActions}
+                                extraActions={messageExtraActions}
                             />
 
                         </div>

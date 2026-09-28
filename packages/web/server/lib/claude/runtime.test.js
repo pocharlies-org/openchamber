@@ -565,8 +565,26 @@ describe('claude backend control surface', () => {
       .toEqual(['opus[1m]', 'qwen38-flash-next']);
     expect(surface.modelSelector.defaultOptionId).toBe('qwen38-flash-next');
     expect(surface.effortSelector.defaultOptionId).toBe('max');
-    expect(surface.modeSelector.items.map((item) => item.id)).toEqual(['default', 'plan', 'acceptEdits']);
+    // The VS Code extension's modes; Bypass only where the user accepted it.
+    expect(surface.modeSelector.items.map((item) => item.id)).toEqual(['default', 'acceptEdits', 'plan', 'auto']);
     expect(surface.modeSelector.items.find((item) => item.isDefault).id).toBe('default');
+  });
+
+  it('offers Bypass permissions only where the CLI already accepted it, and honours defaultMode', async () => {
+    const fs = makeFs({ settings: { skipDangerousModePermissionPrompt: true, permissions: { defaultMode: 'acceptEdits' } } });
+    const { runtime } = createRuntime({ fs });
+    const modes = await runtime.listModes();
+    expect(modes.map((mode) => mode.id)).toEqual(['default', 'acceptEdits', 'plan', 'auto', 'bypassPermissions']);
+    expect(modes.find((mode) => mode.isDefault).id).toBe('acceptEdits');
+    expect(modes.find((mode) => mode.id === 'bypassPermissions').dangerous).toBe(true);
+  });
+
+  it('never starts in Bypass when it is not offered, whatever defaultMode says', async () => {
+    const fs = makeFs({ settings: { permissions: { defaultMode: 'bypassPermissions' } } });
+    const { runtime } = createRuntime({ fs });
+    const modes = await runtime.listModes();
+    expect(modes.some((mode) => mode.id === 'bypassPermissions')).toBe(false);
+    expect(modes.find((mode) => mode.isDefault).id).toBe('default');
   });
 
   it('falls back to a static catalog without settings', async () => {
@@ -1334,5 +1352,181 @@ describe('claude backend deleteSession with a live CLI', () => {
     await runtime.promptAsync({ sessionID: 'sess-1', directory: '/repo/project', parts: [{ type: 'text', text: 'hi' }] });
     await runtime.deleteSession({ sessionID: 'sess-1', directory: '/repo/project' });
     expect(order).toEqual(['exit', 'delete']);
+  });
+});
+
+describe('claude backend — subagents, modes and questions', () => {
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 10));
+
+  /** A CLI whose first turn starts a subagent and holds until released. */
+  const subagentQuery = (gate) => ({ prompt, options }) => {
+    const handle = (async function* stream() {
+      for await (const message of prompt) {
+        yield { ...message, isReplay: true };
+        yield { type: 'assistant', message: { id: 'api_1', content: [{ type: 'tool_use', id: 'toolu_a', name: 'Agent', input: { subagent_type: 'Explore', description: 'Find it', prompt: 'look' } }] } };
+        yield { type: 'system', subtype: 'task_started', task_id: 'ag1', tool_use_id: 'toolu_a', description: 'Find it', subagent_type: 'Explore' };
+        await gate;
+        yield { type: 'system', subtype: 'task_notification', task_id: 'ag1', status: 'completed' };
+        yield { type: 'result', is_error: false };
+      }
+    })();
+    handle.options = options;
+    handle.interrupt = vi.fn(async () => {});
+    handle.stopTask = vi.fn(async () => {});
+    handle.setPermissionMode = vi.fn(async () => {});
+    return handle;
+  };
+
+  it('announces a running subagent as a busy child session, readable before its files exist', async () => {
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    const handles = [];
+    const sdk = makeSdk({ query: vi.fn((args) => { const handle = subagentQuery(gate)(args); handles.push(handle); return handle; }) });
+    const publishEvent = vi.fn();
+    const { runtime } = createRuntime({ sdk, publishEvent });
+
+    const turn = runtime.promptAsync({ sessionID: 'sess-1', directory: '/repo/project', parts: [{ type: 'text', text: 'go' }] });
+    await settle();
+
+    const payloads = publishEvent.mock.calls.map(([call]) => call.payload);
+    const created = payloads.find((payload) => payload.type === 'session.created');
+    expect(created.properties.info).toMatchObject({ id: 'sess-1~ag1', parentID: 'sess-1', title: 'Find it', metadata: { subagent: { agentType: 'Explore', status: 'running' } } });
+    expect(payloads.some((payload) => payload.type === 'session.status' && payload.properties.sessionID === 'sess-1~ag1' && payload.properties.status.type === 'busy')).toBe(true);
+
+    const children = await runtime.listSubagentSessions({ sessionID: 'sess-1' });
+    expect(children.map((child) => [child.id, child.parentID, child.metadata.subagent.status])).toEqual([['sess-1~ag1', 'sess-1', 'running']]);
+    expect((await runtime.getSession({ sessionID: 'sess-1~ag1' })).title).toBe('Find it');
+
+    // Stopping the child stops that subagent only.
+    await runtime.abortSession({ sessionID: 'sess-1~ag1' });
+    expect(handles[0].stopTask).toHaveBeenCalledWith('ag1');
+    expect(handles[0].interrupt).not.toHaveBeenCalled();
+
+    release();
+    await turn;
+    await settle();
+    expect((await runtime.listSubagentSessions({ sessionID: 'sess-1' }))[0].metadata.subagent.status).toBe('completed');
+    await runtime.shutdownAll();
+  });
+
+  it('reads a subagent\'s own transcript for its child id', async () => {
+    const sdk = makeSdk({
+      // As the SDK returns them: every entry names the call that started the subagent.
+      getSubagentMessages: vi.fn(async () => [
+        { type: 'user', uuid: 'u1', parent_tool_use_id: 'toolu_a', timestamp: '2026-09-28T00:00:00.000Z', message: { role: 'user', content: 'look for it' } },
+        { type: 'assistant', uuid: 'a1', parent_tool_use_id: 'toolu_a', timestamp: '2026-09-28T00:00:01.000Z', message: { id: 'api_s', role: 'assistant', content: [{ type: 'text', text: 'sub answer' }] } },
+      ]),
+    });
+    const { runtime } = createRuntime({ sdk });
+    const records = await runtime.getMessages({ sessionID: 'sess-1~ag1', directory: '/repo/project' });
+    expect(sdk.getSubagentMessages).toHaveBeenCalledWith('sess-1', 'ag1', { dir: '/repo/project' });
+    expect(records.map((record) => record.info.role)).toEqual(['user', 'assistant']);
+    expect(records.flatMap((record) => record.parts).map((part) => part.text)).toEqual(['look for it', 'sub answer']);
+  });
+
+  it('switches a live process\'s mode at once and publishes it on the session', async () => {
+    const handles = [];
+    const sdk = makeSdk({
+      getSessionInfo: vi.fn(async () => sessionInfo()),
+      query: vi.fn(({ prompt }) => {
+        const handle = (async function* stream() {
+          for await (const message of prompt) {
+            yield { ...message, isReplay: true };
+            yield { type: 'result', is_error: false };
+          }
+        })();
+        handle.interrupt = vi.fn(async () => {});
+        handle.setPermissionMode = vi.fn(async () => {});
+        handles.push(handle);
+        return handle;
+      }),
+    });
+    const publishEvent = vi.fn();
+    const { runtime } = createRuntime({ sdk, publishEvent });
+    await runtime.promptAsync({ sessionID: 'sess-1', directory: '/repo/project', parts: [{ type: 'text', text: 'go' }] });
+    await settle();
+
+    await expect(runtime.setSessionMode({ sessionID: 'sess-1', mode: 'plan' })).resolves.toBe('plan');
+    expect(handles[0].setPermissionMode).toHaveBeenCalledWith('plan');
+    const session = await runtime.getSession({ sessionID: 'sess-1' });
+    expect(session.metadata.claude).toMatchObject({ mode: 'plan' });
+    await expect(runtime.setSessionMode({ sessionID: 'sess-1', mode: 'bypassPermissions' })).rejects.toMatchObject({ code: 'UNKNOWN_MODE' });
+    await runtime.shutdownAll();
+  });
+
+  it('withdraws an unanswered question when its process ends', async () => {
+    let asked;
+    const sdk = makeSdk({
+      query: vi.fn(({ prompt, options }) => {
+        const handle = (async function* stream() {
+          for await (const message of prompt) {
+            yield { ...message, isReplay: true };
+            asked = options.canUseTool('Bash', { command: 'ls' }, { signal: new AbortController().signal, toolUseID: 't', requestId: 'r' });
+            await new Promise(() => {});
+          }
+        })();
+        handle.interrupt = vi.fn(async () => {});
+        handle.close = vi.fn();
+        return handle;
+      }),
+    });
+    const { runtime } = createRuntime({ sdk });
+    void runtime.promptAsync({ sessionID: 'sess-1', directory: '/repo/project', parts: [{ type: 'text', text: 'go' }] });
+    await settle();
+    expect(runtime.requests.list('permission')).toHaveLength(1);
+    await runtime.abortSession({ sessionID: 'sess-1' });
+    await expect(asked).resolves.toMatchObject({ behavior: 'deny' });
+    expect(runtime.requests.list('permission')).toHaveLength(0);
+  });
+});
+
+describe('claude backend — rewind code to a prompt', () => {
+  const transcript = [
+    { type: 'user', uuid: 'u-1', timestamp: '2026-09-28T00:00:00.000Z', message: { role: 'user', content: 'edit a' } },
+    { type: 'assistant', uuid: 'a-1', timestamp: '2026-09-28T00:00:01.000Z', message: { id: 'api_1', role: 'assistant', content: [{ type: 'text', text: 'done' }] } },
+  ];
+
+  const rewindSdk = (rewind) => makeSdk({
+    getSessionMessages: vi.fn(async () => transcript),
+    query: vi.fn(({ prompt, options }) => {
+      const handle = (async function* stream() {
+        for await (const message of prompt) {
+          yield { ...message, isReplay: true };
+          yield { type: 'result', is_error: false };
+        }
+      })();
+      handle.options = options;
+      handle.interrupt = vi.fn(async () => {});
+      handle.close = vi.fn();
+      handle.rewindFiles = rewind;
+      return handle;
+    }),
+  });
+
+  it('rewinds the files to the prompt a record names, starting the process for it, with checkpoints on', async () => {
+    const rewind = vi.fn(async (_uuid, { dryRun }) => ({ canRewind: true, filesChanged: ['a.txt'], insertions: 1, deletions: dryRun ? 2 : 2 }));
+    const sdk = rewindSdk(rewind);
+    const { runtime } = createRuntime({ sdk });
+    const records = await runtime.getMessages({ sessionID: 'sess-1', directory: '/repo/project' });
+    const prompt = records.find((record) => record.info.role === 'user');
+
+    const preview = await runtime.rewindFiles({ sessionID: 'sess-1', messageID: prompt.info.id, dryRun: true, directory: '/repo/project' });
+    expect(preview).toEqual({ canRewind: true, filesChanged: ['a.txt'], insertions: 1, deletions: 2 });
+    expect(rewind).toHaveBeenCalledWith('u-1', { dryRun: true });
+    expect(sdk.query.mock.calls[0][0].options.enableFileCheckpointing).toBe(true);
+
+    await runtime.rewindFiles({ sessionID: 'sess-1', messageID: prompt.info.id, directory: '/repo/project' });
+    expect(rewind).toHaveBeenLastCalledWith('u-1', { dryRun: false });
+    // One process for both: the second call reused it.
+    expect(sdk.query).toHaveBeenCalledTimes(1);
+    await runtime.shutdownAll();
+  });
+
+  it('refuses a record that is not a prompt of the transcript, and a subagent', async () => {
+    const { runtime } = createRuntime({ sdk: rewindSdk(vi.fn()) });
+    await expect(runtime.rewindFiles({ sessionID: 'sess-1', messageID: 'msg_nope', directory: '/repo/project' }))
+      .rejects.toMatchObject({ code: 'CLAUDE_FORK_POINT_NOT_FOUND' });
+    await expect(runtime.rewindFiles({ sessionID: 'sess-1~ag1', messageID: 'msg_x' })).rejects.toThrow('Session not found');
+    await runtime.shutdownAll();
   });
 });

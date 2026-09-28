@@ -110,6 +110,8 @@ import { toBackgroundSubagentPart, type BackgroundSubagentPhase } from './backgr
 import { findSubagentRun, readBackgroundSubagentChildID } from '@/lib/opencode/subagent-run';
 import { useGlobalSessionStatusStore } from '@/sync/global-session-status';
 import { useBackgroundShellOutput } from './useBackgroundShellOutput';
+import { TodoChecklist } from '../../ClaudeTodos';
+import { todosFromWrite } from '@/lib/claudeTodos';
 
 type ToolJsonViewMode = 'summary' | 'formatted' | 'raw';
 
@@ -1652,7 +1654,10 @@ const ToolExpandedContent: React.FC<ToolExpandedContentProps> = React.memo(({
                 'relative pr-2 pb-2 pt-2 space-y-2 pl-4'
             )}
         >
-            {isQuestionTool(part.tool) ? (
+            {normalizeToolName(part.tool) === 'todowrite' && todosFromWrite(input).length > 0 ? (
+                // Claude Code's to-do list: the checklist, not the raw call.
+                <TodoChecklist items={todosFromWrite(input)} className="py-1" />
+            ) : isQuestionTool(part.tool) ? (
                 renderResultContent()
             ) : (
                 <>
