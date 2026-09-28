@@ -25,6 +25,8 @@ const DOCUMENT_BLOCK = 'document';
 const REASONING_PART = 'reasoning';
 const TOOL_PART = 'tool';
 
+import { isSubagentTool, toV2Tool } from './claude-tools.js';
+
 const asArray = (value) => (Array.isArray(value) ? value : []);
 
 const contentBlocks = (message) => {
@@ -85,15 +87,19 @@ const claudeUsage = (message) => {
   };
 };
 
-const addUsage = (left, right) => ({
-  input: left.input + right.input,
-  output: left.output + right.output,
-  reasoning: left.reasoning + right.reasoning,
-  cache: {
-    read: left.cache.read + right.cache.read,
-    write: left.cache.write + right.cache.write,
-  },
-});
+/**
+ * How long the prompt cache this answer wrote lives, from Claude's usage
+ * breakdown: `ephemeral_1h_input_tokens` (Claude Code's default on a
+ * subscription) or `ephemeral_5m_input_tokens`. Null when the answer wrote no
+ * cache: the tier then stays whatever an earlier answer set.
+ */
+export const cacheTtlOf = (message) => {
+  const creation = message?.usage?.cache_creation;
+  if (!creation || typeof creation !== 'object') return null;
+  if (tokenCount(creation.ephemeral_1h_input_tokens) > 0) return 60 * 60 * 1000;
+  if (tokenCount(creation.ephemeral_5m_input_tokens) > 0) return 5 * 60 * 1000;
+  return null;
+};
 
 const attachmentFrom = (block) => {
   const source = block?.source && typeof block.source === 'object' ? block.source : {};
@@ -172,7 +178,14 @@ const buildUserParts = (blocks, { sessionId, recordId }) => {
   return parts;
 };
 
-const buildAssistantParts = (blocks, toolOutputs, { sessionId, recordId, startedAt = 0 }) => {
+const buildAssistantParts = (blocks, toolOutputs, {
+  sessionId,
+  recordId,
+  startedAt = 0,
+  toolResults = new Map(),
+  subagents = new Map(),
+  childSessionId = () => null,
+}) => {
   const parts = [];
   blocks.forEach(({ block }, index) => {
     const id = buildClaudePartId(recordId, index, block?.type || 'custom');
@@ -205,12 +218,23 @@ const buildAssistantParts = (blocks, toolOutputs, { sessionId, recordId, started
       const callId = typeof block.id === 'string' ? block.id : id;
       const result = toolOutputs.get(callId);
       const status = result ? (result.error ? 'error' : 'completed') : 'running';
+      // Claude Code's names and keys as OpenCode's, with the structured result
+      // (exact diff hunks, the subagent it started) the SDK reader drops.
+      const structured = toolResults.get(callId) || null;
+      const agentId = isSubagentTool(block.name)
+        ? (typeof structured?.agentId === 'string' && structured.agentId) || subagents.get(callId)?.agentId || null
+        : null;
+      const v2 = toV2Tool(block.name, block.input, {
+        result: structured,
+        childSessionId: agentId ? childSessionId(agentId) : null,
+      });
       const state = {
         status,
-        input: block.input && typeof block.input === 'object' ? block.input : undefined,
+        input: v2.input,
         output: result?.output,
         error: result?.error ? (result.output || 'Tool call failed') : undefined,
       };
+      if (v2.metadata) state.metadata = v2.metadata;
       // The timeline only renders a finished tool card once it can read an end
       // time, so a resolved call carries the window Claude ran it in. Running
       // calls stay time-less for the live path to fill in.
@@ -224,7 +248,7 @@ const buildAssistantParts = (blocks, toolOutputs, { sessionId, recordId, started
         messageID: recordId,
         type: TOOL_PART,
         callID: callId,
-        tool: typeof block.name === 'string' ? block.name : 'tool',
+        tool: v2.tool,
         state,
       });
       return;
@@ -255,8 +279,14 @@ const buildAssistantParts = (blocks, toolOutputs, { sessionId, recordId, started
  * main chain. Subagent output belongs to the parent tool call, not to it.
  * Shared with {@link findForkCut}, which must number them the same way.
  */
-const mainChain = (messages) => asArray(messages).filter((message) => {
-  if (message?.parent_tool_use_id) return false;
+/**
+ * The conversation's own entries. A session's transcript also carries its
+ * subagents' traffic (`parent_tool_use_id` set), which is theirs, not its;
+ * a subagent's own transcript (`getSubagentMessages`) is all such entries,
+ * every one of them its conversation.
+ */
+const mainChain = (messages, { subagent = false } = {}) => asArray(messages).filter((message) => {
+  if (!subagent && message?.parent_tool_use_id) return false;
   return message?.type === 'user' || message?.type === 'assistant';
 });
 
@@ -292,6 +322,26 @@ export const findForkCut = (messages, recordId, { uuid = null } = {}) => {
     return { found: true, upToMessageId: null };
   }
   return { found: false };
+};
+
+/**
+ * The transcript uuid of the prompt a UI record names — the point Claude
+ * Code's file checkpoints are taken at (`Query.rewindFiles`). Null when the
+ * record is not a prompt of this transcript.
+ *
+ * @param {Array} messages SessionMessage[] from the Agent SDK
+ * @param {string} recordId a record id as {@link mapClaudeSessionMessages} built it
+ * @param {{ uuid?: string | null }} [options] the uuid a prompt sent from here went out with
+ */
+export const findPromptUuid = (messages, recordId, { uuid = null } = {}) => {
+  const ordered = mainChain(messages);
+  for (let index = 0; index < ordered.length; index += 1) {
+    const message = ordered[index];
+    if (message?.type !== 'user' || typeof message.uuid !== 'string' || !message.uuid) continue;
+    if (buildClaudeRecordId(toMillis(message.timestamp), index + 1, message.uuid) === recordId) return message.uuid;
+    if (typeof uuid === 'string' && uuid !== '' && message.uuid === uuid) return message.uuid;
+  }
+  return null;
 };
 
 /**
@@ -347,8 +397,16 @@ export const classifyUserEntry = (message, blocks) => {
   return { kind: 'prompt' };
 };
 
-export const mapClaudeSessionMessages = (messages, { sessionId = '', providerId = 'claude' } = {}) => {
-  const ordered = mainChain(messages);
+export const mapClaudeSessionMessages = (messages, {
+  sessionId = '',
+  providerId = 'claude',
+  toolResults = new Map(),
+  subagents = new Map(),
+  childSessionId = () => null,
+  // The messages are one subagent's own transcript (a child session).
+  subagent = false,
+} = {}) => {
+  const ordered = mainChain(messages, { subagent });
 
   const toolOutputs = collectToolOutputs(ordered);
 
@@ -418,7 +476,10 @@ export const mapClaudeSessionMessages = (messages, { sessionId = '', providerId 
     const existing = messageId ? assistantTurns.get(messageId) : undefined;
     if (existing) {
       existing.completed = created;
-      existing.usage = addUsage(existing.usage, claudeUsage(message.message));
+      // Every entry of one API message repeats that message's usage: it is
+      // counted once (the latest), never summed per content block.
+      existing.usage = claudeUsage(message.message);
+      existing.cacheTtlMs = cacheTtlOf(message.message) ?? existing.cacheTtlMs;
       existing.blocks.push(...contentBlocks(message.message).map((block) => ({ block })));
       return;
     }
@@ -430,6 +491,7 @@ export const mapClaudeSessionMessages = (messages, { sessionId = '', providerId 
       completed: created,
       modelId: typeof message.message?.model === 'string' ? message.message.model : '',
       usage: claudeUsage(message.message),
+      cacheTtlMs: cacheTtlOf(message.message),
       blocks: contentBlocks(message.message).map((block) => ({ block })),
     };
     turns.push(turn);
@@ -440,6 +502,8 @@ export const mapClaudeSessionMessages = (messages, { sessionId = '', providerId 
   // assistant record without it is orphaned and never renders. Claude has no
   // such field, so the parent is the user turn the transcript ran under.
   let lastUserRecordId = '';
+  // A turn that only read the cache keeps the tier an earlier write set.
+  let cacheTtlMs = null;
 
   return turns.map((turn) => {
     if (turn.kind === 'compaction') {
@@ -477,6 +541,9 @@ export const mapClaudeSessionMessages = (messages, { sessionId = '', providerId 
         sessionId,
         recordId: turn.id,
         startedAt: turn.created,
+        toolResults,
+        subagents,
+        childSessionId,
       })
       : buildUserParts(turn.blocks, { sessionId, recordId: turn.id });
 
@@ -492,6 +559,10 @@ export const mapClaudeSessionMessages = (messages, { sessionId = '', providerId 
       info.modelID = modelId;
       info.finish = 'stop';
       info.tokens = turn.usage;
+      if (turn.cacheTtlMs) cacheTtlMs = turn.cacheTtlMs;
+      if (cacheTtlMs && turn.usage && (turn.usage.cache.read > 0 || turn.usage.cache.write > 0)) {
+        info.metadata = { claude: { cacheTtlMs } };
+      }
       if (lastUserRecordId) {
         info.parentID = lastUserRecordId;
       }

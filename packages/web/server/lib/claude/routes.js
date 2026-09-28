@@ -18,7 +18,7 @@
  * 2 requires that prefix.
  */
 
-import { createClaudeBackendRuntime } from './runtime.js';
+import { createClaudeBackendRuntime, parseChildSessionId } from './runtime.js';
 import { operationOfPath, sendUnsupportedOperation } from '../engines/engines.js';
 import { createClaudeV2EventTranslator, pageOf, toV2Message, toV2Session } from './v2-wire.js';
 
@@ -27,10 +27,17 @@ export const CLAUDE_SESSION_ID_PREFIX = 'ses_ccc';
 
 const toPublicId = (sessionId) => `${CLAUDE_SESSION_ID_PREFIX}${sessionId}`;
 
-const fromPublicId = (publicId) =>
-  typeof publicId === 'string' && publicId.startsWith(CLAUDE_SESSION_ID_PREFIX)
-    ? publicId.slice(CLAUDE_SESSION_ID_PREFIX.length)
-    : null;
+/**
+ * The engine's id behind a public one: a plain id (a transcript uuid), or
+ * `<id>~<agentId>` for a subagent. Anything else is not a Claude session —
+ * ids end up in file paths, so nothing with a separator or a dot gets through.
+ */
+const ENGINE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}(?:~[A-Za-z0-9][A-Za-z0-9_-]{0,127})?$/;
+const fromPublicId = (publicId) => {
+  if (typeof publicId !== 'string' || !publicId.startsWith(CLAUDE_SESSION_ID_PREFIX)) return null;
+  const id = publicId.slice(CLAUDE_SESSION_ID_PREFIX.length);
+  return ENGINE_ID.test(id) ? id : null;
+};
 
 export const isClaudeSessionId = (value) => fromPublicId(value) !== null;
 
@@ -228,6 +235,7 @@ export const createClaudeSurface = (dependencies = {}) => {
 
   const runtime = createClaudeBackendRuntime({
     ...rest,
+    toPublicId,
     publishEvent: publishEvent ? ({ payload }) => translator.translate(payload) : undefined,
   });
 
@@ -541,6 +549,32 @@ export const createClaudeSurface = (dependencies = {}) => {
   const register = (app) => {
     // Kill switch (25-09-2026): the Claude routes parse whole transcripts per request.
     if (claudeSurfaceDisabled()) return runtime;
+
+    // A subagent is a read-only child session: it is read (session, messages)
+    // and never written — its turns belong to the session that ran it.
+    app.use('/api/session/:id', (req, res, next) => {
+      const sessionId = fromPublicId(req.params.id);
+      if (!sessionId || !parseChildSessionId(sessionId) || req.method === 'GET') return next();
+      if (req.method === 'POST' && /\/view\/?$/.test(req.path)) return res.status(204).end();
+      // Stopping a running subagent is the one write a child takes.
+      if (req.method === 'POST' && /^\/interrupt\/?$/.test(req.path)) {
+        return runtime
+          .abortSession({ sessionID: sessionId })
+          .then((stopped) => res.json({ interrupted: stopped !== false }))
+          .catch((error) => sendTagged(res, 500, 'UnknownError', error?.message || 'Failed to stop the subagent'));
+      }
+      return sendUnsupportedOperation(res, 'claude', 'subagentWrite');
+    });
+
+    // The subagents of a Claude session, as its child sessions.
+    app.get('/api/session', (req, res, next) => {
+      const parentId = typeof req.query?.parentID === 'string' ? fromPublicId(req.query.parentID) : null;
+      if (!parentId) return next();
+      return Promise.all([refreshProjects(), refreshArchived(), loadStoredMetadata()])
+        .then(() => runtime.listSubagentSessions({ sessionID: parentId, directory: directoryOf(req) }))
+        .then((children) => res.json({ data: children.map(toSession), cursor: {} }))
+        .catch((error) => sendTagged(res, 500, 'UnknownError', error?.message || 'Failed'));
+    });
     app.get('/api/session/:id', (req, res, next) => {
       const sessionId = fromPublicId(req.params.id);
       if (!sessionId) return next();
@@ -602,12 +636,17 @@ export const createClaudeSurface = (dependencies = {}) => {
     // Claude session instead of OpenCode's provider list.
     app.get('/api/claude/models', (_req, res) => runtime
       .getControlSurface()
-      .then(({ modelSelector, effortSelector }) => res.json({
-        models: modelSelector.options,
-        defaultModelId: modelSelector.defaultOptionId,
-        efforts: effortSelector.options,
-        defaultEffort: effortSelector.defaultOptionId,
-      }))
+      .then(async ({ modelSelector, effortSelector }) => {
+        const modes = await runtime.listModes();
+        res.json({
+          models: modelSelector.options,
+          defaultModelId: modelSelector.defaultOptionId,
+          efforts: effortSelector.options,
+          defaultEffort: effortSelector.defaultOptionId,
+          modes,
+          defaultMode: modes.find((mode) => mode.isDefault)?.id ?? 'default',
+        });
+      })
       .catch((error) => sendTagged(res, 500, 'UnknownError', error?.message || 'Failed')));
 
     // Claude Code's slash commands for the composer's `/` menu in a Claude
@@ -631,12 +670,83 @@ export const createClaudeSurface = (dependencies = {}) => {
       res.status(204).end();
     });
 
+    // OpenCode's agent means nothing to Claude Code: the send path switches
+    // every session to it, and its `plan` agent is not Claude's plan mode. A
+    // Claude session's mode is set with /claude/mode.
     app.post('/api/session/:id/agent', async (req, res, next) => {
       const sessionId = fromPublicId(req.params.id);
       if (!sessionId) return next();
-      const body = await readJsonBody(req);
-      selections.set(sessionId, { ...selections.get(sessionId), agent: typeof body.agent === 'string' ? body.agent : undefined });
+      await readJsonBody(req);
       res.status(204).end();
+    });
+
+    // The mode indicator: Manual, Edit automatically, Plan, Auto (and Bypass
+    // where allowed). Takes effect at once, a running turn included.
+    app.post('/api/session/:id/claude/mode', async (req, res, next) => {
+      const sessionId = fromPublicId(req.params.id);
+      if (!sessionId) return next();
+      const body = await readJsonBody(req);
+      return runtime
+        .setSessionMode({ sessionID: sessionId, mode: body.mode })
+        .then((mode) => res.json({ mode }))
+        .catch((error) => (error?.code === 'UNKNOWN_MODE'
+          ? sendTagged(res, 400, 'InvalidRequestError', error.message)
+          : sendTagged(res, 500, 'UnknownError', error?.message || 'Failed to change the mode')));
+    });
+
+    // Claude Code asking the user (claude-requests.js): the same routes and
+    // statuses as OpenCode's, so the UI's cards answer either engine.
+    const requests = runtime.requests;
+    const publicRequest = (request) => (request ? { ...request, sessionID: toPublicId(request.sessionID) } : null);
+    const publicForm = publicRequest;
+
+    app.get('/api/session/:id/permission', (req, res, next) => {
+      const sessionId = fromPublicId(req.params.id);
+      if (!sessionId) return next();
+      return res.json({ data: requests.list('permission', { sessionId }).map(publicRequest) });
+    });
+    app.get('/api/session/:id/permission/:requestID', (req, res, next) => {
+      const sessionId = fromPublicId(req.params.id);
+      if (!sessionId) return next();
+      const request = requests.get('permission', sessionId, req.params.requestID);
+      return request ? res.json({ data: publicRequest(request) }) : sendNotFound(res);
+    });
+    app.post('/api/session/:id/permission/:requestID/reply', async (req, res, next) => {
+      const sessionId = fromPublicId(req.params.id);
+      if (!sessionId) return next();
+      const body = await readJsonBody(req);
+      // OpenCode 2.0.8 renamed `reply` to `decision`; both are read.
+      const decision = typeof body.decision === 'string' ? body.decision : body.reply;
+      if (!['once', 'always', 'reject'].includes(decision)) {
+        return sendTagged(res, 400, 'InvalidRequestError', 'decision must be once, always or reject');
+      }
+      const answered = requests.replyPermission(sessionId, req.params.requestID, { decision, message: body.message });
+      return answered ? res.status(204).end() : sendNotFound(res);
+    });
+    app.get('/api/session/:id/form', (req, res, next) => {
+      const sessionId = fromPublicId(req.params.id);
+      if (!sessionId) return next();
+      return res.json({ data: requests.list('form', { sessionId }).map(publicForm) });
+    });
+    app.get('/api/session/:id/form/:formID', (req, res, next) => {
+      const sessionId = fromPublicId(req.params.id);
+      if (!sessionId) return next();
+      const form = requests.get('form', sessionId, req.params.formID);
+      return form ? res.json({ data: publicForm(form) }) : sendNotFound(res);
+    });
+    app.post('/api/session/:id/form/:formID/reply', async (req, res, next) => {
+      const sessionId = fromPublicId(req.params.id);
+      if (!sessionId) return next();
+      const body = await readJsonBody(req);
+      if (!body.answer || typeof body.answer !== 'object' || Array.isArray(body.answer)) {
+        return sendTagged(res, 400, 'InvalidRequestError', 'answer must be an object');
+      }
+      return requests.replyForm(sessionId, req.params.formID, body.answer) ? res.status(204).end() : sendNotFound(res);
+    });
+    app.delete('/api/session/:id/form/:formID', (req, res, next) => {
+      const sessionId = fromPublicId(req.params.id);
+      if (!sessionId) return next();
+      return requests.cancelForm(sessionId, req.params.formID) ? res.status(204).end() : sendNotFound(res);
     });
 
     // Attached context (inline comments, terminal output) arrives as synthetic
@@ -725,6 +835,26 @@ export const createClaudeSurface = (dependencies = {}) => {
         .catch((error) => (error?.code === 'CLAUDE_FORK_POINT_NOT_FOUND'
           ? sendTagged(res, 404, 'MessageNotFoundError', error.message)
           : sendTagged(res, 500, 'UnknownError', error?.message || 'Failed to fork the session')));
+    });
+
+    // "Rewind code to here" (Claude Code's file checkpoints): `dryRun` says
+    // what would change; without it the files go back. The conversation stays.
+    app.post('/api/session/:id/claude/rewind', async (req, res, next) => {
+      const sessionId = fromPublicId(req.params.id);
+      if (!sessionId) return next();
+      const body = await readJsonBody(req);
+      const messageID = typeof body.messageID === 'string' ? body.messageID.trim() : '';
+      if (!messageID) return sendTagged(res, 400, 'InvalidRequestError', 'messageID is required');
+      return runtime
+        .rewindFiles({ sessionID: sessionId, messageID, dryRun: body.dryRun === true, directory: await workingDirectoryOf(sessionId, directoryOf(req)) })
+        .then((result) => res.json({ data: result }))
+        .catch((error) => {
+          if (error?.code === 'CLAUDE_FORK_POINT_NOT_FOUND') return sendTagged(res, 404, 'MessageNotFoundError', error.message);
+          if (error?.code === 'CLAUDE_BUSY' || error?.code === 'CLAUDE_SESSION_LIVE_ELSEWHERE') {
+            return sendTagged(res, 409, 'SessionBusyError', error.message);
+          }
+          return sendTagged(res, 500, 'UnknownError', error?.message || 'Failed to rewind the files');
+        });
     });
 
     // The front end still shows a session another process is writing: keep
@@ -836,5 +966,11 @@ export const createClaudeSurface = (dependencies = {}) => {
     return runtime;
   };
 
-  return { register, listClaudeSessions, listClaudeActive, queueTransport, announceSession, runtime };
+  /** Open Claude requests of one kind for the global lists (`/api/permission/request`, `/api/form`). */
+  const listClaudePending = (kind, { directory = null } = {}) => {
+    if (claudeSurfaceDisabled()) return [];
+    return runtime.requests.list(kind, { directory: directory || null }).map((request) => ({ ...request, sessionID: toPublicId(request.sessionID) }));
+  };
+
+  return { register, listClaudeSessions, listClaudeActive, listClaudePending, queueTransport, announceSession, runtime };
 };

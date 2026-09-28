@@ -40,10 +40,10 @@ export const usePermissionResponse = (
   const [hasResponded, setHasResponded] = React.useState(false);
   const respondToPermission = sessionActions.respondToPermission;
 
-  const respond = React.useCallback(async (response: PermissionReply) => {
+  const respond = React.useCallback(async (response: PermissionReply, message?: string) => {
     setIsResponding(true);
     try {
-      await respondToPermission(permission.sessionID, permission.id, response);
+      await respondToPermission(permission.sessionID, permission.id, response, undefined, message);
       setHasResponded(true);
       onResponse?.(response);
     } catch (error) {

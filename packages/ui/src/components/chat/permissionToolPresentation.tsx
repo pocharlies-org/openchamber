@@ -21,6 +21,10 @@ const getToolIcon = (toolName: string) => {
     return <Icon name="global" className={iconClass} />;
   }
 
+  if (tool === 'plan_exit') {
+    return <Icon name="file-list-2" className={iconClass} />;
+  }
+
   if (tool === 'linear' || tool.startsWith('linear_')) {
     return <Icon name="linear" className={iconClass} />;
   }
@@ -46,6 +50,10 @@ export const getToolDisplayName = (toolName: string): string => {
   }
   if (tool === 'webfetch' || tool === 'fetch' || tool === 'curl' || tool === 'wget') {
     return 'webfetch';
+  }
+  // Claude Code's plan approval (ExitPlanMode).
+  if (tool === 'plan_exit') {
+    return 'plan';
   }
 
   return toolName;

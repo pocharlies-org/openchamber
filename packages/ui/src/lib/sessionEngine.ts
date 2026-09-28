@@ -91,8 +91,6 @@ const CLAUDE_CAPABILITIES: EngineCapabilities = {
   move: false,
   generate: false,
   diff: false,
-  permissions: false,
-  forms: false,
   goals: false,
   models: 'catalog',
   agents: 'modes',
