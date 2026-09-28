@@ -185,7 +185,7 @@ describe('the Claude model picker', () => {
       { id: 'qwen38-flash-next', label: 'qwen38 residente (local)' },
     ]);
     expect(response.body.defaultModelId).toBe('opus[1m]');
-    expect(response.body.efforts.map((effort) => effort.id)).toEqual(['low', 'medium', 'high', 'max']);
+    expect(response.body.efforts.map((effort) => effort.id)).toEqual(['low', 'medium', 'high', 'xhigh', 'max']);
   });
 
   it('runs the next turn on the Claude pick, which the send path\'s OpenCode model does not overwrite', async () => {
