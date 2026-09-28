@@ -1,4 +1,5 @@
 import { describe, expect, test, beforeEach, afterEach, mock } from "bun:test"
+import { isPermissionAlreadyResolvedError } from "./permission-reply-classification"
 import type { PermissionRequest } from "@/types/permission"
 import type { FormRequest } from "@/lib/opencode/model"
 import type { InputState } from "./input-store"
@@ -10,6 +11,9 @@ const registeredSessionDirectories: Array<{ sessionID: string; directory: string
 let formReplyError: unknown | null = null
 let formCancelError: unknown | null = null
 let permissionReplyError: unknown | null = null
+// Qué responde el servidor cuando `respondToPermission` confirma un 404 antes de
+// retirar la tarjeta: "resolved" (confirmado ido) | "ok" (sigue pendiente) | "unknown".
+let fetchPermissionResult: { state: "resolved" | "ok" | "unknown"; permission?: unknown } = { state: "unknown" }
 const sessionMessageRecords = new Map<string, Array<{ info: Message; parts: Part[] }>>()
 const sessionRecords = new Map<string, Session>()
 const failingRevertSessionIds = new Set<string>()
@@ -138,6 +142,10 @@ mock.module("@/lib/opencode/client", () => ({
       })
       if (permissionReplyError) throw permissionReplyError
       return true
+    }),
+    fetchPermission: mock(async (sessionId: string, requestId: string, directory?: string | null) => {
+      replyCalls.push({ method: "permission.fetch", params: { sessionID: sessionId, requestID: requestId, directory } })
+      return fetchPermissionResult
     }),
     replyToForm: mock(async (
       sessionId: string,
@@ -3164,3 +3172,86 @@ describe("setSessionWorkState", () => {
     expect(globalUpsertedSessions).toHaveLength(0)
   })
 });
+
+describe("respondToPermission not-found handling", () => {
+  beforeEach(() => {
+    replyCalls.length = 0
+    permissionReplyError = null
+    fetchPermissionResult = { state: "unknown" }
+  })
+
+  const respondOnce = async (sessionId: string, requestId: string) => {
+    const { respondToPermission } = await import("./session-actions")
+    return respondToPermission(sessionId, requestId, "once").then(
+      () => null,
+      (error: unknown) => error,
+    )
+  }
+
+  test("retires the card when the server confirms the request is gone", async () => {
+    const permission = buildPermission("perm-zombie", "session-a")
+    const store = createStore({ "session-a": [permission] })
+    const childStores = createChildStores([["/test/project", store]])
+    permissionReplyError = Object.assign(new Error("permission.reply failed (404): PermissionNotFoundError"), { status: 404 })
+    fetchPermissionResult = { state: "resolved" }
+
+    const { setActionRefs } = await import("./session-actions")
+    setActionRefs(childStores, () => "/test/project")
+
+    const error = await respondOnce("session-a", "perm-zombie")
+    expect(error).toBeInstanceOf(Error)
+    expect(isPermissionAlreadyResolvedError(error)).toBe(true)
+    // El usuario ya no se queda con una tarjeta que no hace nada: se va sola.
+    expect(store.getState().permission["session-a"]).toBe(undefined)
+    // Y se confirma antes de borrar: reply intentado + fetch al servidor.
+    expect(replyCalls.map((call) => call.method)).toEqual(["permission.reply", "permission.fetch"])
+  })
+
+  test("keeps the card when the request is still pending in another instance", async () => {
+    const permission = buildPermission("perm-live", "session-a")
+    const store = createStore({ "session-a": [permission] })
+    const childStores = createChildStores([["/test/project", store]])
+    permissionReplyError = Object.assign(new Error("permission.reply failed (404): PermissionNotFoundError"), { status: 404 })
+    fetchPermissionResult = { state: "ok", permission: { id: "perm-live" } }
+
+    const { setActionRefs } = await import("./session-actions")
+    setActionRefs(childStores, () => "/test/project")
+
+    const error = await respondOnce("session-a", "perm-live")
+    // Un 404 contra la instancia equivocada no borra un permiso contestable:
+    // retirar la tarjeta dejaría la sesión colgada de un tool sin modo de responder.
+    expect(isPermissionAlreadyResolvedError(error)).toBe(false)
+    expect(store.getState().permission["session-a"]).toHaveLength(1)
+  })
+
+  test("keeps the card when the server cannot confirm (no V2 endpoint, network failure)", async () => {
+    const permission = buildPermission("perm-unknown", "session-a")
+    const store = createStore({ "session-a": [permission] })
+    const childStores = createChildStores([["/test/project", store]])
+    permissionReplyError = Object.assign(new Error("permission.reply failed (404): PermissionNotFoundError"), { status: 404 })
+    fetchPermissionResult = { state: "unknown" }
+
+    const { setActionRefs } = await import("./session-actions")
+    setActionRefs(childStores, () => "/test/project")
+
+    const error = await respondOnce("session-a", "perm-unknown")
+    expect(isPermissionAlreadyResolvedError(error)).toBe(false)
+    expect(store.getState().permission["session-a"]).toHaveLength(1)
+  })
+
+  test("does not confirm with the server on a non-not-found failure", async () => {
+    const permission = buildPermission("perm-500", "session-a")
+    const store = createStore({ "session-a": [permission] })
+    const childStores = createChildStores([["/test/project", store]])
+    permissionReplyError = Object.assign(new Error("permission.reply failed (500)"), { status: 500 })
+    fetchPermissionResult = { state: "resolved" }
+
+    const { setActionRefs } = await import("./session-actions")
+    setActionRefs(childStores, () => "/test/project")
+
+    const error = await respondOnce("session-a", "perm-500")
+    expect(isPermissionAlreadyResolvedError(error)).toBe(false)
+    expect(replyCalls.map((call) => call.method)).toEqual(["permission.reply"])
+    expect(store.getState().permission["session-a"]).toHaveLength(1)
+  })
+})
