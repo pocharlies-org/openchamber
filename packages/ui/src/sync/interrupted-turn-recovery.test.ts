@@ -110,4 +110,44 @@ describe("settle events", () => {
       expect(store.getState().message.ses_1[1]).toBe(openAssistant)
     })
   }
+
+describe("recoverInterruptedTurnAfterMessageLoad — a Claude Code session", () => {
+  // The Claude engine streams an answer live as `msg_<API message id>` and,
+  // since the transcript read files it under that same id, the two copies are
+  // one record: the read replaces the live one instead of sitting beside it.
+  const liveId = "msg_msg_011CfUvoo"
+  const liveAnswer: Message = {
+    id: liveId, sessionID: "ses_1", role: "assistant", time: { created: 2 },
+    modelID: "qwen38-flash-next", providerID: "claude", agent: "claude",
+  }
+  const liveReasoning: Part = { id: "prt_r", messageID: liveId, sessionID: "ses_1", type: "reasoning", text: "thinking", time: { start: 2 } }
+
+  test("the transcript copy under the live id settles the answer: one copy, not interrupted", async () => {
+    const childStores = new ChildStoreManager()
+    const store = childStores.ensureChild("/repo", { bootstrap: false })
+    store.setState({
+      session: [],
+      message: { ses_1: [user, liveAnswer] },
+      part: { [liveId]: [liveReasoning] },
+      session_status: { ses_1: { type: "idle" } },
+    })
+    const fromTranscript: Message = { ...liveAnswer, time: { created: 2, completed: 5 }, finish: "stop" }
+    const sdk = {
+      getSessionMessages: async (): Promise<MessagePage> => ({
+        items: [{ info: user, parts: [] }, { info: fromTranscript, parts: [liveReasoning] }],
+        cursor: {},
+      }),
+    }
+    const loader = new SessionMessageLoader(childStores, { sdk, runtimeKey: "recovery-claude-test" })
+    setImperativeSessionMessageLoader(loader)
+    cleanups.push(() => { setImperativeSessionMessageLoader(null); childStores.disposeAll() })
+
+    await recoverInterruptedTurnAfterMessageLoad("/repo", store, "ses_1")
+
+    const answers = store.getState().message.ses_1.filter((message) => message.role === "assistant")
+    expect(answers).toHaveLength(1)
+    expect(answers[0]).toMatchObject({ id: liveId, time: { completed: 5 }, finish: "stop" })
+    expect("error" in answers[0]).toBe(false)
+    expect(store.getState().part[liveId]).toHaveLength(1)
+  })
 })

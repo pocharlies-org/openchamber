@@ -486,7 +486,12 @@ export const mapClaudeSessionMessages = (messages, {
 
     const turn = {
       kind: 'assistant',
-      id: buildClaudeRecordId(created, index + 1, message.uuid),
+      // The id a live turn streams this answer under (session-process.js:
+      // `msg_<API message id>`), so a read of the transcript lands on the same
+      // record instead of beside it. Two ids for one answer left the UI with
+      // both copies, the live one still open — and marked interrupted once
+      // the session read as idle (measured 28-09-2026, session 1a6b48b8).
+      id: messageId ? `msg_${messageId}` : buildClaudeRecordId(created, index + 1, message.uuid),
       created,
       completed: created,
       modelId: typeof message.message?.model === 'string' ? message.message.model : '',
