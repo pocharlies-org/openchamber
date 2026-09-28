@@ -4,8 +4,10 @@ import type { PermissionRequest, PermissionResponse } from '@/types/permission';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useSessions } from '@/sync/sync-context';
 import * as sessionActions from '@/sync/session-actions';
+import { isPermissionAlreadyResolvedError } from '@/sync/permission-reply-classification';
 import { WorkerHighlightedCode } from '@/components/code/WorkerHighlightedCode';
 import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
+import { toast } from '@/components/ui';
 import { Icon } from "@/components/icon/Icon";
 import { DiffPreview, WritePreview } from './DiffPreview';
 import { useI18n } from '@/lib/i18n';
@@ -125,6 +127,19 @@ export const PermissionCard: React.FC<PermissionCardProps> = ({
       onResponse?.(response);
     } catch (error) {
       console.error('[PermissionCard] Failed to respond to permission:', error);
+      // A swallowed failure is how a dead prompt ended up clickable forever: the
+      // card stayed, said nothing, and "always" never persisted. Both branches
+      // now speak, and only the server-confirmed one retires the card.
+      if (isPermissionAlreadyResolvedError(error)) {
+        setHasResponded(true);
+        toast.info(t('chat.permissionCard.alreadyResolved'), {
+          description: t('chat.permissionCard.alreadyResolvedDescription'),
+        });
+      } else {
+        toast.error(t('chat.permissionCard.respondFailed'), {
+          description: error instanceof Error ? error.message : String(error),
+        });
+      }
     } finally {
       setIsResponding(false);
     }

@@ -10,6 +10,7 @@ import { compareSessionsByLifecycleOrder, useSessionOrderingStore } from '@/sync
 import { useNotificationStore } from '@/sync/notification-store';
 import { useSessionPinnedStore } from '@/stores/useSessionPinnedStore';
 import { respondToPermission } from '@/sync/session-actions';
+import { isPermissionAlreadyResolvedError } from '@/sync/permission-reply-classification';
 import {
   useGlobalSessionsStore,
   resolveGlobalSessionDirectory,
@@ -581,7 +582,14 @@ export const useTraySync = (): void => {
     const handle = (action: TrayAction) => {
       switch (action.type) {
         case 'respond-permission':
-          void respondToPermission(action.sessionId, action.id, action.response).catch(() => {
+          void respondToPermission(action.sessionId, action.id, action.response).catch((error: unknown) => {
+            // The request is already gone server-side (interrupted step, service
+            // restart): there is nothing left to approve, and respondToPermission
+            // has dropped the card. Not a failed send.
+            if (isPermissionAlreadyResolvedError(error)) {
+              toast.info('That permission request is no longer pending — the turn was interrupted before it was answered.');
+              return;
+            }
             toast.error('Failed to respond to permission request');
           });
           break;
