@@ -2,7 +2,10 @@ import React from 'react';
 import type { PermissionReply, PermissionRequest } from '@/types/permission';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useSessions } from '@/sync/sync-context';
+import { isPermissionAlreadyResolvedError } from '@/sync/permission-reply-classification';
 import * as sessionActions from '@/sync/session-actions';
+import { useI18n } from '@/lib/i18n';
+import { toast } from '@/components/ui';
 
 // Newest pending card owns the keyboard; older cards wait their turn.
 const activePermissionCardIds: string[] = [];
@@ -27,6 +30,7 @@ export const usePermissionResponse = (
   permission: PermissionRequest,
   onResponse?: (response: PermissionReply) => void,
 ) => {
+  const { t } = useI18n();
   const [isResponding, setIsResponding] = React.useState(false);
   const [hasResponded, setHasResponded] = React.useState(false);
   const respondToPermission = sessionActions.respondToPermission;
@@ -39,10 +43,24 @@ export const usePermissionResponse = (
       onResponse?.(response);
     } catch (error) {
       console.error('[PermissionCard] Failed to respond to permission:', error);
+      // A swallowed failure is how a dead prompt ended up clickable forever: the
+      // card stayed, said nothing, and "always" never persisted the pattern, so
+      // the same directory asked again for the rest of the session. Both
+      // branches speak now; only the server-confirmed one retires the card.
+      if (isPermissionAlreadyResolvedError(error)) {
+        setHasResponded(true);
+        toast.info(t('chat.permissionCard.alreadyResolved'), {
+          description: t('chat.permissionCard.alreadyResolvedDescription'),
+        });
+      } else {
+        toast.error(t('chat.permissionCard.respondFailed'), {
+          description: error instanceof Error ? error.message : String(error),
+        });
+      }
     } finally {
       setIsResponding(false);
     }
-  }, [onResponse, permission.id, permission.sessionID, respondToPermission]);
+  }, [onResponse, permission.id, permission.sessionID, respondToPermission, t]);
 
   const respondRef = React.useRef(respond);
   respondRef.current = respond;
