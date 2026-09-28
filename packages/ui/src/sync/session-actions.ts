@@ -41,6 +41,7 @@ import { registerBulkArchiveEchoes, releaseBulkArchiveEchoes } from "./bulk-arch
 import { getRuntimeKey } from "@/lib/runtime-switch"
 import { isRelayModeActive } from "@/lib/relay/runtime-tunnel"
 import { getErrorStatus, isAmbiguousSendFailure } from "./send-failure-classification"
+import { markPermissionAlreadyResolved } from "./permission-reply-classification"
 import { getStaleRunningToolMessageID } from "./materialization"
 import { promoteRestoredSessionOrdering } from "./session-ordering"
 import { normalizePath } from "@/lib/pathNormalization"
@@ -2150,6 +2151,17 @@ export async function abortCurrentOperation(sessionId: string): Promise<void> {
 // Permissions
 // ---------------------------------------------------------------------------
 
+/**
+ * Answer one pending permission request.
+ *
+ * A 404 here is ambiguous — the request may be gone server-side (the step was
+ * interrupted, or the service restarted) or the reply may have reached a
+ * per-directory instance that never owned it. The two need opposite answers, so
+ * the not-found branch confirms with the server before touching local state:
+ * a confirmed-gone request is dropped from the store and rethrown tagged, which
+ * lets the card retire itself and tell the user why. Anything else keeps the
+ * card up for a retry. See ./permission-reply-classification.
+ */
 export async function respondToPermission(
   sessionId: string,
   requestId: string,
@@ -2164,8 +2176,21 @@ export async function respondToPermission(
     || getSessionDirectory(sessionId)
     || dir()
   const note = message?.trim() ? message.trim() : undefined
-  if (await opencodeClient.replyToPermission(sessionId, requestId, response, { directory, message: note }) !== true) {
-    throw new Error("Permission reply failed")
+  try {
+    if (await opencodeClient.replyToPermission(sessionId, requestId, response, { directory, message: note }) !== true) {
+      throw new Error("Permission reply failed")
+    }
+  } catch (error) {
+    if (!isPermissionRequestNotFoundError(error)) throw error
+    // Server-confirmed 404 is the only evidence we have that the request is
+    // gone; "unknown" (no V2 endpoint, network failure) must never clear a card
+    // that may still be answerable.
+    const state = await opencodeClient.fetchPermission(sessionId, requestId, directory || undefined)
+    if (state.state !== "resolved") throw error
+    removePermissionRequestFromChildStores(sessionId, requestId)
+    throw markPermissionAlreadyResolved(
+      error instanceof Error ? error : new Error("Permission reply failed: request no longer pending"),
+    )
   }
 }
 
