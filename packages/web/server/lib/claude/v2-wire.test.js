@@ -260,6 +260,32 @@ describe('createClaudeV2EventTranslator — Claude Code parity', () => {
   });
 });
 
+describe('createClaudeV2EventTranslator — one API message after another', () => {
+  it('closes the previous answer of the session when the next one starts', () => {
+    const { events, translate } = translatorWithLog();
+    const info = (id, sessionID = 's1', tokens) => ({ type: 'message.updated', properties: { info: { id, sessionID, role: 'assistant', ...(tokens ? { tokens } : {}) } } });
+    translate(info('msg_a', 's1', { input: 5, output: 7, reasoning: 0, cache: { read: 1, write: 2 } }));
+    translate({ type: 'message.part.updated', properties: { part: { id: 't', sessionID: 's1', messageID: 'msg_a', type: 'tool', callID: 'c1', tool: 'shell', state: { status: 'running', input: { command: 'ls' } } } } });
+    // Another session's answer does not close this one.
+    translate(info('msg_x', 's2'));
+    expect(events.filter((event) => event.type === 'session.step.ended')).toHaveLength(0);
+
+    translate(info('msg_b'));
+    const ended = events.filter((event) => event.type === 'session.step.ended');
+    expect(ended).toHaveLength(1);
+    expect(ended[0].data).toMatchObject({ sessionID: 'ses_cccs1', assistantMessageID: 'msg_a', finish: 'tool-calls' });
+    expect(ended[0].data.tokens).toMatchObject({ input: 5, output: 7 });
+    // Closed before the next one opens.
+    const types = events.map((event) => `${event.type}:${event.data.assistantMessageID ?? ''}`);
+    expect(types.indexOf('session.step.ended:msg_a')).toBeLessThan(types.indexOf('session.step.started:msg_b'));
+
+    // The turn's end still closes the last one, once.
+    translate({ type: 'session.status', properties: { sessionID: 's1', status: { type: 'idle' } } });
+    const afterIdle = events.filter((event) => event.type === 'session.step.ended').map((event) => event.data.assistantMessageID);
+    expect(afterIdle).toEqual(['msg_a', 'msg_b']);
+  });
+});
+
 describe('toV2Message for Claude bookkeeping records', () => {
   it('a compaction record is a completed v2 compaction message', () => {
     expect(toV2Message({ info: { id: 'msg_c', role: 'compaction', time: { created: '1970-01-01T00:00:01.000Z' }, reason: 'manual', summary: 'S' } }))

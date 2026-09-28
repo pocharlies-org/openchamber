@@ -141,15 +141,31 @@ describe('mapClaudeSessionMessages', () => {
     expect(parts[0].text).toBe('considering');
   });
 
-  it('emits ids that sort chronologically', () => {
+  it('keeps transcript order, and files an answer under the id its live turn streamed', () => {
     const records = mapClaudeSessionMessages([
       userText('one', 'u1', at(0)),
       assistantBlock('msg_a', { type: 'text', text: 'two' }, 'a1', at(1000)),
+      assistantBlock('msg_a', { type: 'tool_use', id: 'toolu_1', name: 'Bash', input: { command: 'ls' } }, 'a2', at(1500)),
       userText('three', 'u2', at(2000)),
     ], { sessionId: 'sess-1' });
 
-    const ids = records.map((record) => record.info.id);
-    expect([...ids].sort()).toEqual(ids);
+    expect(records.map((record) => record.info.role)).toEqual(['user', 'assistant', 'user']);
+    const created = records.map((record) => Date.parse(record.info.time.created));
+    expect([...created].sort((a, b) => a - b)).toEqual(created);
+    // session-process.js streams this answer as `msg_<API message id>`: the
+    // same id, so the UI replaces its live copy instead of keeping both.
+    expect(records[1].info.id).toBe('msg_msg_a');
+    expect(records[1].info.time.completed).toBeDefined();
+    // Prompts keep their own ids.
+    expect(records[0].info.id).toMatch(/^msg_\d{14}_000001_u1$/);
+  });
+
+  it('keeps the positional id for an answer with no API message id', () => {
+    const records = mapClaudeSessionMessages([
+      userText('one', 'u1', at(0)),
+      { type: 'assistant', uuid: 'a1', timestamp: at(1000), message: { role: 'assistant', content: [{ type: 'text', text: 'x' }] } },
+    ], { sessionId: 'sess-1' });
+    expect(records[1].info.id).toMatch(/^msg_\d{14}_000002_a1$/);
   });
 
   it('converts image blocks into file parts with a data url', () => {
