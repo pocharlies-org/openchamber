@@ -15,6 +15,8 @@ describe('promptCacheTtlMs', () => {
   it('claude-code and its account providers count down an hour, anthropic five minutes', () => {
     expect(promptCacheTtlMs('claude-code')).toBe(HOUR);
     expect(promptCacheTtlMs('claude-code-cuenta')).toBe(HOUR);
+    // OpenChamber's own Claude engine: the same CLI writes the 1h tier.
+    expect(promptCacheTtlMs('claude')).toBe(HOUR);
     expect(promptCacheTtlMs('anthropic')).toBe(5 * MINUTE);
   });
 });

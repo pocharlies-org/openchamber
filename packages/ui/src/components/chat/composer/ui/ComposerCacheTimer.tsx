@@ -2,27 +2,13 @@ import React from 'react';
 import { Icon } from '@/components/icon/Icon';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { getClaudeEngineState } from '@/lib/claudeSessionMetadata';
-import { claudeCacheTtlMs, compactedSince } from '@/lib/claudeCacheClock';
+import { claudeCacheTtlMs, compactedSince, providerCacheTtlMs } from '@/lib/claudeCacheClock';
 import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { getLatestCompletedAssistantMessage } from '@/sync/stream-metrics';
 import { useSession, useSessionMessages } from '@/sync/sync-context';
 
 const MINUTE = 60_000;
-
-/**
- * Prompt-cache TTL of the provider that served the last turn, or null when the
- * provider has no TTL worth counting down. Claude Code (every account provider,
- * `claude-code` and `claude-code-<account>`) writes its cache with the 1h TTL —
- * the CLI transcripts only ever show `ephemeral_1h_input_tokens`. The raw
- * Anthropic API defaults to 5 minutes.
- */
-const promptCacheTtlMs = (providerId: string | undefined): number | null => {
-  if (!providerId) return null;
-  if (providerId === 'claude-code' || providerId.startsWith('claude-code-')) return 60 * MINUTE;
-  if (providerId === 'anthropic') return 5 * MINUTE;
-  return null;
-};
 
 const formatCacheDuration = (ms: number): string => {
   if (ms < MINUTE) return '<1m';
@@ -64,7 +50,7 @@ export function ComposerCacheTimer({ sessionId, directory, className }: Composer
   const now = useNow(10_000);
 
   if (!sessionId || !last) return null;
-  const ttl = claudeCacheTtlMs(last, sessionTtlMs) ?? promptCacheTtlMs(last.providerID);
+  const ttl = claudeCacheTtlMs(last, sessionTtlMs) ?? providerCacheTtlMs(last.providerID);
   const endedAt = last.time.completed ?? last.time.created;
   if (ttl === null || !endedAt) return null;
 
