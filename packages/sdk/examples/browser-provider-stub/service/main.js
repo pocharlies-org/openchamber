@@ -95,6 +95,7 @@ var HOST_PUSH_TYPES = new Set([
   "settings",
   "session-lifecycle",
   "item",
+  "composer-status",
   "resolve",
   "action"
 ]);

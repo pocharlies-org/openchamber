@@ -4,9 +4,11 @@ import { runtimeFetch } from '@/lib/runtime-fetch';
 import {
   BUILTIN_STREAM_METRICS_UI_PLUGIN,
   getComposerMetricsContributions,
+  getComposerStatusContributions,
   parseUIPluginManifest,
   type OpenChamberUIPluginManifestV1,
   type ComposerMetricsContribution,
+  type ComposerStatusContribution,
 } from '@/lib/uiPlugins';
 import { createDeferredSafeJSONStorage } from './utils/safeStorage';
 
@@ -28,6 +30,12 @@ export const isUIPluginEnabled = (state: Pick<UIPluginsStore, 'disabledPluginIds
 export const findEnabledComposerMetricsContributions = (
   state: Pick<UIPluginsStore, 'catalog' | 'disabledPluginIds'>,
 ): ComposerMetricsContribution[] => getComposerMetricsContributions(
+  state.catalog.filter((plugin) => isUIPluginEnabled(state, plugin.id)),
+);
+
+export const findEnabledComposerStatusContributions = (
+  state: Pick<UIPluginsStore, 'catalog' | 'disabledPluginIds'>,
+): ComposerStatusContribution[] => getComposerStatusContributions(
   state.catalog.filter((plugin) => isUIPluginEnabled(state, plugin.id)),
 );
 

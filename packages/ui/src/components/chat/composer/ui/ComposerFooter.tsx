@@ -29,6 +29,7 @@ import { ComposerAttachmentControls } from './ComposerAttachmentControls';
 import { FocusModeButton } from './FocusModeButton';
 import { PermissionAutoAcceptButton } from './PermissionAutoAcceptButton';
 import { ComposerMetricsSurface } from './ComposerMetricsSurface';
+import { ComposerStatusSurface } from './ComposerStatusSurface';
 import { ComposerCacheTimer } from './ComposerCacheTimer';
 import type { BtwSelection } from '@/stores/useBtwStore';
 
@@ -198,6 +199,14 @@ export function ComposerFooter(props: ComposerFooterProps) {
                                 placement="footer"
                                 className="max-w-[9rem] flex-1 justify-end"
                             />
+                            <ComposerStatusSurface
+                                isMobile
+                                sessionId={currentSessionId}
+                                directory={directory}
+                                runtimeKey={runtimeKey}
+                                placement="footer"
+                                className="max-w-[9rem] flex-1 justify-end"
+                            />
                             <div className="flex items-center gap-x-1 flex-shrink-0">
                                 {!isBtw ? <button
                                     type="button"
@@ -280,6 +289,14 @@ export function ComposerFooter(props: ComposerFooterProps) {
                     </div>
                     <div className={cn('flex items-center flex-1 justify-end', footerGapClass, 'md:gap-x-3')}>
                         <ComposerMetricsSurface
+                            isMobile={false}
+                            sessionId={currentSessionId}
+                            directory={directory}
+                            runtimeKey={runtimeKey}
+                            placement="footer"
+                            className="max-w-[22rem] flex-[1_1_12rem] justify-end"
+                        />
+                        <ComposerStatusSurface
                             isMobile={false}
                             sessionId={currentSessionId}
                             directory={directory}
