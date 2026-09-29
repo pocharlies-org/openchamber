@@ -12,7 +12,7 @@
 
 import os from 'os';
 import path from 'path';
-import { mapClaudeSessionMessages, deriveClaudeTitle, findForkCut, findPromptUuid } from './claude-transcript.js';
+import { mapClaudeSessionMessages, deriveClaudeTitle, isClaudeTitlePlaceholder, findForkCut, findPromptUuid } from './claude-transcript.js';
 import { createClaudeRequests } from './claude-requests.js';
 import { createClaudeSessionProcess } from './session-process.js';
 import { createTranscriptSidecar, isSafeId } from './transcript-sidecar.js';
@@ -456,6 +456,28 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
   });
 
   /**
+   * The CLI's own summary of a session, from its transcript, reread only when
+   * the transcript changed: the list scan asks for it on every refresh, and
+   * these are full JSONL files.
+   */
+  const aiTitleCache = new Map();
+  const aiTitleOf = async (sessionId, directory) => {
+    const file = await sidecar.locate(sessionId, directory).catch(() => null);
+    if (!file) return '';
+    let mtimeMs = 0;
+    try {
+      mtimeMs = (await fsPromises.stat(file)).mtimeMs;
+    } catch {
+      return '';
+    }
+    const known = aiTitleCache.get(sessionId);
+    if (known && known.file === file && known.mtimeMs === mtimeMs) return known.title;
+    const title = await sidecar.readAiTitle(sessionId, directory).catch(() => '');
+    aiTitleCache.set(sessionId, { file, mtimeMs, title });
+    return title;
+  };
+
+  /**
    * What the engine learns about a session as it runs — the mode it is in,
    * the prompt cache's lifetime, the model's context window — published on
    * the session as `metadata.claude`.
@@ -520,14 +542,26 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     return DEFAULT_MODEL_CATALOG.map((entry) => ({ ...entry }));
   };
 
-  const buildSessionFromInfo = (info, fallbackDirectory) => buildSession({
-    sessionId: info.sessionId,
-    directory: info.cwd || fallbackDirectory || '',
-    title: deriveClaudeTitle(info),
-    createdAt: info.createdAt ?? info.lastModified,
-    updatedAt: info.lastModified,
-    metadata: info.gitBranch ? { gitBranch: info.gitBranch } : null,
-  });
+  const buildSessionFromInfo = async (info, fallbackDirectory) => {
+    let title = deriveClaudeTitle(info);
+    if (isClaudeTitlePlaceholder(title)) {
+      // A session the old Remote Control placeholder titled (see
+      // `remoteControlName`): the CLI persisted that name as the custom title,
+      // so the SDK's answer never shows the summary. The transcript's own
+      // `ai-title` is the title the user expects; without one (a session with
+      // no turns yet) the placeholder stays, honest about being untitled.
+      const ai = await aiTitleOf(info.sessionId, info.cwd || fallbackDirectory || undefined);
+      if (ai) title = clampText(ai, 120);
+    }
+    return buildSession({
+      sessionId: info.sessionId,
+      directory: info.cwd || fallbackDirectory || '',
+      title,
+      createdAt: info.createdAt ?? info.lastModified,
+      updatedAt: info.lastModified,
+      metadata: info.gitBranch ? { gitBranch: info.gitBranch } : null,
+    });
+  };
 
   /** A session with a live process advertises its Remote Control link. */
   const withLiveState = (input) => {
@@ -603,9 +637,9 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
           listRequest.dir = directory;
         }
         const infos = await sdk.listSessions(listRequest);
-        const scanned = (Array.isArray(infos) ? infos : [])
+        const scanned = await Promise.all((Array.isArray(infos) ? infos : [])
           .filter((info) => info && typeof info.sessionId === 'string')
-          .map((info) => buildSessionFromInfo(info, directory));
+          .map((info) => buildSessionFromInfo(info, directory)));
         if (generation === listGeneration) {
           const at = staleness === listStaleness ? Date.now() : Date.now() - LIST_CACHE_TTL_MS;
           listCache.set(cacheKey, { at, sessions: scanned });
@@ -726,7 +760,7 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     try {
       const info = await sdk.getSessionInfo?.(sessionId, directory ? { dir: directory } : {});
       if (!info) return null;
-      return withLiveState(withArchiveState(buildSessionFromInfo(info, directory)));
+      return withLiveState(withArchiveState(await buildSessionFromInfo(info, directory)));
     } catch (error) {
       console.warn('[claude-backend] getSessionInfo failed:', error?.message || error);
       return null;
@@ -1086,10 +1120,14 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     }
   };
 
-  const remoteControlName = (title, directory) => {
+  const remoteControlName = (title) => {
     const label = clampText(title, 80);
     if (label && label !== 'Untitled session' && label !== 'New session') return label;
-    return `OpenChamber · ${path.basename(directory || '') || 'session'}`;
+    // No name at all: the CLI registers under its own title. A placeholder
+    // here used to be persisted by the CLI as the transcript's custom title,
+    // where it masked the summary the CLI writes after the first turn
+    // (measured 29-09-2026: sessions stuck as `OpenChamber · <directory>`).
+    return undefined;
   };
 
   const closeProcess = async (sessionId) => {
@@ -1189,7 +1227,7 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
         ...(resume ? { resume: sessionId } : { sessionId }),
       },
       remoteControl: remoteControl?.enabled
-        ? { name: remoteControlName(title, directory), reattachSessionId }
+        ? { name: remoteControlName(title), reattachSessionId }
         : null,
       emit: (payload) => emitEvent(directory, payload),
       setStatus: (status) => setBusyStatus(sessionId, directory, status),
