@@ -10,27 +10,42 @@
  * composer is matched by the same rules only if they paste a dispatch prompt
  * verbatim, which is rare and harmless (the session just lands in the folder).
  *
- * The company's maker worktrees also live under `~/compania/`, so a session
- * whose cwd is inside that tree is company-made regardless of its title.
+ * The company's maker worktrees also live under `~/compania/` and the bots'
+ * offices under `~/startupcompany/employees/`, so a session whose cwd is
+ * inside either tree is company-made regardless of its title.
  */
 
-const COMPANY_TITLE_PATTERNS = Object.freeze([
-  /^PRIORIDADES DE LA MAÑANA/, // supervisor's morning PM dispatch
+// Openings no human summary or rename would ever produce: safe to match
+// against `summary` and `customTitle` too.
+const COMPANY_ROLE_OPENINGS = Object.freeze([
+  /^PRIORIDADES DE LA MA[ÑN]ANA/, // supervisor's morning PM dispatch
   /^#\s*[A-Z][A-Z0-9]*-\d+\s*·/, // Jira epic trigger: "# SC-1327 · …"
-  /^#?\s*Encargo\s*·/, // tech-lead turn: "# Encargo · DGX-433 · …"
-  /^Tarea\s+[A-Z][A-Z0-9]*-\d+/, // maker dispatch: "Tarea DGX-466 en el repo actual"
   /^Eres el clasificador del pase/, // dreaming pass (SC-711)
   /^Eres company-/, // company roles: designer, writer, …
-  /^Eres las manos del bot/, // maker dispatched without its own worktree
-  /^Trabajas en el worktree/, // maker inside ~/compania/dev/…
-  /^Trabajo en el repo/, // devops dispatch on a repo branch
+  /^Eres (el|la|un|una|las) (PM|analista|CTO|Tech[ -]Lead|auditor|verificador|brazo pesado|manos|agente del rol|sesi[oó]n de Claude)\b/, // role dispatches by text
 ]);
 
-const COMPANY_CWD_PATTERN = /(^|\/)compania\//;
+// Anchored to the literal dispatch prompts, so they run against `firstPrompt`
+// only — a summary like "SC-1327 ya está merged" is a human asking about a
+// ticket, not a dispatch (measured 2026-09-29 against the whole store).
+const COMPANY_DISPATCH_PATTERNS = Object.freeze([
+  ...COMPANY_ROLE_OPENINGS,
+  /^[#\s]*[A-Z][A-Z0-9]*-\d+\b/, // opens with the epic key: "INFRA-284 (H1 de …)", "SC-1272 (epica hija …)"
+  /^#?\s*ENCARGO\b/i, // tech-lead turns and CTO commissions: "# Encargo · DGX-433", "ENCARGO INFRA-257", "Encargo del CTO (…)"
+  /^TAREA\b/i, // maker dispatch: "Tarea DGX-466 en el repo actual", "TAREA: escribir UN fichero…"
+  /^REWORK\s+[A-Z][A-Z0-9]*-\d+/i, // qa rework: "REWORK SC-1328 (h2 cache-timer plugin)…"
+  /^IMPLEMENTA\s+[A-Z][A-Z0-9]*-\d+/i, // maker dispatch: "Implementa DGX-460 (P4 widgets+Watch…"
+  /^Trabaj[oa]s?\b/, // "Trabajas en el worktree", "Trabajo en el repo", "Trabajo: INFRA-288", "Trabajo en DGX-416 (H2…"
+  /^Ejecuta exactamente estos cambios en este worktree/, // maker dispatch without preamble
+  /^Crea UN fichero de test nuevo en este worktree/, // qa fixture dispatch
+  /^Repo: worktree actual/, // maker dispatch on its own branch
+]);
 
-const matchesCompanyTitle = (value) => (
+const COMPANY_CWD_PATTERN = /(^|\/)(compania|startupcompany\/employees)\//;
+
+const matchesAny = (value, patterns) => (
   typeof value === 'string'
-  && COMPANY_TITLE_PATTERNS.some((pattern) => pattern.test(value.trim()))
+  && patterns.some((pattern) => pattern.test(value.trim()))
 );
 
 /**
@@ -40,7 +55,7 @@ const matchesCompanyTitle = (value) => (
 export const isCompanyClaudeSession = (info) => {
   if (!info || typeof info !== 'object') return false;
   if (typeof info.cwd === 'string' && COMPANY_CWD_PATTERN.test(info.cwd)) return true;
-  return matchesCompanyTitle(info.customTitle)
-    || matchesCompanyTitle(info.summary)
-    || matchesCompanyTitle(info.firstPrompt);
+  return matchesAny(info.customTitle, COMPANY_ROLE_OPENINGS)
+    || matchesAny(info.summary, COMPANY_ROLE_OPENINGS)
+    || matchesAny(info.firstPrompt, COMPANY_DISPATCH_PATTERNS);
 };
