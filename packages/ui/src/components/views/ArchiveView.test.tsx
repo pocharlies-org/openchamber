@@ -108,7 +108,7 @@ test('archive tool filter narrows the list, the search and the counts together',
   });
   await act(async () => root.render(<I18nProvider><ArchiveView /></I18nProvider>));
   const clickChip = async (label: string) => {
-    const chip = [...document.querySelectorAll('button[aria-pressed]')].find((c) => c.textContent === label);
+    const chip = [...document.querySelectorAll<HTMLButtonElement>('button[aria-pressed]')].find((c) => c.textContent === label);
     if (!chip) throw new Error(`Chip missing: ${label}`);
     await act(async () => { chip.click(); });
     return {
