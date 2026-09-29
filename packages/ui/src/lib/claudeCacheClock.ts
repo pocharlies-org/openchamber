@@ -2,9 +2,31 @@ import { z } from 'zod';
 
 import type { Message } from '@/lib/opencode/model';
 
+const MINUTE = 60_000;
+
 const cacheMetadataSchema = z.object({
   claude: z.object({ cacheTtlMs: z.number().positive().finite().nullable().catch(null) }).nullable().catch(null),
 }).catch({ claude: null });
+
+/**
+ * Prompt-cache TTL of the provider that served the last turn, or null when the
+ * provider has no TTL worth counting down. Claude Code (every account provider,
+ * `claude-code` and `claude-code-<account>`) writes its cache with the 1h TTL —
+ * the CLI transcripts only ever show `ephemeral_1h_input_tokens`. The raw
+ * Anthropic API defaults to 5 minutes.
+ * `claude` is OpenChamber's own Claude engine: the same CLI behind it writes
+ * the 1h tier (measured: `ephemeral_1h_input_tokens` writes in its transcripts);
+ * the usage-derived TTL from `claudeCacheTtlMs` wins when the engine read one,
+ * and this entry is what keeps the clock counting when the answer arrived
+ * through a route that hides the tier (a router-served turn reports no tier).
+ */
+export const providerCacheTtlMs = (providerId: string | null | undefined): number | null => {
+  if (!providerId) return null;
+  if (providerId === 'claude-code' || providerId.startsWith('claude-code-')) return 60 * MINUTE;
+  if (providerId === 'claude') return 60 * MINUTE;
+  if (providerId === 'anthropic') return 5 * MINUTE;
+  return null;
+};
 
 /**
  * The lifetime a Claude Code session's cache was written with, as its engine

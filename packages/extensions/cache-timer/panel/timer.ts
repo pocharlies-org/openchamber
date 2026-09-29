@@ -16,11 +16,14 @@ export const EXPIRED_LABEL = 'expired';
  * provider has no TTL worth counting down. Claude Code (every account provider,
  * `claude-code` and `claude-code-<account>`) writes its cache with the 1h TTL —
  * the CLI transcripts only ever show `ephemeral_1h_input_tokens`. The raw
- * Anthropic API defaults to 5 minutes.
+ * Anthropic API defaults to 5 minutes. `claude` is OpenChamber's own Claude
+ * engine — the same CLI writes the 1h tier, and the engine's usage-derived TTL
+ * (the snapshot's `cacheTtlMs`) wins whenever the engine read one.
  */
 export const promptCacheTtlMs = (providerId: string | null): number | null => {
   if (!providerId) return null;
   if (providerId === 'claude-code' || providerId.startsWith('claude-code-')) return 60 * MINUTE;
+  if (providerId === 'claude') return 60 * MINUTE;
   if (providerId === 'anthropic') return 5 * MINUTE;
   return null;
 };
