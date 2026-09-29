@@ -59,6 +59,8 @@ const render = (): void => {
     providerId: snapshot.providerId,
     lastAssistantAt: snapshot.lastAssistantAt,
     now: Date.now(),
+    cacheTtlMs: snapshot.cacheTtlMs ?? null,
+    compacted: snapshot.compacted ?? false,
   });
   if (!timer) return;
 

@@ -48,18 +48,25 @@ export type CacheTimer = {
  * assistant turn — the same "last prompt" clock the Claude Code VS Code
  * extension shows. A turn after expiry re-writes the whole context, so this is
  * the number that says whether continuing now is cheap.
+ *
+ * `cacheTtlMs` is the lifetime the host's engine read from the last answer's
+ * usage and takes preference over the static provider map; `compacted` says a
+ * compaction happened after that answer, so the cache no longer covers the
+ * conversation and the clock reads expired until the next one.
  */
 export const computeCacheTimer = (input: {
   providerId: string | null;
   lastAssistantAt: number | null;
   now: number;
+  cacheTtlMs: number | null;
+  compacted: boolean;
 }): CacheTimer | null => {
-  const ttl = promptCacheTtlMs(input.providerId);
+  const ttl = input.cacheTtlMs ?? promptCacheTtlMs(input.providerId);
   if (ttl === null || input.lastAssistantAt === null) return null;
 
   const elapsed = Math.max(0, input.now - input.lastAssistantAt);
   const left = ttl - elapsed;
-  const expired = left <= 0;
+  const expired = left <= 0 || input.compacted;
   return {
     ttl,
     elapsed,

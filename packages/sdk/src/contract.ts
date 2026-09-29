@@ -578,13 +578,18 @@ export type HostItemMessage = Envelope & { type: 'item'; payload: { item: GuestI
  * provider, instant of the last completed assistant turn) and pushes to the
  * guest mounted in the composer footer. The guest paints it; it never reads
  * session data itself. `lastAssistantAt` is epoch ms, `null` when the session
- * has no completed assistant turn.
+ * has no completed assistant turn. `cacheTtlMs` is the lifetime the engine read
+ * from the last answer's usage (`claudeCacheTtlMs`), `null` when it could not
+ * tell; `compacted` says a compaction happened after that last completed turn,
+ * so the cache no longer covers the conversation.
  */
 export type ComposerStatusSnapshot = {
   sessionId: string;
   engine: string;
   providerId: string | null;
   lastAssistantAt: number | null;
+  cacheTtlMs: number | null;
+  compacted: boolean;
 };
 export type HostComposerStatusMessage = Envelope & {
   type: 'composer-status';
