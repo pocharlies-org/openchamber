@@ -69,6 +69,11 @@ export type EventPipelineInput = {
   onDisconnect?: (reason: string) => void
   /** Called when transport switches (e.g. WS timeout → SSE fallback) without actual disconnection. */
   onTransportSwitch?: () => void
+  /**
+   * Called on ANY stream frame, keepalives included — proof the connection is
+   * alive, which `onEvents` cannot give: a heartbeat carries no event.
+   */
+  onActivity?: () => void
   transport?: "auto" | "ws" | "sse"
   heartbeatTimeoutMs?: number
   reconnectDelayMs?: number
@@ -284,6 +289,7 @@ export function createEventPipeline(input: EventPipelineInput): EventPipeline {
     onReconnect,
     onDisconnect,
     onTransportSwitch,
+    onActivity,
     routeDirectory,
     transport = "auto",
     heartbeatTimeoutMs = DEFAULT_HEARTBEAT_TIMEOUT_MS,
@@ -532,6 +538,10 @@ export function createEventPipeline(input: EventPipelineInput): EventPipeline {
 
   const resetHeartbeat = () => {
     lastEventAt = Date.now()
+    // Any frame proves the stream is alive — a keepalive included, which carries
+    // no event and so never reaches `onEvents`. Without this the consumer's own
+    // stale watchdog fires on every quiet-but-connected session.
+    onActivity?.()
     if (heartbeat) clearTimeout(heartbeat)
     heartbeat = setTimeout(() => {
       attemptAbortReason = `${activeTransport}_heartbeat_timeout`

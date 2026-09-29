@@ -172,3 +172,42 @@ describe("createEventPipeline", () => {
     expect(events.map(describeEvent)).toEqual(["updated:x"])
   })
 })
+
+describe("createEventPipeline stream activity", () => {
+  // The watchdog that reconnects a stale stream counts `onEvents` as proof of
+  // life. A keepalive carries no event, so it must reach `onActivity` instead —
+  // otherwise every quiet-but-connected session looks dead every ~20 s.
+  test("reports a keepalive as activity without delivering any event", async () => {
+    let activities = 0
+    let events = 0
+    const keepaliveSdk = {
+      event: {
+        subscribe: ({ signal, onActivity }: { signal?: AbortSignal; onActivity?: () => void }) => ({
+          async *[Symbol.asyncIterator]() {
+            onActivity?.()
+            onActivity?.()
+            await new Promise<void>((resolve) => {
+              if (!signal || signal.aborted) return resolve()
+              signal.addEventListener("abort", () => resolve(), { once: true })
+            })
+          },
+        }),
+      },
+    } as unknown as OpenCodeClient
+
+    const pipeline = createEventPipeline({
+      sdk: keepaliveSdk,
+      onEvents: () => { events += 1 },
+      onActivity: () => { activities += 1 },
+      transport: "sse",
+      heartbeatTimeoutMs: 1_000,
+    })
+    try {
+      await Promise.race([new Promise((resolve) => setTimeout(resolve, 50)), failAfter(2_000)])
+      expect(activities).toBeGreaterThanOrEqual(2)
+      expect(events).toBe(0)
+    } finally {
+      pipeline.cleanup()
+    }
+  })
+})
