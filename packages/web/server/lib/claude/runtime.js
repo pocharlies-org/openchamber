@@ -932,6 +932,9 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
       subagents,
       childSessionId: (agentId) => toPublicId(childSessionIdOf(rootId, agentId)),
       subagent: Boolean(child),
+      // Prompts this server sent keep the id their live echo used; the transcript
+      // could not have rebuilt it (its ordinal is a position, its seed a uuid).
+      promptRecordIdOf: (uuid) => promptRecordIdOf(rootId, uuid),
     });
     if (!input.internal && !child) {
       rememberFollowed(sessionId, directory, records);
@@ -954,12 +957,35 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
    * named by a live id; older ones are read back from the transcript.
    */
   const promptUuids = new Map();
+  /**
+   * The same pairs the other way round: the transcript uuid of a prompt sent
+   * from here back to the record id its live echo used. A transcript read needs
+   * it because the id it would build for that prompt (`buildClaudeRecordId`:
+   * position in the transcript plus a uuid seed) cannot be known when the
+   * prompt goes out, and two ids for one prompt left the UI showing the same
+   * question twice (measured 29-09-2026, session b00e8d06).
+   */
+  const promptRecordIds = new Map();
   const MAX_PROMPT_UUIDS = 500;
   const promptUuidKey = (sessionId, recordId) => `${sessionId}\u0000${recordId}`;
+  const promptRecordKey = (sessionId, uuid) => `${sessionId}\u0000${uuid}`;
   const rememberPromptUuid = (sessionId, recordId, uuid) => {
     promptUuids.set(promptUuidKey(sessionId, recordId), uuid);
-    while (promptUuids.size > MAX_PROMPT_UUIDS) promptUuids.delete(promptUuids.keys().next().value);
+    promptRecordIds.set(promptRecordKey(sessionId, uuid), recordId);
+    while (promptUuids.size > MAX_PROMPT_UUIDS) {
+      const oldest = promptUuids.keys().next().value;
+      if (oldest === undefined) break;
+      const oldestUuid = promptUuids.get(oldest);
+      promptUuids.delete(oldest);
+      if (oldestUuid) promptRecordIds.delete(oldest.split('\u0000')[0] + '\u0000' + oldestUuid);
+    }
   };
+  /** What record id a prompt sent from here was echoed under, asked by its transcript uuid. */
+  const promptRecordIdOf = (sessionId, uuid) => (
+    typeof uuid === 'string' && uuid
+      ? promptRecordIds.get(promptRecordKey(sessionId, uuid)) || null
+      : null
+  );
   const forkTitleOf = (title) => (title ? clampText(`${title} (fork)`, 120) : 'Fork');
 
   const createSession = async (input = {}) => {
@@ -1257,9 +1283,10 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
         if (Number.isFinite(usage?.contextWindow)) patch.contextWindow = usage.contextWindow;
         if (Object.keys(patch).length > 0 && rememberState(sessionId, patch)) void announce(sessionId);
       },
-      onRemotePrompt: (text) => {
+      onRemotePrompt: (text, uuid = null) => {
         const now = Date.now();
         const recordId = `msg_${String(now).padStart(14, '0')}_000000_remote`;
+        if (uuid) rememberPromptUuid(sessionId, recordId, uuid);
         emitRecordEvents(directory, {
           info: {
             id: recordId,
