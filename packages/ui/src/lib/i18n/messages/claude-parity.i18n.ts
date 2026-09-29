@@ -52,6 +52,8 @@ export const claudeParityI18n = {
     "settings.openchamber.defaults.claude.thinking": "Default thinking level",
     "settings.openchamber.defaults.claude.mode": "Default mode",
     "settings.openchamber.defaults.claude.unset": "Claude Code's own",
+    "settings.openchamber.defaults.claude.askOnCreate": "Ask for model, thinking and mode when starting a Claude session",
+    "dialog.claudeNew.dontAsk": "Don't ask again",
   },
   de: {
     "chat.claudeRewind.action": "Code bis hierher zurückspulen",
@@ -105,6 +107,8 @@ export const claudeParityI18n = {
     "settings.openchamber.defaults.claude.thinking": "Standard-Denkstufe",
     "settings.openchamber.defaults.claude.mode": "Standardmodus",
     "settings.openchamber.defaults.claude.unset": "Die von Claude Code",
+    "settings.openchamber.defaults.claude.askOnCreate": "Beim Start einer Claude-Sitzung nach Modell, Thinking und Modus fragen",
+    "dialog.claudeNew.dontAsk": "Nicht mehr fragen",
   },
   es: {
     "chat.claudeRewind.action": "Rebobinar el código hasta aquí",
@@ -158,6 +162,8 @@ export const claudeParityI18n = {
     "settings.openchamber.defaults.claude.thinking": "Nivel de razonamiento por defecto",
     "settings.openchamber.defaults.claude.mode": "Modo por defecto",
     "settings.openchamber.defaults.claude.unset": "El del propio Claude Code",
+    "settings.openchamber.defaults.claude.askOnCreate": "Preguntar modelo, thinking y modo al iniciar una sesión de Claude",
+    "dialog.claudeNew.dontAsk": "No volver a preguntar",
   },
   fr: {
     "chat.claudeRewind.action": "Rembobiner le code jusqu’ici",
@@ -211,6 +217,8 @@ export const claudeParityI18n = {
     "settings.openchamber.defaults.claude.thinking": "Niveau de réflexion par défaut",
     "settings.openchamber.defaults.claude.mode": "Mode par défaut",
     "settings.openchamber.defaults.claude.unset": "Celui de Claude Code",
+    "settings.openchamber.defaults.claude.askOnCreate": "Demander le modèle, le niveau de réflexion et le mode au démarrage d'une session Claude",
+    "dialog.claudeNew.dontAsk": "Ne plus demander",
   },
   ja: {
     "chat.claudeRewind.action": "ここまでコードを巻き戻す",
@@ -264,6 +272,8 @@ export const claudeParityI18n = {
     "settings.openchamber.defaults.claude.thinking": "デフォルトの思考レベル",
     "settings.openchamber.defaults.claude.mode": "デフォルトのモード",
     "settings.openchamber.defaults.claude.unset": "Claude Code 自身",
+    "settings.openchamber.defaults.claude.askOnCreate": "Claude セッション開始時にモデル・思考レベル・モードを尋ねる",
+    "dialog.claudeNew.dontAsk": "今後聞かない",
   },
   ko: {
     "chat.claudeRewind.action": "여기까지 코드 되돌리기",
@@ -317,6 +327,8 @@ export const claudeParityI18n = {
     "settings.openchamber.defaults.claude.thinking": "기본 사고 수준",
     "settings.openchamber.defaults.claude.mode": "기본 모드",
     "settings.openchamber.defaults.claude.unset": "Claude Code 자체 설정",
+    "settings.openchamber.defaults.claude.askOnCreate": "Claude 세션을 시작할 때 모델, 사고 수준, 모드 묻기",
+    "dialog.claudeNew.dontAsk": "다시 묻지 않기",
   },
   pl: {
     "chat.claudeRewind.action": "Cofnij kod do tego miejsca",
@@ -370,6 +382,8 @@ export const claudeParityI18n = {
     "settings.openchamber.defaults.claude.thinking": "Domyślny poziom myślenia",
     "settings.openchamber.defaults.claude.mode": "Domyślny tryb",
     "settings.openchamber.defaults.claude.unset": "Ustawienia Claude Code",
+    "settings.openchamber.defaults.claude.askOnCreate": "Pytaj o model, poziom myślenia i tryb przy rozpoczynaniu sesji Claude",
+    "dialog.claudeNew.dontAsk": "Nie pytaj ponownie",
   },
   'pt-BR': {
     "chat.claudeRewind.action": "Voltar o código até aqui",
@@ -423,6 +437,8 @@ export const claudeParityI18n = {
     "settings.openchamber.defaults.claude.thinking": "Nível de raciocínio padrão",
     "settings.openchamber.defaults.claude.mode": "Modo padrão",
     "settings.openchamber.defaults.claude.unset": "Os do próprio Claude Code",
+    "settings.openchamber.defaults.claude.askOnCreate": "Perguntar modelo, nível de raciocínio e modo ao iniciar uma sessão do Claude",
+    "dialog.claudeNew.dontAsk": "Não perguntar de novo",
   },
   tr: {
     "chat.claudeRewind.action": "Kodu buraya kadar geri sar",
@@ -476,6 +492,8 @@ export const claudeParityI18n = {
     "settings.openchamber.defaults.claude.thinking": "Varsayılan düşünme düzeyi",
     "settings.openchamber.defaults.claude.mode": "Varsayılan mod",
     "settings.openchamber.defaults.claude.unset": "Claude Code'un kendi ayarları",
+    "settings.openchamber.defaults.claude.askOnCreate": "Bir Claude oturumu başlatırken model, düşünme düzeyi ve mod sor",
+    "dialog.claudeNew.dontAsk": "Bir daha sorma",
   },
   uk: {
     "chat.claudeRewind.action": "Відкотити код до цього місця",
@@ -529,6 +547,8 @@ export const claudeParityI18n = {
     "settings.openchamber.defaults.claude.thinking": "Типовий рівень міркування",
     "settings.openchamber.defaults.claude.mode": "Типовий режим",
     "settings.openchamber.defaults.claude.unset": "Власні налаштування Claude Code",
+    "settings.openchamber.defaults.claude.askOnCreate": "Питати модель, рівень міркування та режим під час запуску сесії Claude",
+    "dialog.claudeNew.dontAsk": "Більше не питати",
   },
   'zh-CN': {
     "chat.claudeRewind.action": "将代码回退到此处",
@@ -582,6 +602,8 @@ export const claudeParityI18n = {
     "settings.openchamber.defaults.claude.thinking": "默认思考级别",
     "settings.openchamber.defaults.claude.mode": "默认模式",
     "settings.openchamber.defaults.claude.unset": "Claude Code 自身",
+    "settings.openchamber.defaults.claude.askOnCreate": "启动 Claude 会话时询问模型、思考水平和模式",
+    "dialog.claudeNew.dontAsk": "不再询问",
   },
   'zh-TW': {
     "chat.claudeRewind.action": "將程式碼回退到此處",
@@ -635,5 +657,7 @@ export const claudeParityI18n = {
     "settings.openchamber.defaults.claude.thinking": "預設思考層級",
     "settings.openchamber.defaults.claude.mode": "預設模式",
     "settings.openchamber.defaults.claude.unset": "Claude Code 自身",
+    "settings.openchamber.defaults.claude.askOnCreate": "啟動 Claude 工作階段時詢問模型、思考層級與模式",
+    "dialog.claudeNew.dontAsk": "不再詢問",
   },
 } as const;

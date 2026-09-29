@@ -128,6 +128,8 @@ export const DefaultsSettings: React.FC = () => {
   const [claudeModel, setClaudeModel] = React.useState('');
   const [claudeEffort, setClaudeEffort] = React.useState('');
   const [claudeMode, setClaudeMode] = React.useState('');
+  // Opt-in window on the `+` of a Claude project. Unset means don't ask.
+  const [claudeAskOnCreate, setClaudeAskOnCreate] = React.useState(false);
   const [claudeCatalog, setClaudeCatalog] = React.useState<ClaudeModelCatalog | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
 
@@ -157,6 +159,7 @@ export const DefaultsSettings: React.FC = () => {
           setClaudeModel(data.claudeDefaultModel?.trim() ?? '');
           setClaudeEffort(data.claudeDefaultEffort?.trim() ?? '');
           setClaudeMode(data.claudeDefaultMode?.trim() ?? '');
+          setClaudeAskOnCreate(data.claudeAskSessionDefaults === true);
         }
       } catch (error) {
         console.warn('Failed to load defaults settings:', error);
@@ -189,6 +192,18 @@ export const DefaultsSettings: React.FC = () => {
         await updateDesktopSettings({ [key]: next });
       } catch (error) {
         console.warn('Failed to save the Claude default:', error);
+      }
+    },
+    []
+  );
+
+  const handleClaudeAskOnChange = React.useCallback(
+    async (checked: boolean) => {
+      setClaudeAskOnCreate(checked);
+      try {
+        await updateDesktopSettings({ claudeAskSessionDefaults: checked });
+      } catch (error) {
+        console.warn('Failed to save the new-session prompt setting:', error);
       }
     },
     []
@@ -550,6 +565,13 @@ export const DefaultsSettings: React.FC = () => {
               unsetLabel={t('settings.openchamber.defaults.claude.unset')}
             />
           </SettingsFieldRow>
+
+          <SettingsCheckboxRow
+            settingsItem="sessions.claude-ask-on-create"
+            checked={claudeAskOnCreate}
+            onChange={(checked) => { void handleClaudeAskOnChange(checked); }}
+            label={t('settings.openchamber.defaults.claude.askOnCreate')}
+          />
         </div>
       </SettingsSection>
     </>
