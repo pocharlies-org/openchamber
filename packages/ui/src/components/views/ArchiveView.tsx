@@ -3,7 +3,17 @@ import React from 'react';
 import type { Session } from '@/lib/opencode/model';
 import { Icon } from '@/components/icon/Icon';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui';
+import {
+  SESSION_SOURCE_FILTERS,
+  SESSION_SOURCE_ICONS,
+  SESSION_SOURCE_LABEL_KEYS,
+  filterSessionsBySource,
+  hasMultipleSessionSources,
+  resolveSessionSource,
+  type SessionSourceFilter,
+} from '@/lib/sessionSourceFilter';
 import { cn, formatDirectoryName } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n';
 import { sessionEvents } from '@/lib/sessionEvents';
@@ -37,6 +47,7 @@ export function ArchiveView(): React.ReactNode {
   const homeDirectory = useDirectoryStore((state) => state.homeDirectory);
   const archivedSessions = useGlobalSessionsStore(useShallow((state) => open ? state.archivedSessions : []));
   const [query, setQuery] = React.useState('');
+  const [sourceFilter, setSourceFilter] = React.useState<SessionSourceFilter>('all');
   const [selectedDirectory, setSelectedDirectory] = React.useState<string | null>(null);
   const [visibleCount, setVisibleCount] = React.useState(PAGE_SIZE);
   const spaceArchives = useSpaceArchivesStore((state) => state.byDirectory);
@@ -63,9 +74,23 @@ export function ArchiveView(): React.ReactNode {
       .sort((a, b) => (b.time?.archived ?? 0) - (a.time?.archived ?? 0));
   }, [archivedSessions, open]);
 
+  // The tool filter narrows the list before the buckets and the search: the
+  // directory counts and the header count describe what is on screen, not the
+  // whole archive.
+  const sourceSessions = React.useMemo(
+    () => filterSessionsBySource(sortedSessions, sourceFilter),
+    [sortedSessions, sourceFilter],
+  );
+  // Same rule as the sidebar: the control only earns its pixels when the list
+  // really holds more than one tool's sessions.
+  const showSourceFilter = React.useMemo(
+    () => hasMultipleSessionSources(archivedSessions),
+    [archivedSessions],
+  );
+
   const buckets = React.useMemo<DirectoryBucket[]>(() => {
     const byDirectory = new Map<string, DirectoryBucket>();
-    for (const session of sortedSessions) {
+    for (const session of sourceSessions) {
       const directory = normalizePath(resolveGlobalSessionDirectory(session)) ?? '';
       const existing = byDirectory.get(directory);
       if (existing) {
@@ -80,24 +105,24 @@ export function ArchiveView(): React.ReactNode {
       });
     }
     return [...byDirectory.values()].sort((a, b) => b.sessions.length - a.sessions.length);
-  }, [labelOf, sortedSessions, spaceArchives]);
+  }, [labelOf, sourceSessions, spaceArchives]);
 
-  // Search spans every archived session; the directory filter applies only
-  // while not searching.
+  // Search spans every archived session (of the selected tool); the directory
+  // filter applies only while not searching.
   const filteredSessions = React.useMemo(() => {
     if (normalizedQuery) {
       if (normalizedQuery.startsWith('ses_')) {
-        return sortedSessions.filter((session) => session.id.toLowerCase() === normalizedQuery);
+        return sourceSessions.filter((session) => session.id.toLowerCase() === normalizedQuery);
       }
-      return rankByQuery(sortedSessions, normalizedQuery, (session) => [session.title]);
+      return rankByQuery(sourceSessions, normalizedQuery, (session) => [session.title]);
     }
-    if (selectedDirectory === null) return sortedSessions;
+    if (selectedDirectory === null) return sourceSessions;
     return buckets.find((bucket) => bucket.directory === selectedDirectory)?.sessions ?? [];
-  }, [buckets, normalizedQuery, selectedDirectory, sortedSessions]);
+  }, [buckets, normalizedQuery, selectedDirectory, sourceSessions]);
 
   const visibleSessions = filteredSessions.slice(0, visibleCount);
   const remainingCount = filteredSessions.length - visibleSessions.length;
-  const totalCount = sortedSessions.length;
+  const totalCount = sourceSessions.length;
 
   const selectDirectory = React.useCallback((directory: string | null) => {
     setSelectedDirectory(directory);
@@ -215,12 +240,41 @@ export function ArchiveView(): React.ReactNode {
             </span>
           </div>
 
+          {/* Same chip row the sidebar header uses: which tool owns a session
+              is a first-class question once both feed the archive. */}
+          {showSourceFilter ? (
+            <div
+              className="flex items-center gap-1 px-6 pt-2"
+              role="group"
+              aria-label={t('sessions.sidebar.header.sourceFilter.label')}
+            >
+              {SESSION_SOURCE_FILTERS.map((source) => (
+                <Button
+                  key={source}
+                  type="button"
+                  variant="chip"
+                  size="xs"
+                  aria-pressed={sourceFilter === source}
+                  onClick={() => {
+                    setSourceFilter(source);
+                    setVisibleCount(PAGE_SIZE);
+                  }}
+                  className="shrink-0"
+                >
+                  {t(SESSION_SOURCE_LABEL_KEYS[source])}
+                </Button>
+              ))}
+            </div>
+          ) : null}
+
           <div className="min-h-0 flex-1 overflow-y-auto px-6 py-3">
             <div className="mx-auto w-full max-w-3xl space-y-0.5">
               {visibleSessions.length === 0 ? (
                 <div className="py-10 text-center text-muted-foreground">
                   <p className="typography-ui-label font-semibold">
-                    {normalizedQuery ? t('sessions.archivePage.empty.noMatches') : t('sessions.archivePage.empty.noArchived')}
+                    {normalizedQuery || sourceFilter !== 'all'
+                      ? t('sessions.archivePage.empty.noMatches')
+                      : t('sessions.archivePage.empty.noArchived')}
                   </p>
                 </div>
               ) : visibleSessions.map((session) => {
@@ -242,7 +296,17 @@ export function ArchiveView(): React.ReactNode {
                       }
                     }}
                   >
-                    <span dir="auto" className="min-w-0 flex-1 truncate text-left typography-ui-label text-foreground">
+                    {/* Glyph only on Claude rows, as in the sidebar: absence of
+                        glyph already says "opencode". */}
+                    {resolveSessionSource(session) === 'claude' ? (
+                      <Icon
+                        name={SESSION_SOURCE_ICONS.claude}
+                        className="h-3 w-3 flex-shrink-0"
+                        style={{ color: 'var(--source-claude, var(--muted-foreground))' }}
+                        aria-label={t(SESSION_SOURCE_LABEL_KEYS.claude)}
+                      />
+                    ) : null}
+                                        <span dir="auto" className="min-w-0 flex-1 truncate text-left typography-ui-label text-foreground">
                       {session.title || t('sessions.sidebar.session.untitled')}
                     </span>
                     {normalizedQuery && directoryLabel ? (
