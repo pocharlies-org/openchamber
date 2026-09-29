@@ -1,12 +1,16 @@
 import React from 'react';
 import type { Session } from '@/lib/opencode/model';
 import { getSafeStorage } from '@/stores/utils/safeStorage';
+import { isCompanySession } from './companySessionFlag';
 
 /**
  * Files company-authored sessions into a "Compañía" folder automatically.
  *
  * The claude backend stamps `metadata.company` on sessions whose dispatch
  * prompt comes from the company's launchers (server/lib/claude/company-sessions.js).
+ * Recent and Timeline hide these sessions too (see `companySessionFlag.ts`), so the
+ * folder is the only place they are listed.
+ *
  * This hook mirrors useArchivedAutoFolders, with one deliberate difference:
  * each session is filed exactly once. A folder the user drags a session out
  * of (or into) is their call and is never overruled again — the set of
@@ -39,9 +43,6 @@ type Args = {
   addSessionToFolder: (scopeKey: string, folderId: string, sessionId: string) => void;
 };
 
-const isCompanySession = (session: Session): boolean => (
-  (session as Session & { metadata?: Record<string, unknown> | null }).metadata?.company === true
-);
 
 const readAutoFiledIds = (): Set<string> => {
   try {
