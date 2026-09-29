@@ -19,6 +19,20 @@
           "target": "node"
         }
       ]
+    },
+    {
+      "id": "openchamber-builtin-cache-timer",
+      "directory": "cache-timer",
+      "files": [
+        "panel/index.html"
+      ],
+      "build": [
+        {
+          "entry": "panel/main.ts",
+          "out": "panel/main.js",
+          "target": "browser"
+        }
+      ]
     }
   ]
 }
