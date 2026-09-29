@@ -963,8 +963,47 @@ export async function createSession(
  * live `claude` process under this directory, and with
  * OPENCHAMBER_CLAUDE_REMOTE_CONTROL=1 that process links to claude.ai.
  */
-export async function createClaudeSession(directory?: string | null): Promise<Session | null> {
-  return createSession(undefined, directory, { backend: "claude" })
+/**
+ * What the first turn of a new Claude session runs on, picked where the
+ * session is created. `model` is a Claude catalog id (`opus`, a full model id),
+ * `effort` a thinking level (`low`…`max`), `mode` a permission mode
+ * (`default`, `acceptEdits`, `plan`, `auto`, `bypassPermissions`). The server
+ * keeps only the values this host offers; anything left out falls through to
+ * OpenChamber's defaults for Claude, then to Claude Code's own settings.
+ */
+export type ClaudeSessionSelection = { model?: string; effort?: string; mode?: string }
+
+const claudeSelectionMetadata = (selection?: ClaudeSessionSelection): Metadata | undefined => {
+  if (!selection) return undefined
+  const picked = Object.fromEntries(
+    Object.entries(selection).filter(([, value]) => typeof value === "string" && value.trim().length > 0),
+  )
+  return Object.keys(picked).length > 0 ? picked as Metadata : undefined
+}
+
+export async function createClaudeSession(
+  directory?: string | null,
+  selection?: ClaudeSessionSelection,
+): Promise<Session | null> {
+  const claude = claudeSelectionMetadata(selection)
+  return createSession(undefined, directory, claude ? { backend: "claude", claude } : { backend: "claude" })
+}
+
+/**
+ * A new Claude session, asked from anywhere: where the new-session dialog is
+ * mounted it picks the model, thinking level and mode first; a surface without
+ * it (no dialog mounted to answer) creates the session on this host's defaults
+ * rather than dropping the click.
+ */
+export function requestNewClaudeSession(
+  directory?: string | null,
+  onCreated?: (session: Session | null) => void,
+): void {
+  if (!directory) return
+  if (sessionEvents.requestNewClaudeSession({ directory, onCreated })) return
+  void createClaudeSession(directory).then((session) => {
+    onCreated?.(session)
+  })
 }
 
 /**

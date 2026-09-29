@@ -17,14 +17,26 @@ export type SessionCreateRequest = {
   projectId?: string | null;
 };
 
+/**
+ * The `+` asked for a Claude session: the dialog picks its model, thinking
+ * level and mode, and hands the created session back to whoever asked (a
+ * folder, for one, has to place the session in it).
+ */
+export type NewClaudeSessionRequest = {
+  directory: string;
+  onCreated?: (session: Session | null) => void;
+};
+
 type DeleteListener = (request: SessionDeleteRequest) => void;
 type CreateListener = (request: SessionCreateRequest) => void;
+type NewClaudeSessionListener = (request: NewClaudeSessionRequest) => void;
 type DirectoryListener = () => void;
 type GitRefreshHint = { directory: string; paths?: string[] };
 type GitRefreshListener = (hint: GitRefreshHint) => void;
 
 const deleteListeners = new Set<DeleteListener>();
 const createListeners = new Set<CreateListener>();
+const newClaudeSessionListeners = new Set<NewClaudeSessionListener>();
 const directoryListeners = new Set<DirectoryListener>();
 const gitRefreshListeners = new Set<GitRefreshListener>();
 // Shell and code-mode scripts can touch the worktree too, so they count
@@ -54,6 +66,24 @@ export const sessionEvents = {
   requestCreate(payload?: SessionCreateRequest) {
     const request = payload ?? {};
     createListeners.forEach((listener) => listener(request));
+  },
+  onNewClaudeSessionRequest(listener: NewClaudeSessionListener) {
+    newClaudeSessionListeners.add(listener);
+    return () => {
+      newClaudeSessionListeners.delete(listener);
+    };
+  },
+  /**
+   * Ask for the new-Claude-session dialog. Answers `false` when nothing is
+   * mounted to show it (a surface without `SessionDialogs`), so the caller can
+   * still create the session instead of dropping the click.
+   */
+  requestNewClaudeSession(payload: NewClaudeSessionRequest): boolean {
+    if (!payload.directory || newClaudeSessionListeners.size === 0) {
+      return false;
+    }
+    newClaudeSessionListeners.forEach((listener) => listener(payload));
+    return true;
   },
   onDirectoryRequest(listener: DirectoryListener) {
     directoryListeners.add(listener);

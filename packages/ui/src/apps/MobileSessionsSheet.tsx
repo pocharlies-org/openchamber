@@ -72,7 +72,7 @@ import {
   useSessionOrderingStore,
 } from '@/sync/session-ordering';
 import { useSessionUIStore } from '@/sync/session-ui-store';
-import { createClaudeSession } from '@/sync/session-actions';
+import { requestNewClaudeSession } from '@/sync/session-actions';
 import { useAllLiveSessions } from '@/sync/sync-context';
 import { useGlobalSyncStore } from '@/sync/global-sync-store';
 import { useSessionUnseenCount } from '@/sync/notification-store';
@@ -1274,7 +1274,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
   // session, which lives in the project directory itself (no worktree needed).
   const handleNewClaudeSessionInProject = (project: ProjectMeta) => {
     setActiveProjectIdOnly(project.id);
-    void createClaudeSession(project.path);
+    requestNewClaudeSession(project.path);
     onOpenChange(false);
   };
 
