@@ -5,6 +5,7 @@ import {
   deriveClaudeTitle,
   findForkCut,
   findPromptUuid,
+  isClaudeTitlePlaceholder,
   mapClaudeSessionMessages,
 } from './claude-transcript.js';
 
@@ -262,6 +263,16 @@ describe('deriveClaudeTitle', () => {
 
   it('truncates long fallback titles', () => {
     expect(deriveClaudeTitle({ firstPrompt: 'x'.repeat(200) })).toHaveLength(120);
+  });
+});
+
+describe('isClaudeTitlePlaceholder', () => {
+  it('recognises only the Remote Control placeholder shape', () => {
+    expect(isClaudeTitlePlaceholder('OpenChamber · k8s')).toBe(true);
+    expect(isClaudeTitlePlaceholder('  OpenChamber · session  ')).toBe(true);
+    expect(isClaudeTitlePlaceholder('doble motor openchamber')).toBe(false);
+    expect(isClaudeTitlePlaceholder('')).toBe(false);
+    expect(isClaudeTitlePlaceholder(undefined)).toBe(false);
   });
 });
 

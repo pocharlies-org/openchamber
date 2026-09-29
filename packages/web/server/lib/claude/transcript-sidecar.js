@@ -166,5 +166,34 @@ export const createTranscriptSidecar = ({
     return null;
   };
 
-  return { locate, read, readSubagent, projectsDir };
+  /**
+   * The summary Claude Code generated for itself: the last `ai-title` entry in
+   * the session's transcript, empty when the conversation has not produced one.
+   * This is the title the CLI would show; a custom title written by another
+   * surface can mask it in the SDK's answer but never here.
+   */
+  const readAiTitle = async (sessionId, directory) => {
+    const file = await locate(sessionId, directory);
+    if (!file) return '';
+    let raw;
+    try {
+      raw = await fsPromises.readFile(file, 'utf8');
+    } catch {
+      return '';
+    }
+    let title = '';
+    for (const line of raw.split('\n')) {
+      if (!line.includes('"ai-title"')) continue;
+      let entry;
+      try {
+        entry = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      if (typeof entry.aiTitle === 'string' && entry.aiTitle.trim()) title = entry.aiTitle.trim();
+    }
+    return title;
+  };
+
+  return { locate, read, readSubagent, readAiTitle, projectsDir };
 };
