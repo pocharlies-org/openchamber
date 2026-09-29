@@ -34,8 +34,15 @@ import { useDirectorySync, useSession } from '@/sync/sync-context';
  * A model pick is shown until the next answer arrives: from then on the
  * answer's own model is the truth, whatever the pick resolved to.
  */
-type ClaudePick = { modelId?: string; pickedAfterAnswer: string | null; effort?: string };
+type ClaudePick = { modelId?: string; pickedAfterAnswer: string | null; effort?: string; mode?: string };
 const picks = new Map<string, ClaudePick>();
+
+/** Drop a stored mode pick (failed switch, or the engine moved on its own). */
+const forgetPickedMode = (sessionId: string) => {
+    const stored = picks.get(sessionId);
+    if (!stored?.mode) return;
+    picks.set(sessionId, { ...stored, mode: undefined });
+};
 
 /** The mode indicator's names and glyphs, as the VS Code extension shows them. */
 const MODE_PRESENTATION: Record<string, { label: I18nKey; description: I18nKey; icon: IconName }> = {
@@ -87,10 +94,21 @@ export const ClaudeModelControls: React.FC<{ sessionId: string; directory?: stri
     // Another process owns the session: its effort was fixed when it started.
     const session = useSession(sessionId, directory);
     const liveElsewhere = getClaudeLiveState(session).liveElsewhere;
-    // The mode the engine reports for the session; a pick shows until it does.
+    // The mode the engine reports for the session. A pick shows until the engine
+    // moves on its own (`/plan`, an approved plan): the FIRST report of a session
+    // is the mode it started on — often the one just picked at creation — so it
+    // must not discard the pick, and neither must a re-render.
     const reportedMode = getClaudeEngineState(session).mode;
-    const [pickedMode, setPickedMode] = React.useState<string | null>(null);
-    React.useEffect(() => setPickedMode(null), [sessionId, reportedMode]);
+    const lastReportedMode = React.useRef({ session: sessionId, mode: reportedMode as string | null });
+    const [pickedMode, setPickedMode] = React.useState<string | null>(() => picks.get(sessionId)?.mode ?? null);
+    React.useEffect(() => setPickedMode(picks.get(sessionId)?.mode ?? null), [sessionId]);
+    React.useEffect(() => {
+        const previous = lastReportedMode.current;
+        lastReportedMode.current = { session: sessionId, mode: reportedMode };
+        if (previous.session !== sessionId) return;
+        if (previous.mode === null || previous.mode === reportedMode) return;
+        forgetPickedMode(sessionId);
+    }, [sessionId, reportedMode]);
 
     const [pick, setPick] = React.useState<ClaudePick | undefined>(() => picks.get(sessionId));
     React.useEffect(() => setPick(picks.get(sessionId)), [sessionId]);
@@ -102,8 +120,9 @@ export const ClaudeModelControls: React.FC<{ sessionId: string; directory?: stri
     const commit = React.useCallback(async (next: ClaudePick) => {
         const ok = await selectClaudeModel(sessionId, { id: next.modelId ?? '', variant: next.effort });
         if (!ok) return;
-        picks.set(sessionId, next);
-        setPick(next);
+        // Merged, not replaced: the stored pick also carries the mode.
+        picks.set(sessionId, { ...picks.get(sessionId), ...next });
+        setPick(picks.get(sessionId));
     }, [sessionId]);
 
     const handleModelSelect = (modelId: string) => {
@@ -115,8 +134,10 @@ export const ClaudeModelControls: React.FC<{ sessionId: string; directory?: stri
 
     const handleModeSelect = (mode: string) => {
         setPickedMode(mode);
+        picks.set(sessionId, { ...picks.get(sessionId), pickedAfterAnswer: pick?.pickedAfterAnswer ?? null, mode });
         void selectClaudeMode(sessionId, mode).then((ok) => {
             if (ok) return;
+            forgetPickedMode(sessionId);
             setPickedMode(null);
             toast.error(t('chat.claudeMode.changeFailed'));
         });
