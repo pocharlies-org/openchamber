@@ -395,7 +395,7 @@ describe('connectHost', () => {
     guest.parent = parent.parent;
 
     const host = connectHost({ target: guest, acceptSource: () => true });
-    const snapshot = { sessionId: 'ses-1', engine: 'claude', providerId: 'anthropic', lastAssistantAt: 1_700_000_000_000 };
+    const snapshot = { sessionId: 'ses-1', engine: 'claude', providerId: 'anthropic', lastAssistantAt: 1_700_000_000_000, cacheTtlMs: null, compacted: false };
     const push = (next: typeof snapshot) => guest.dispatch(new MessageEvent('message', {
       data: {
         channel: OPENCHAMBER_SDK_CHANNEL,

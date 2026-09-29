@@ -378,7 +378,7 @@ describe('parseHostMessage', () => {
       type: 'composer-status',
       payload: {
         contributionId: 'session-status',
-        snapshot: { sessionId: 'ses-1', engine: 'claude', providerId: 'anthropic', lastAssistantAt: 1_700_000_000_000 },
+        snapshot: { sessionId: 'ses-1', engine: 'claude', providerId: 'anthropic', lastAssistantAt: 1_700_000_000_000, cacheTtlMs: null, compacted: false },
       },
     };
     expect(hostMessageSchema.parse(message)).toEqual(message);

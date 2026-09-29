@@ -14,7 +14,7 @@ import {
   type UIPluginRuntime,
 } from '@/lib/uiPlugins';
 import { findEnabledComposerStatusContributions, useUIPluginsStore } from '@/stores/useUIPluginsStore';
-import { useSessionMessages } from '@/sync/sync-context';
+import { useSession, useSessionMessages } from '@/sync/sync-context';
 import { cn } from '@/lib/utils';
 import { buildComposerStatusSnapshot } from './composer-status-snapshot';
 import type { ComposerStatusSnapshot } from '@openchamber/sdk';
@@ -63,12 +63,13 @@ export function ComposerStatusSurface({
     [catalog, disabledPluginIds, isMobile, placement],
   );
   const messages = useSessionMessages(sessionId ?? '', directory);
+  const session = useSession(sessionId ?? '', directory);
   const engine = useSessionEngine(sessionId, directory);
   const snapshot = React.useMemo<ComposerStatusSnapshot>(
-    () => buildComposerStatusSnapshot({ sessionId, engine: engine.id, messages }),
+    () => buildComposerStatusSnapshot({ sessionId, engine: engine.id, messages, session }),
     // runtimeKey forces a recompute when the runtime endpoint switches.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [sessionId, engine.id, messages, runtimeKey],
+    [sessionId, engine.id, messages, session, runtimeKey],
   );
   const mounted = React.useMemo(
     () => contributions
