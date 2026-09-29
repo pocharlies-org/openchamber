@@ -579,6 +579,12 @@ export const createSettingsHelpers = (dependencies) => {
       const trimmed = candidate.claudeDefaultMode.trim();
       result.claudeDefaultMode = trimmed.length > 0 ? trimmed : undefined;
     }
+    // Whether the `+` of a Claude project asks for the three picks before
+    // starting. Unset is NOT "true": the dialog is opt-in, so a session starts
+    // on the defaults above (or Claude Code's own) without a window.
+    if (typeof candidate.claudeAskSessionDefaults === 'boolean') {
+      result.claudeAskSessionDefaults = candidate.claudeAskSessionDefaults;
+    }
     if (typeof candidate.smallModelUseDefault === 'boolean') {
       result.smallModelUseDefault = candidate.smallModelUseDefault;
     }

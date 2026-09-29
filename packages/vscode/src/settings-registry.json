@@ -474,6 +474,9 @@
     "claudeDefaultMode": {
       "scope": "profile"
     },
+    "claudeAskSessionDefaults": {
+      "scope": "profile"
+    },
     "smallModelUseDefault": {
       "scope": "profile"
     },
