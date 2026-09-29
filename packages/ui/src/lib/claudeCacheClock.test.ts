@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import type { Message } from '@/lib/opencode/model';
-import { claudeCacheTtlMs, compactedSince } from './claudeCacheClock';
+import { claudeCacheTtlMs, compactedSince, providerCacheTtlMs } from './claudeCacheClock';
 
 const assistant = (extra: Record<string, unknown> = {}) => ({
   id: 'a', sessionID: 's', role: 'assistant', providerID: 'claude', modelID: 'opus', time: { created: 1, completed: 2 }, ...extra,
@@ -14,6 +14,15 @@ describe('Claude cache clock', () => {
     expect(claudeCacheTtlMs(assistant(), null)).toBeNull();
     // Not a Claude Code answer: the provider rule applies instead.
     expect(claudeCacheTtlMs(assistant({ providerID: 'anthropic' }), 3600000)).toBeNull();
+  });
+
+  test('a provider rule covers every Claude surface, engine included', () => {
+    expect(providerCacheTtlMs('claude')).toBe(60 * 60_000);
+    expect(providerCacheTtlMs('claude-code')).toBe(60 * 60_000);
+    expect(providerCacheTtlMs('claude-code-2')).toBe(60 * 60_000);
+    expect(providerCacheTtlMs('anthropic')).toBe(5 * 60_000);
+    expect(providerCacheTtlMs('litellm-local')).toBeNull();
+    expect(providerCacheTtlMs(null)).toBeNull();
   });
 
   test('a compaction after the last answer reads as expired until the next answer', () => {
