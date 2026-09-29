@@ -609,3 +609,17 @@ export const deriveClaudeTitle = (info) => {
   if (firstPrompt) return firstPrompt.slice(0, 120);
   return 'Untitled session';
 };
+
+/**
+ * Whether the SDK's answer carries a title the CLI itself settled on — a
+ * custom title or a summary — as opposed to the raw first prompt, which is
+ * only what `deriveClaudeTitle` falls back to. VS Code titles a session by
+ * `custom-title` first and its generated `ai-title` after; only when neither
+ * exists does the first prompt stand in for the name. Callers use this to
+ * know when the transcript's `ai-title` still has a say.
+ */
+export const hasClaudeExplicitTitle = (info) => {
+  const custom = typeof info?.customTitle === 'string' && info.customTitle.trim() !== '';
+  const summary = typeof info?.summary === 'string' && info.summary.trim() !== '';
+  return custom || summary;
+};
