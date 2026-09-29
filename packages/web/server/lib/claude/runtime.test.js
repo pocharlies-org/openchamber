@@ -408,6 +408,40 @@ describe('claude backend promptAsync', () => {
     ]);
   });
 
+  it('reads a sent prompt back as the one message the front end already shows', async () => {
+    const publishEvent = vi.fn();
+    const sdk = makeSdk({ query: vi.fn(() => makeQuery([{ type: 'result', is_error: false }])) });
+    const { runtime } = createRuntime({ sdk, publishEvent });
+
+    await runtime.promptAsync({
+      sessionID: 'sess-1',
+      directory: '/repo/project',
+      parts: [{ type: 'text', text: 'que hora es?' }],
+    });
+    // The uuid the CLI was given is the uuid it writes in the transcript.
+    const first = await sdk.query.mock.calls[0][0].prompt[Symbol.asyncIterator]().next();
+    const sentUuid = first.value.uuid;
+    sdk.getSessionMessages.mockImplementation(async () => [
+      {
+        type: 'user',
+        uuid: sentUuid,
+        timestamp: '2026-09-29T00:10:37.336Z',
+        message: { role: 'user', content: [{ type: 'text', text: 'que hora es?' }] },
+      },
+    ]);
+
+    const echoed = publishEvent.mock.calls.map(([event]) => event.payload)
+      .filter((payload) => payload.type === 'message.updated' && payload.properties?.info?.role === 'user')
+      .map((payload) => payload.properties.info.id);
+    expect(echoed).toHaveLength(1);
+
+    const records = await runtime.getMessages({ sessionID: 'sess-1', directory: '/repo/project', internal: true });
+    const prompts = records.filter((record) => record.info.role === 'user');
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0].info.id).toBe(echoed[0]);
+    await runtime.shutdownAll();
+  });
+
   it('rejects an empty turn', async () => {
     const { runtime } = createRuntime();
     await expect(runtime.promptAsync({ sessionID: 'sess-1', parts: [] })).rejects.toThrow(/empty input/);

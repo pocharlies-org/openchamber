@@ -109,6 +109,29 @@ describe('mapClaudeSessionMessages', () => {
     expect(byCall.toolu_bad.state.error).toBe('boom');
   });
 
+  it('reads a sent prompt back under the id its live echo used', () => {
+    // The echo's id cannot be rebuilt from the transcript (its ordinal is a
+    // position, its seed a uuid); without the map the same prompt arrives as a
+    // second record and the UI paints the question twice.
+    const echoId = 'msg_17610000000000_000000_local';
+    const records = mapClaudeSessionMessages([
+      userText('que hora es?', 'u-sent', at(0)),
+    ], { sessionId: 'sess-1', promptRecordIdOf: (uuid) => (uuid === 'u-sent' ? echoId : null) });
+
+    const prompt = records.find((record) => record.info.role === 'user');
+    expect(prompt.info.id).toBe(echoId);
+    expect(prompt.parts.map((part) => part.messageID)).toEqual([echoId]);
+  });
+
+  it('falls back to the transcript id for a prompt this server never sent', () => {
+    const records = mapClaudeSessionMessages([
+      userText('que hora es?', 'u-other', at(0)),
+    ], { sessionId: 'sess-1', promptRecordIdOf: () => null });
+
+    expect(records.find((record) => record.info.role === 'user').info.id)
+      .toBe(buildClaudeRecordId(T0, 1, 'u-other'));
+  });
+
   it('drops tool-result-only user messages from the turn list', () => {
     const records = mapClaudeSessionMessages([
       userText('hi', 'u1', at(0)),

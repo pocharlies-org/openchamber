@@ -89,7 +89,7 @@ export const toCliContent = (content, { asCommand = false } = {}) => {
  *   enable Remote Control under this name, reattaching an existing remote session when given
  * @param {(payload: object) => void} dependencies.emit directory-scoped event emitter
  * @param {(status: object) => void} dependencies.setStatus busy/idle publisher
- * @param {(text: string) => void} dependencies.onRemotePrompt a prompt typed on another surface
+ * @param {(text: string, uuid?: string | null) => void} dependencies.onRemotePrompt a prompt typed on another surface, with its transcript uuid
  * @param {(info: { url: string, bridgeSessionId: string }) => void} [dependencies.onRemoteControl]
  * @param {() => Promise<void>} [dependencies.onTurnEnd]
  * @param {() => void} [dependencies.onExit]
@@ -448,7 +448,9 @@ export const createClaudeSessionProcess = (dependencies) => {
     }
     const text = humanText(content);
     if (!text) return;
-    onRemotePrompt(text);
+    // Its uuid travels with it: the echo and the later transcript read must land
+    // on one record, or the same question shows up twice.
+    onRemotePrompt(text, typeof message.uuid === 'string' ? message.uuid : null);
     if (!turn) beginTurn();
   };
 

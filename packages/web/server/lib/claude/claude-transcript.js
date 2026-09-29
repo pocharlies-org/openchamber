@@ -405,6 +405,12 @@ export const mapClaudeSessionMessages = (messages, {
   childSessionId = () => null,
   // The messages are one subagent's own transcript (a child session).
   subagent = false,
+  // The id the UI already holds a sent prompt under, asked by transcript uuid.
+  // A prompt echoes out live under an id the transcript cannot rebuild (its
+  // ordinal is the position in the transcript, its seed the uuid), so a read
+  // landed beside the echo and the UI kept both copies: the same question
+  // painted twice. Measured 29-09-2026, session b00e8d06.
+  promptRecordIdOf = () => null,
 } = {}) => {
   const ordered = mainChain(messages, { subagent });
 
@@ -424,7 +430,10 @@ export const mapClaudeSessionMessages = (messages, {
     if (message.type === 'user') {
       const blocks = contentBlocks(message.message);
       if (blocks.length === 0 || isToolResultOnly(blocks)) return;
-      const id = buildClaudeRecordId(created, index + 1, message.uuid);
+      // A prompt this server sent keeps the id its live echo used, so the read
+      // supersedes that copy instead of adding a second bubble beside it.
+      const id = promptRecordIdOf(message.uuid)
+        || buildClaudeRecordId(created, index + 1, message.uuid);
       const entry = classifyUserEntry(message, blocks);
       if (entry.kind !== 'shell-output') openShell = null;
       switch (entry.kind) {
