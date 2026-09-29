@@ -15,6 +15,8 @@ import { Button } from '@/components/ui/button';
 import { formatDirectoryName, formatPathForDisplay } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n';
 import { isVSCodeRuntime, requestDirectoryAccess } from '@/lib/desktop';
+import { requestNewClaudeSession } from '@/sync/session-actions';
+import { requestDirectoryAccess } from '@/lib/desktop';
 import { sessionEvents } from '@/lib/sessionEvents';
 import { CHAT_DRAFT_PROJECT_ID } from '@/lib/chatDirectories';
 import { useSessionFoldersStore } from '@/stores/useSessionFoldersStore';
@@ -296,6 +298,16 @@ function SessionProjectScrollerComponent({ model, view, actions }: Props): React
           });
           actions.openNewSessionDraft({ selectedProjectId: project.id, directoryOverride: project.normalizedPath });
         }}
+        onNewClaudeSession={() => {
+          prepareSessionProjectAction({
+            projectId: project.id,
+            mobileVariant: view.mobileVariant,
+            closeMobileSwitcher: true,
+            setActiveProjectIdOnly: actions.setActiveProjectIdOnly,
+            setSessionSwitcherOpen: actions.setSessionSwitcherOpen,
+          });
+          requestNewClaudeSession(project.normalizedPath);
+        }}
         onNewWorktreeSession={() => {
           prepareSessionProjectAction({
             projectId: project.id,
@@ -376,8 +388,9 @@ function SessionProjectScrollerComponent({ model, view, actions }: Props): React
                 setActiveProjectIdOnly: actions.setActiveProjectIdOnly,
                 setSessionSwitcherOpen: actions.setSessionSwitcherOpen,
               });
-              void createClaudeSession(claudeDirectory).then((session) => {
-                // Created from a folder, so it has to land in that folder.
+              // Created from a folder, so it has to land in that folder —
+              // whenever the dialog hands it back.
+              requestNewClaudeSession(claudeDirectory, (session) => {
                 if (session && scopeKey) {
                   useSessionFoldersStore.getState().addSessionToFolder(scopeKey, folderId, session.id);
                 }

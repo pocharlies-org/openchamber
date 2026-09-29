@@ -660,6 +660,91 @@ describe('claude backend control surface', () => {
   });
 });
 
+describe('claude backend OpenChamber defaults', () => {
+  it('opens a new session on the OpenChamber defaults, ahead of the CLI settings', async () => {
+    const fs = makeFs({
+      settings: { model: 'qwen38-flash-next', effortLevel: 'max', permissions: { defaultMode: 'acceptEdits' } },
+    });
+    const { runtime } = createRuntime({
+      fs,
+      readAppSettings: async () => ({ claudeDefaultModel: 'opus[1m]', claudeDefaultEffort: 'low', claudeDefaultMode: 'plan' }),
+    });
+
+    const surface = await runtime.getControlSurface();
+    expect(surface.modelSelector.defaultOptionId).toBe('opus[1m]');
+    expect(surface.effortSelector.defaultOptionId).toBe('low');
+    expect(surface.modeSelector.items.find((item) => item.isDefault).id).toBe('plan');
+  });
+
+  it('never defaults to a mode this host does not offer, and an unset key falls through', async () => {
+    const fs = makeFs({ settings: { effortLevel: 'low', permissions: { defaultMode: 'acceptEdits' } } });
+    const { runtime } = createRuntime({
+      fs,
+      // Bypass is not accepted by this CLI, and the model key is empty.
+      readAppSettings: async () => ({ claudeDefaultModel: '', claudeDefaultMode: 'bypassPermissions' }),
+    });
+
+    const modes = await runtime.listModes();
+    expect(modes.find((mode) => mode.isDefault).id).toBe('acceptEdits');
+    const surface = await runtime.getControlSurface();
+    expect(surface.effortSelector.defaultOptionId).toBe('low');
+    expect(surface.modelSelector.defaultOptionId).toBe('sonnet');
+  });
+
+  it('starts the first turn on what the session was created with, and keeps it across a restart', async () => {
+    const sdk = makeSdk({ query: vi.fn(() => makeQuery([{ type: 'result', is_error: false }])) });
+    const fs = makeFs({ settings: { model: 'sonnet', effortLevel: 'max', permissions: { defaultMode: 'default' } } });
+    const { runtime } = createRuntime({ sdk, fs });
+
+    const session = await runtime.createSession({
+      directory: '/repo/project',
+      selection: { model: 'opus[1m]', effort: 'low', mode: 'plan' },
+    });
+    expect(session.metadata.claude).toMatchObject({ model: 'opus[1m]', effort: 'low', mode: 'plan' });
+    expect(JSON.parse(fs.files.get(OVERLAY_FILE)).selections[session.id])
+      .toEqual({ model: 'opus[1m]', effort: 'low', mode: 'plan' });
+
+    await runtime.promptAsync({ sessionID: session.id, directory: '/repo/project', parts: [{ type: 'text', text: 'hi' }] });
+    const options = sdk.query.mock.calls[0][0].options;
+    expect(options.model).toBe('opus[1m]');
+    expect(options.effort).toBe('low');
+    expect(options.permissionMode).toBe('plan');
+
+    // A second runtime over the same overlay: the pick was never only in memory.
+    const reopened = makeSdk({ query: vi.fn(() => makeQuery([{ type: 'result', is_error: false }])) });
+    const { runtime: second } = createRuntime({ sdk: reopened, fs });
+    await second.promptAsync({ sessionID: session.id, directory: '/repo/project', parts: [{ type: 'text', text: 'hi' }] });
+    expect(reopened.query.mock.calls[0][0].options.model).toBe('opus[1m]');
+    expect(reopened.query.mock.calls[0][0].options.permissionMode).toBe('plan');
+  });
+
+  it('keeps a session with no pick on the configured defaults', async () => {
+    const sdk = makeSdk({ query: vi.fn(() => makeQuery([{ type: 'result', is_error: false }])) });
+    const fs = makeFs({ settings: { model: 'sonnet' } });
+    const { runtime } = createRuntime({ sdk, fs, readAppSettings: async () => ({ claudeDefaultEffort: 'medium' }) });
+
+    const session = await runtime.createSession({ directory: '/repo/project' });
+    expect(session.metadata).toBeUndefined();
+
+    await runtime.promptAsync({ sessionID: session.id, directory: '/repo/project', parts: [{ type: 'text', text: 'hi' }] });
+    const options = sdk.query.mock.calls[0][0].options;
+    expect(options.model).toBe('sonnet');
+    expect(options.effort).toBe('medium');
+  });
+
+  it('refuses a creation pick this host does not offer', async () => {
+    const fs = makeFs({ settings: { permissions: { defaultMode: 'default' } } });
+    const { runtime } = createRuntime({ fs });
+
+    const session = await runtime.createSession({
+      directory: '/repo/project',
+      selection: { model: 'haiku', effort: 'ultra', mode: 'bypassPermissions' },
+    });
+    // Only the model survives: the effort is not a level and Bypass is not offered.
+    expect(session.metadata.claude).toEqual({ model: 'haiku' });
+  });
+});
+
 describe('claude backend status and events', () => {
   it('reports running sessions as busy per directory', async () => {
     let release;

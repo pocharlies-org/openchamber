@@ -32,11 +32,30 @@ the way the Claude Code VS Code extension drives its panel.
   `Query.stopTask`); every other write is refused (`subagentWrite`).
 - Permission requests `per_ccc…`, forms `frm_ccc…`.
 
+## What a new session starts on
+
+Three layers, highest first, for the model, the thinking effort and the mode:
+
+1. **The pick of the session** — `POST /api/session` with
+   `metadata.claude = { model, effort, mode }` (the UI's new-Claude-session
+   dialog). `createSession` keeps only the values this host offers, persists
+   them in the Claude overlay (`claude-sessions.json` → `selections`) so a
+   restart before the first turn loses nothing, and seeds `metadata.claude`.
+2. **OpenChamber's defaults** — `claudeDefaultModel` / `claudeDefaultEffort` /
+   `claudeDefaultMode` (Settings › Defaults, scope `profile`), read through the
+   `readAppSettings` the surface is given in `index.js`.
+3. **Claude Code's own** — `modelPicker.options`/`model`, `effortLevel`,
+   `permissions.defaultMode` in `~/.claude/settings.json`.
+
+A turn's own pick (`POST …/model`, `…/claude/mode`, the live session state)
+outranks all three; `GET /api/claude/models` reports the layer-2/3 defaults so
+the dialog opens on them. Nothing here changes a session already running.
+
 ## Parity with the VS Code extension
 
 | VS Code | Here |
 |---|---|
-| Mode indicator: Manual, Edit automatically, Plan, Auto, Bypass | `GET /api/claude/models` → `modes`, `defaultMode`; `POST /api/session/:id/claude/mode {mode}` switches at once (a running turn included). Bypass is offered only when `~/.claude/settings.json` has `skipDangerousModePermissionPrompt: true` or `OPENCHAMBER_CLAUDE_ALLOW_BYPASS=1`. The start mode is `permissions.defaultMode` when offered, else Manual. A mode the CLI switches to by itself (`/plan`, an approved plan) is read from its `system` `init`/`status` messages. OpenCode's agent (`POST …/agent`) never sets it. |
+| Mode indicator: Manual, Edit automatically, Plan, Auto, Bypass | `GET /api/claude/models` → `modes`, `defaultMode`; `POST /api/session/:id/claude/mode {mode}` switches at once (a running turn included). Bypass is offered only when `~/.claude/settings.json` has `skipDangerousModePermissionPrompt: true` or `OPENCHAMBER_CLAUDE_ALLOW_BYPASS=1`. The start mode is, in order: what this session picked at creation (`metadata.claude.mode`), OpenChamber's `claudeDefaultMode` (Settings › Defaults), `permissions.defaultMode` in `~/.claude/settings.json` — each only when this host offers it — else Manual. A mode the CLI switches to by itself (`/plan`, an approved plan) is read from its `system` `init`/`status` messages. OpenCode's agent (`POST …/agent`) never sets it. |
 | Permission prompt (allow once / always / deny / "tell Claude what to do instead") | `canUseTool` → `permission.asked`; reply `POST /api/session/:id/permission/:rid/reply {decision, message?}` → 204. `always` saves the SDK's suggestions (`updatedPermissions`); `save` names them with where they are saved. A plain refusal stops the turn; one with a message hands it to Claude. |
 | `AskUserQuestion` dialog with "Other" | A form: one field per question (`string`/`multiselect`, `custom: true`); the answer goes back as the tool's `answers` (multi-select comma-separated). A cancelled form refuses. |
 | Plan review | `ExitPlanMode` → a permission with `action: 'plan_exit'`, `metadata.plan`. `once` = approve, ask before edits; `always` = approve, edit automatically; `reject` + message = keep planning with that feedback. |
@@ -64,7 +83,9 @@ the UI hides requests of an auto-accepting session.
 
 ## Session metadata published
 
-`metadata.claude = { directory, mode?, cacheTtlMs?, contextWindow? }`;
+`metadata.claude = { directory, mode?, model?, effort?, cacheTtlMs?, contextWindow? }`
+(`model`/`effort` are what the session was created with; the composer reads its
+own per-answer model from the transcript, not from here);
 `metadata.subagent = { agentType, toolUseId, status, startedAt?, endedAt? }` on
 child sessions; `metadata.liveElsewhere`, `metadata.remoteControl` as before.
 
