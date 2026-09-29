@@ -30,7 +30,6 @@ import { FocusModeButton } from './FocusModeButton';
 import { PermissionAutoAcceptButton } from './PermissionAutoAcceptButton';
 import { ComposerMetricsSurface } from './ComposerMetricsSurface';
 import { ComposerStatusSurface } from './ComposerStatusSurface';
-import { ComposerCacheTimer } from './ComposerCacheTimer';
 import type { BtwSelection } from '@/stores/useBtwStore';
 
 const MemoModelControls = React.memo(ModelControls);
@@ -190,7 +189,6 @@ export function ComposerFooter(props: ComposerFooterProps) {
                                     <ClaudeAgentMap sessionId={currentSessionId} directory={directory ?? undefined} />
                                 </>
                                 : null}
-                            <ComposerCacheTimer sessionId={currentSessionId} directory={directory} />
                             <ComposerMetricsSurface
                                 isMobile
                                 sessionId={currentSessionId}
@@ -310,7 +308,6 @@ export function ComposerFooter(props: ComposerFooterProps) {
                                 <ClaudeAgentMap sessionId={currentSessionId} directory={directory ?? undefined} />
                             </>
                             : null}
-                        <ComposerCacheTimer sessionId={currentSessionId} directory={directory} />
                         {isBtw ? <ModelControls className="flex-1 min-w-0 justify-end" sessionId={modelSessionId ?? null} selection={btwSelection} />
                             : currentSessionId && sessionEngine.ownModelCatalog
                                 ? <ClaudeModelControls className="flex-1" sessionId={currentSessionId} directory={directory} />
