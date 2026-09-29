@@ -133,6 +133,37 @@ describe('claude backend listSessions', () => {
     expect(readAiTitle).not.toHaveBeenCalled();
   });
 
+  it('names a prompt-only session by its ai-title, as VS Code does', async () => {
+    const readAiTitle = vi.fn(async () => 'Apagar y relanzar SC-1340');
+    const { runtime } = createRuntime({
+      sdk: makeSdk({
+        listSessions: vi.fn(async () => [sessionInfo({
+          customTitle: '',
+          summary: '',
+          firstPrompt: 'que session esta haciendo SC-1340? apagala y arrancala aqui',
+        })]),
+      }),
+      fs: Object.assign(makeFs(), { stat: vi.fn(async () => ({ mtimeMs: 123 })) }),
+      transcriptSidecar: { locate: async () => '/transcripts/sess-1.jsonl', readAiTitle },
+    });
+
+    const [session] = await runtime.listSessions({ directory: '/repo/project' });
+    expect(session.title).toBe('Apagar y relanzar SC-1340');
+  });
+
+  it('keeps the first prompt when the transcript has no ai-title yet', async () => {
+    const { runtime } = createRuntime({
+      sdk: makeSdk({
+        listSessions: vi.fn(async () => [sessionInfo({ customTitle: '', summary: '' })]),
+      }),
+      fs: Object.assign(makeFs(), { stat: vi.fn(async () => ({ mtimeMs: 123 })) }),
+      transcriptSidecar: { locate: async () => '/transcripts/sess-1.jsonl', readAiTitle: async () => '' },
+    });
+
+    const [session] = await runtime.listSessions({ directory: '/repo/project' });
+    expect(session.title).toBe('first prompt');
+  });
+
   it('maps SDK session info to harness sessions', async () => {
     const { runtime } = createRuntime({
       sdk: makeSdk({ listSessions: vi.fn(async () => [sessionInfo()]) }),

@@ -12,7 +12,7 @@
 
 import os from 'os';
 import path from 'path';
-import { mapClaudeSessionMessages, deriveClaudeTitle, isClaudeTitlePlaceholder, findForkCut, findPromptUuid } from './claude-transcript.js';
+import { mapClaudeSessionMessages, deriveClaudeTitle, isClaudeTitlePlaceholder, hasClaudeExplicitTitle, findForkCut, findPromptUuid } from './claude-transcript.js';
 import { createClaudeRequests } from './claude-requests.js';
 import { createClaudeSessionProcess } from './session-process.js';
 import { createTranscriptSidecar, isSafeId } from './transcript-sidecar.js';
@@ -552,12 +552,15 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
 
   const buildSessionFromInfo = async (info, fallbackDirectory) => {
     let title = deriveClaudeTitle(info);
-    if (isClaudeTitlePlaceholder(title)) {
-      // A session the old Remote Control placeholder titled (see
-      // `remoteControlName`): the CLI persisted that name as the custom title,
-      // so the SDK's answer never shows the summary. The transcript's own
-      // `ai-title` is the title the user expects; without one (a session with
-      // no turns yet) the placeholder stays, honest about being untitled.
+    if (isClaudeTitlePlaceholder(title) || !hasClaudeExplicitTitle(info)) {
+      // VS Code names a session by its `custom-title` first and the `ai-title`
+      // the CLI generated second; the raw first prompt is nobody's title, it
+      // is only what the SDK scan falls back to. So whenever the SDK gave us
+      // no title of its own — no custom title, no summary, or one the old
+      // Remote Control placeholder had written (see `remoteControlName`) —
+      // the transcript's `ai-title` decides, and the two views agree. Without
+      // one (a session with no turns yet) the fallback stays, honest about
+      // being untitled.
       const ai = await aiTitleOf(info.sessionId, info.cwd || fallbackDirectory || undefined);
       if (ai) title = clampText(ai, 120);
     }

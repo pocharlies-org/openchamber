@@ -5,6 +5,7 @@ import {
   deriveClaudeTitle,
   findForkCut,
   findPromptUuid,
+  hasClaudeExplicitTitle,
   isClaudeTitlePlaceholder,
   mapClaudeSessionMessages,
 } from './claude-transcript.js';
@@ -286,6 +287,17 @@ describe('deriveClaudeTitle', () => {
 
   it('truncates long fallback titles', () => {
     expect(deriveClaudeTitle({ firstPrompt: 'x'.repeat(200) })).toHaveLength(120);
+  });
+});
+
+describe('hasClaudeExplicitTitle', () => {
+  it('is true only when the SDK carried a title of its own', () => {
+    expect(hasClaudeExplicitTitle({ customTitle: 'Named' })).toBe(true);
+    expect(hasClaudeExplicitTitle({ summary: 's', firstPrompt: 'p' })).toBe(true);
+    expect(hasClaudeExplicitTitle({ firstPrompt: 'p' })).toBe(false);
+    expect(hasClaudeExplicitTitle({ customTitle: '  ', summary: '' })).toBe(false);
+    expect(hasClaudeExplicitTitle({})).toBe(false);
+    expect(hasClaudeExplicitTitle(undefined)).toBe(false);
   });
 });
 
