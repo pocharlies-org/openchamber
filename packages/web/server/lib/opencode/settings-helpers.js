@@ -542,6 +542,21 @@ export const createSettingsHelpers = (dependencies) => {
       const trimmed = candidate.defaultAgent.trim();
       result.defaultAgent = trimmed.length > 0 ? trimmed : undefined;
     }
+    // Claude session-start defaults (Settings > Defaults). Same shape as
+    // defaultModel/defaultAgent: an empty string clears the override and
+    // falls through to ~/.claude/settings.json, read by the claude runtime.
+    if (typeof candidate.claudeDefaultModel === 'string') {
+      const trimmed = candidate.claudeDefaultModel.trim();
+      result.claudeDefaultModel = trimmed.length > 0 ? trimmed : undefined;
+    }
+    if (typeof candidate.claudeDefaultEffort === 'string') {
+      const trimmed = candidate.claudeDefaultEffort.trim();
+      result.claudeDefaultEffort = trimmed.length > 0 ? trimmed : undefined;
+    }
+    if (typeof candidate.claudeDefaultMode === 'string') {
+      const trimmed = candidate.claudeDefaultMode.trim();
+      result.claudeDefaultMode = trimmed.length > 0 ? trimmed : undefined;
+    }
     if (typeof candidate.smallModelUseDefault === 'boolean') {
       result.smallModelUseDefault = candidate.smallModelUseDefault;
     }
