@@ -259,6 +259,11 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     // (lib/permission-auto-accept, lib/routing), keyed by public session id.
     isAutoAccepting = null,
     evaluatePermission = null,
+    // OpenChamber's own settings (Settings › Defaults), read from its store:
+    // `claudeDefaultModel` / `claudeDefaultEffort` / `claudeDefaultMode` set the
+    // model, thinking level and mode a new Claude session starts on, ahead of
+    // Claude Code's `~/.claude/settings.json`. Absent or unset falls through.
+    readAppSettings = null,
   } = dependencies;
 
   const eventClients = new Set();
@@ -298,7 +303,8 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
   let livePollTimer = null;
 
   /** OpenChamber-side overlay: Claude owns transcripts, not archive state. */
-  let overlay = { archived: {}, pendingTitles: {}, kept: {} };
+  /** `selections` keeps the model/thinking/mode a session was created with. */
+  let overlay = { archived: {}, pendingTitles: {}, kept: {}, selections: {} };
   let overlayLoaded = false;
   let writeLock = Promise.resolve();
 
@@ -383,12 +389,13 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
         archived: parsed?.archived && typeof parsed.archived === 'object' ? parsed.archived : {},
         pendingTitles: parsed?.pendingTitles && typeof parsed.pendingTitles === 'object' ? parsed.pendingTitles : {},
         kept: parsed?.kept && typeof parsed.kept === 'object' ? parsed.kept : {},
+        selections: parsed?.selections && typeof parsed.selections === 'object' ? parsed.selections : {},
       };
     } catch (error) {
       if (!error || error.code !== 'ENOENT') {
         console.warn('[claude-backend] Failed to read overlay:', error);
       }
-      overlay = { archived: {}, pendingTitles: {}, kept: {} };
+      overlay = { archived: {}, pendingTitles: {}, kept: {}, selections: {} };
     }
     overlayLoaded = true;
     return overlay;
@@ -993,6 +1000,13 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
   );
   const forkTitleOf = (title) => (title ? clampText(`${title} (fork)`, 120) : 'Fork');
 
+  /**
+   * A new session, optionally started on a model / thinking level / mode picked
+   * for it (the dialog on `+`). What is not picked here is left to
+   * `resolveTurnSettings`: OpenChamber's defaults, then Claude Code's own
+   * settings. The pick is kept in the overlay, so a session that has not had
+   * its first turn yet keeps it across a restart of this server.
+   */
   const createSession = async (input = {}) => {
     await loadOverlay();
     const sessionId = createSessionId(crypto);
@@ -1004,6 +1018,20 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
       await persistOverlay();
     }
 
+    const settings = await readSettings();
+    const selection = input.selection && typeof input.selection === 'object' ? input.selection : {};
+    const picked = {
+      model: modelIdOf(selection.model),
+      effort: effortIdOf(selection.effort),
+      mode: offeredModeIdOf(selection.mode, settings),
+    };
+    const stored = Object.fromEntries(Object.entries(picked).filter(([, value]) => value));
+    if (Object.keys(stored).length > 0) {
+      overlay.selections[sessionId] = stored;
+      await persistOverlay();
+      rememberState(sessionId, stored);
+    }
+
     const session = buildSession({
       sessionId,
       directory,
@@ -1011,8 +1039,9 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
       createdAt: now,
       updatedAt: now,
     });
-    emitSessionUpdate('session.created', session);
-    return { ...session };
+    const announced = withLiveState(session);
+    emitSessionUpdate('session.created', announced);
+    return { ...announced };
   };
 
   /**
@@ -1346,8 +1375,54 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
   const bypassAllowedBy = (settings) => settings?.skipDangerousModePermissionPrompt === true
     || process.env.OPENCHAMBER_CLAUDE_ALLOW_BYPASS === '1';
 
-  /** The mode a session starts in: the settings' `permissions.defaultMode` when offered, else Manual. */
-  const defaultModeIdOf = (settings) => {
+  /** An effort id this host knows (`low`…`max`), or null. */
+  const effortIdOf = (value) => (typeof value === 'string' && EFFORT_OPTIONS.some((option) => option.id === value.trim())
+    ? value.trim()
+    : null);
+
+  /** A mode id this host offers — Bypass only where it is allowed (see MODE_DEFINITIONS). */
+  const offeredModeIdOf = (value, settings) => {
+    const id = typeof value === 'string' ? MODE_DEFINITIONS[value.trim()]?.id : null;
+    if (!id) return null;
+    return MODE_DEFINITIONS[id].dangerous && !bypassAllowedBy(settings) ? null : id;
+  };
+
+  /** A model id worth carrying, or null. Claude Code takes aliases (`opus`) and full ids. */
+  const modelIdOf = (value) => (typeof value === 'string' && value.trim() ? value.trim() : null);
+
+  /**
+   * OpenChamber's own defaults for a new Claude session (Settings › Defaults),
+   * which outrank Claude Code's `~/.claude/settings.json`: the user configures
+   * the tool here, not in the CLI's file. An unset key, or a value this host
+   * does not offer, is not a default and falls through to the CLI's own.
+   */
+  const appClaudeDefaults = async (settings) => {
+    let stored = null;
+    if (typeof readAppSettings === 'function') {
+      try {
+        stored = await readAppSettings();
+      } catch (error) {
+        console.warn('[claude-backend] OpenChamber settings unreadable:', error?.message ?? error);
+      }
+    }
+    return {
+      model: modelIdOf(stored?.claudeDefaultModel),
+      effort: effortIdOf(stored?.claudeDefaultEffort),
+      mode: offeredModeIdOf(stored?.claudeDefaultMode, settings),
+    };
+  };
+
+  /** The model/thinking/mode a session was created with, kept across restarts. */
+  const creationPickOf = async (sessionId) => {
+    if (!sessionId) return null;
+    const stored = (await loadOverlay()).selections?.[sessionId];
+    return stored && typeof stored === 'object' ? stored : null;
+  };
+
+  /** The mode a session starts in: OpenChamber's default, then the CLI's `permissions.defaultMode`, else Manual. */
+  const defaultModeIdOf = (settings, appMode = null) => {
+    const fromApp = offeredModeIdOf(appMode, settings);
+    if (fromApp) return fromApp;
     const configured = modeIdOf(settings?.permissions?.defaultMode);
     if (!configured) return DEFAULT_MODE_ID;
     if (MODE_DEFINITIONS[configured].dangerous && !bypassAllowedBy(settings)) return DEFAULT_MODE_ID;
@@ -1358,7 +1433,7 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
   const listModes = async () => {
     const settings = await readSettings();
     const allowBypass = bypassAllowedBy(settings);
-    const defaultId = defaultModeIdOf(settings);
+    const defaultId = defaultModeIdOf(settings, (await appClaudeDefaults(settings)).mode);
     return Object.values(MODE_DEFINITIONS)
       .filter((mode) => !mode.dangerous || allowBypass)
       .map((mode) => ({
@@ -1388,23 +1463,36 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     return mode.id;
   };
 
+  /**
+   * What a turn runs on. Nearest choice wins: this turn's pick (the composer),
+   * then what the session is already on (the live process, the mode the CLI
+   * reported), then how it was created, then OpenChamber's defaults, then
+   * Claude Code's own settings.
+   */
   const resolveTurnSettings = async (input = {}) => {
     const settings = await readSettings();
-    // The session's own mode (the mode menu, a plan approval); OpenCode's
-    // agent never picks it — its `plan` agent is not Claude's plan mode.
+    const defaults = await appClaudeDefaults(settings);
     const sessionKey = typeof input.sessionID === 'string' ? input.sessionID.trim() : '';
-    const picked = typeof input.mode === 'string' && MODE_DEFINITIONS[input.mode] ? input.mode : sessionState.get(sessionKey)?.mode;
-    const modeId = picked && MODE_DEFINITIONS[picked] && (!MODE_DEFINITIONS[picked].dangerous || bypassAllowedBy(settings))
-      ? picked
-      : defaultModeIdOf(settings);
-    const effort = EFFORT_OPTIONS.some((option) => option.id === input.variant)
-      ? input.variant
-      : (typeof settings?.effortLevel === 'string' && EFFORT_OPTIONS.some((option) => option.id === settings.effortLevel)
-        ? settings.effortLevel
-        : DEFAULT_EFFORT_ID);
-    const model = typeof input.model?.modelID === 'string' && input.model.modelID.trim().length > 0
-      ? input.model.modelID.trim()
-      : (typeof settings?.model === 'string' && settings.model.trim() ? settings.model.trim() : undefined);
+    const live = sessionState.get(sessionKey);
+    const created = await creationPickOf(sessionKey);
+    // OpenCode's agent never picks the mode — its `plan` agent is not Claude's
+    // plan mode — so it is not consulted here.
+    const modeId = [input.mode, live?.mode, created?.mode]
+      .map((candidate) => offeredModeIdOf(candidate, settings))
+      .find((candidate) => candidate)
+      ?? defaultModeIdOf(settings, defaults.mode);
+    const effort = effortIdOf(input.variant)
+      ?? effortIdOf(live?.effort)
+      ?? effortIdOf(created?.effort)
+      ?? defaults.effort
+      ?? effortIdOf(settings?.effortLevel)
+      ?? DEFAULT_EFFORT_ID;
+    const model = modelIdOf(input.model?.modelID)
+      ?? modelIdOf(live?.model)
+      ?? modelIdOf(created?.model)
+      ?? defaults.model
+      ?? modelIdOf(settings?.model)
+      ?? undefined;
     return { permissionMode: MODE_DEFINITIONS[modeId].permissionMode, effort, model, allowBypass: bypassAllowedBy(settings) };
   };
 
@@ -1697,10 +1785,12 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     }
 
     await loadOverlay();
-    const hadOverlay = Boolean(overlay.archived[sessionId] || overlay.pendingTitles[sessionId] || overlay.kept[sessionId]);
+    const hadOverlay = Boolean(overlay.archived[sessionId] || overlay.pendingTitles[sessionId]
+      || overlay.kept[sessionId] || overlay.selections[sessionId]);
     delete overlay.archived[sessionId];
     delete overlay.pendingTitles[sessionId];
     delete overlay.kept[sessionId];
+    delete overlay.selections[sessionId];
     if (hadOverlay) await persistOverlay();
     invalidateList();
 
@@ -1744,12 +1834,11 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
   const getControlSurface = async () => {
     const models = await readModelCatalog();
     const settings = await readSettings();
-    const defaultModelId = (typeof settings?.model === 'string' && settings.model.trim())
-      ? settings.model.trim()
-      : models[0]?.id;
-    const defaultEffort = EFFORT_OPTIONS.some((option) => option.id === settings?.effortLevel)
-      ? settings.effortLevel
-      : DEFAULT_EFFORT_ID;
+    const defaults = await appClaudeDefaults(settings);
+    // The defaults the composer and the new-session dialog open on: what the
+    // user set in OpenChamber first, Claude Code's own settings otherwise.
+    const defaultModelId = modelIdOf(defaults.model) ?? modelIdOf(settings?.model) ?? models[0]?.id;
+    const defaultEffort = effortIdOf(defaults.effort) ?? effortIdOf(settings?.effortLevel) ?? DEFAULT_EFFORT_ID;
 
     const interactionModes = await listModes();
 
