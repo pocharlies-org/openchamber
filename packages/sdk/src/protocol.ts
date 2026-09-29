@@ -329,6 +329,8 @@ export const hostMessageSchema = z.union([
         engine: z.string().min(1),
         providerId: z.string().nullable(),
         lastAssistantAt: z.number().nullable(),
+        cacheTtlMs: z.number().nullable().default(null),
+        compacted: z.boolean().default(false),
       }),
     }),
   }),
