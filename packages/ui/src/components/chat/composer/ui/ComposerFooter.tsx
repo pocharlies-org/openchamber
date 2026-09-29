@@ -36,7 +36,6 @@ import type { PermissionMode } from '@/stores/utils/permissionAutoAccept';
 import type { BtwSelection } from '@/stores/useBtwStore';
 import { ComposerMetricsSurface } from './ComposerMetricsSurface';
 import { ComposerStatusSurface } from './ComposerStatusSurface';
-import { ComposerCacheTimer } from './ComposerCacheTimer';
 
 const MemoModelControls = React.memo(ModelControls);
 const MemoComposerDictation = React.memo(ComposerDictation);
@@ -211,7 +210,6 @@ export function ComposerFooter(props: ComposerFooterProps) {
                                     <ClaudeAgentMap sessionId={currentSessionId} directory={directory ?? undefined} />
                                 </>
                                 : null}
-                            <ComposerCacheTimer sessionId={currentSessionId} directory={directory} />
                             <ComposerMetricsSurface
                                 isMobile
                                 sessionId={currentSessionId}
@@ -331,7 +329,6 @@ export function ComposerFooter(props: ComposerFooterProps) {
                                 <ClaudeAgentMap sessionId={currentSessionId} directory={directory ?? undefined} />
                             </>
                             : null}
-                        <ComposerCacheTimer sessionId={currentSessionId} directory={directory} />
                          {parallelRun ? <div className="flex-1" />
                              : isBtw ? <ModelControls className="flex-1 min-w-0 justify-end" sessionId={modelSessionId ?? null} selection={btwSelection} />
                              : pinnedSelection ? <ModelControls className="flex-1 min-w-0 justify-end" sessionId={currentSessionId} selection={pinnedSelection} agentSelectable />
