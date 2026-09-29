@@ -1,6 +1,7 @@
 import type { Session } from '@/lib/opencode/model';
 import type { SessionNode } from '../types';
 import type { SidebarSessionLocation } from './sessionLocation';
+import { isCompanySession } from '../folders/companySessionFlag';
 
 type RecentSessionLocation = SidebarSessionLocation;
 
@@ -67,9 +68,11 @@ const getSessionUpdatedAt = (session: Session): number => {
 };
 
 // Recent contains non-archived root sessions that are active now or were
-// updated within the retention window. The caller applies shared lifecycle
-// ordering after this membership filter; batching ("Show more") handles long
-// windows in the UI.
+// updated within the retention window. Company dispatches are left out: they
+// arrive in a steady stream and are listed in the "Compañía" folder of their
+// project instead, so Recent stays the list of Dani's own sessions. The caller
+// applies shared lifecycle ordering after this membership filter; batching
+// ("Show more") handles long windows in the UI.
 export const deriveRecentSessions = (
   sessions: Session[],
   activeSessionIds: ReadonlySet<string>,
@@ -77,7 +80,7 @@ export const deriveRecentSessions = (
 ): Session[] => {
   const minUpdatedAt = now - RECENT_SESSION_MAX_AGE_MS;
   return sessions.filter((session) => {
-    if (isArchivedSession(session) || isSubtaskSession(session)) {
+    if (isArchivedSession(session) || isSubtaskSession(session) || isCompanySession(session)) {
       return false;
     }
     return activeSessionIds.has(session.id) || getSessionUpdatedAt(session) >= minUpdatedAt;
