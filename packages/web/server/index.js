@@ -1258,6 +1258,9 @@ const claudeSurface = createClaudeSurface({
       }))
       .filter((project) => project.worktree);
   },
+  // OpenChamber's own settings, so its Defaults for a Claude session (model,
+  // thinking level, mode) outrank Claude Code's ~/.claude/settings.json.
+  readAppSettings: async () => readSettingsFromDisk(),
   // Archive state and titles staged before a session's first turn: Claude Code
   // owns the transcripts, OpenChamber owns this overlay.
   overlayFilePath: path.join(OPENCHAMBER_DATA_DIR, 'claude-sessions.json'),

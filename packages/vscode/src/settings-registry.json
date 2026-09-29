@@ -480,6 +480,15 @@
     "defaultAgent": {
       "scope": "profile"
     },
+    "claudeDefaultModel": {
+      "scope": "profile"
+    },
+    "claudeDefaultEffort": {
+      "scope": "profile"
+    },
+    "claudeDefaultMode": {
+      "scope": "profile"
+    },
     "smallModelUseDefault": {
       "scope": "profile"
     },

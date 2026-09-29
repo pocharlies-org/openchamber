@@ -13,6 +13,7 @@ import {
 import { MobileOverlayPanel } from '@/components/ui/MobileOverlayPanel';
 import { Icon } from "@/components/icon/Icon";
 import { DirectoryExplorerDialog } from './DirectoryExplorerDialog';
+import { NewClaudeSessionDialog } from './NewClaudeSessionDialog';
 import { cn, formatPathForDisplay } from '@/lib/utils';
 import type { Session } from '@/lib/opencode/model';
 import type { WorktreeMetadata } from '@/types/worktree';
@@ -26,7 +27,7 @@ import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { useDeviceInfo } from '@/lib/device';
-import { sessionEvents } from '@/lib/sessionEvents';
+import { sessionEvents, type NewClaudeSessionRequest } from '@/lib/sessionEvents';
 import { useI18n } from '@/lib/i18n';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 
@@ -56,6 +57,7 @@ export const SessionDialogs: React.FC = () => {
     const { git, sourceControl } = useRuntimeAPIs();
     const [isDirectoryDialogOpen, setIsDirectoryDialogOpen] = React.useState(false);
     const [hasShownInitialDirectoryPrompt, setHasShownInitialDirectoryPrompt] = React.useState(false);
+    const [newClaudeSession, setNewClaudeSession] = React.useState<NewClaudeSessionRequest | null>(null);
     const [deleteDialog, setDeleteDialog] = React.useState<DeleteDialogState | null>(null);
     const [deleteDialogSummaries, setDeleteDialogSummaries] = React.useState<Array<{ session: Session; metadata: WorktreeMetadata }>>([]);
     const [deleteDialogShouldRemoveRemote, setDeleteDialogShouldRemoveRemote] = React.useState(false);
@@ -201,6 +203,15 @@ export const SessionDialogs: React.FC = () => {
     React.useEffect(() => {
         return sessionEvents.onDirectoryRequest(() => {
             setIsDirectoryDialogOpen(true);
+        });
+    }, []);
+
+    // The `+` of a Claude project asks what the session starts on before it
+    // exists; the request came from a folder or group, so the session it
+    // creates has to be handed back to it.
+    React.useEffect(() => {
+        return sessionEvents.onNewClaudeSessionRequest((payload) => {
+            setNewClaudeSession(payload);
         });
     }, []);
 
@@ -841,6 +852,15 @@ export const SessionDialogs: React.FC = () => {
                 open={isDirectoryDialogOpen}
                 onOpenChange={setIsDirectoryDialogOpen}
             />
+
+            {newClaudeSession ? (
+                <NewClaudeSessionDialog
+                    open
+                    onOpenChange={(open) => { if (!open) setNewClaudeSession(null); }}
+                    directory={newClaudeSession.directory}
+                    onCreated={newClaudeSession.onCreated}
+                />
+            ) : null}
         </>
     );
 };

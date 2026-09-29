@@ -834,3 +834,76 @@ describe('POST /api/session/:id/claude/rewind', () => {
     expect((await request(app).post('/api/session/ses_cccsess-1~ag1/claude/rewind').send({ messageID: 'msg_x' })).status).toBe(400);
   });
 });
+
+describe('POST /api/session with a picked start', () => {
+  const waitFor = async (check) => {
+    for (let index = 0; index < 50; index += 1) {
+      const value = await check();
+      if (value) return value;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    throw new Error('timed out');
+  };
+
+  const recordingSdk = (queries) => ({
+    listSessions: async () => [],
+    getSessionMessages: async () => [],
+    getSessionInfo: async () => null,
+    renameSession: async () => {},
+    query: ({ prompt, options }) => {
+      queries.push(options);
+      return (async function* stream() {
+        for await (const message of prompt) {
+          yield { ...message, isReplay: true };
+          yield { type: 'result', is_error: false };
+        }
+      })();
+    },
+  });
+
+  const create = async (app, claude) => {
+    const response = await request(app).post('/api/session').send({
+      metadata: claude ? { backend: 'claude', claude } : { backend: 'claude' },
+      location: { directory: '/repo/project' },
+    });
+    expect(response.status).toBe(200);
+    return response.body.data.id;
+  };
+
+  it('runs the first turn on what the dialog picked for the session', async () => {
+    const queries = [];
+    const { app } = surfaceApp({
+      sdk: recordingSdk(queries),
+      // OpenChamber's defaults say otherwise; the pick for this session wins.
+      readAppSettings: async () => ({ claudeDefaultModel: 'haiku', claudeDefaultEffort: 'max', claudeDefaultMode: 'auto' }),
+    });
+
+    const sessionId = await create(app, { model: 'opus[1m]', effort: 'low', mode: 'plan' });
+    await request(app).post(`/api/session/${sessionId}/prompt`).send({ id: 'msg_s1', text: 'go' });
+    await waitFor(() => queries.length === 1);
+    expect(queries[0]).toMatchObject({ model: 'opus[1m]', effort: 'low', permissionMode: 'plan' });
+  });
+
+  it('runs the first turn on the OpenChamber defaults when nothing was picked', async () => {
+    const queries = [];
+    const { app } = surfaceApp({
+      sdk: recordingSdk(queries),
+      readAppSettings: async () => ({ claudeDefaultModel: 'haiku', claudeDefaultEffort: 'max', claudeDefaultMode: 'auto' }),
+    });
+
+    const sessionId = await create(app, null);
+    await request(app).post(`/api/session/${sessionId}/prompt`).send({ id: 'msg_s2', text: 'go' });
+    await waitFor(() => queries.length === 1);
+    expect(queries[0]).toMatchObject({ model: 'haiku', effort: 'max', permissionMode: 'auto' });
+  });
+
+  it('drops a picked mode the host does not offer instead of starting on it', async () => {
+    const queries = [];
+    const { app } = surfaceApp({ sdk: recordingSdk(queries) });
+
+    const sessionId = await create(app, { model: 'sonnet', mode: 'bypassPermissions' });
+    await request(app).post(`/api/session/${sessionId}/prompt`).send({ id: 'msg_s3', text: 'go' });
+    await waitFor(() => queries.length === 1);
+    expect(queries[0]).toMatchObject({ model: 'sonnet', permissionMode: 'default' });
+  });
+});
