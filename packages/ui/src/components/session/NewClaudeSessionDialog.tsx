@@ -28,6 +28,7 @@ import { useI18n, type I18nKey } from '@/lib/i18n';
 import { cn, formatPathForDisplay } from '@/lib/utils';
 import type { Session } from '@/lib/opencode/model';
 import { createClaudeSession } from '@/sync/session-actions';
+import { updateDesktopSettings } from '@/lib/persistence';
 
 /** The mode names and glyphs the composer's mode indicator already uses. */
 const MODE_PRESENTATION: Record<string, { label: I18nKey; icon: IconName }> = {
@@ -122,6 +123,12 @@ export const NewClaudeSessionDialog: React.FC<{
         onOpenChange(false);
     }, [directory, effort, modelId, mode, onCreated, onOpenChange, t]);
 
+    /** Starts the session and stops asking: the next `+` goes straight in. */
+    const handleCreateAndStopAsking = React.useCallback(async () => {
+        await updateDesktopSettings({ claudeAskSessionDefaults: false }).catch(() => undefined);
+        await handleCreate();
+    }, [handleCreate]);
+
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="max-w-[min(440px,calc(100vw-2rem))]">
@@ -160,7 +167,15 @@ export const NewClaudeSessionDialog: React.FC<{
                     ) : null}
                 </div>
 
-                <DialogFooter>
+                <DialogFooter className="gap-2">
+                    <Button
+                        variant="ghost"
+                        className="mr-auto text-muted-foreground"
+                        onClick={() => { void handleCreateAndStopAsking(); }}
+                        disabled={isCreating}
+                    >
+                        {t('dialog.claudeNew.dontAsk')}
+                    </Button>
                     <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={isCreating}>
                         {t('sessions.sidebar.dialogs.cancel')}
                     </Button>

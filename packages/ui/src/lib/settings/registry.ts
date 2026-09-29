@@ -466,6 +466,9 @@ export const SETTINGS_REGISTRY = {
   claudeDefaultModel: field({ scope: 'profile', parse: parseNonEmptyString }),
   claudeDefaultEffort: field({ scope: 'profile', parse: parseNonEmptyString }),
   claudeDefaultMode: field({ scope: 'profile', parse: parseNonEmptyString }),
+  // Opt-in: when false (the default) the `+` of a Claude project starts the
+  // session on the three values above without asking.
+  claudeAskSessionDefaults: field({ scope: 'profile', parse: parseBoolean }),
   smallModelUseDefault: field({ scope: 'profile', parse: parseBoolean }),
   smallModelOverride: field({ scope: 'profile', parse: parseNonEmptyString }),
   walkthroughModelOverride: field({ scope: 'profile', parse: parseNonEmptyString }),
