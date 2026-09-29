@@ -23,12 +23,48 @@ import { useConfigStore } from '@/stores/useConfigStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { useSelectionStore } from '@/sync/selection-store';
 import { useSessionUIStore } from '@/sync/session-ui-store';
-import { useI18n } from '@/lib/i18n';
+import { useI18n, type I18nKey } from '@/lib/i18n';
 import { parseModelIdentifier } from '@/lib/modelIdentifier';
+import { fetchClaudeModelCatalog, type ClaudeModelCatalog } from '@/lib/claudeModels';
 import { isAutoModel } from '@/lib/routing/autoModel';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { isPrimaryMode } from '@/components/chat/mobileControlsUtils';
 import { listModelVariantIds, type ModelVariantSource } from '@/lib/modelVariants';
+
+/** Radix gives an empty select value no entry; this one stands for "unset". */
+const CLAUDE_CLI_DEFAULT = '__claude_cli_default__';
+
+/** The permission modes, named as the composer's mode indicator names them. */
+const CLAUDE_MODE_LABELS: Record<string, I18nKey> = {
+  default: 'chat.claudeMode.default',
+  acceptEdits: 'chat.claudeMode.acceptEdits',
+  plan: 'chat.claudeMode.plan',
+  auto: 'chat.claudeMode.auto',
+  bypassPermissions: 'chat.claudeMode.bypassPermissions',
+};
+
+/** One of the three Claude defaults: its catalog options, plus "the CLI's own". */
+const ClaudeDefaultSelect: React.FC<{
+  value: string;
+  options: Array<{ id: string; label: string }>;
+  unsetLabel: string;
+  onChange: (value: string) => void;
+}> = ({ value, options, unsetLabel, onChange }) => {
+  const current = value ? options.find((option) => option.id === value) : undefined;
+  return (
+    <Select value={value || CLAUDE_CLI_DEFAULT} onValueChange={onChange}>
+      <SelectTrigger size={SETTINGS_SELECT_SIZE} className={SETTINGS_SELECT_ROW_TRIGGER_CLASS}>
+        <SelectValue>{current?.label ?? unsetLabel}</SelectValue>
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value={CLAUDE_CLI_DEFAULT}>{unsetLabel}</SelectItem>
+        {options.map((option) => (
+          <SelectItem key={option.id} value={option.id}>{option.label}</SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+};
 
 const getDisplayModel = (
   storedModel: string | undefined
@@ -87,6 +123,12 @@ export const DefaultsSettings: React.FC = () => {
   const [smallModelOverride, setSmallModelOverride] = React.useState<string | undefined>();
   const [smallModelProviders, setSmallModelProviders] = React.useState<string[]>([]);
   const [walkthroughModelOverride, setWalkthroughModelOverride] = React.useState<string | undefined>();
+  // A new Claude Code session's start-of-session defaults. Empty means the
+  // CLI's own (~/.claude/settings.json), which is what the pick falls through to.
+  const [claudeModel, setClaudeModel] = React.useState('');
+  const [claudeEffort, setClaudeEffort] = React.useState('');
+  const [claudeMode, setClaudeMode] = React.useState('');
+  const [claudeCatalog, setClaudeCatalog] = React.useState<ClaudeModelCatalog | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
 
   const parsedModel = React.useMemo(() => getDisplayModel(defaultModel), [defaultModel]);
@@ -112,6 +154,9 @@ export const DefaultsSettings: React.FC = () => {
           if (walkthroughOverride) {
             setWalkthroughModelOverride(walkthroughOverride);
           }
+          setClaudeModel(data.claudeDefaultModel?.trim() ?? '');
+          setClaudeEffort(data.claudeDefaultEffort?.trim() ?? '');
+          setClaudeMode(data.claudeDefaultMode?.trim() ?? '');
         }
       } catch (error) {
         console.warn('Failed to load defaults settings:', error);
@@ -121,6 +166,33 @@ export const DefaultsSettings: React.FC = () => {
     };
     loadSettings();
   }, []);
+
+  React.useEffect(() => {
+    // The catalog is Claude Code's own picker, served by the server: the same
+    // options the new-session dialog and the composer list.
+    let cancelled = false;
+    void fetchClaudeModelCatalog().then((catalog) => {
+      if (!cancelled) setClaudeCatalog(catalog);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleClaudeDefaultChange = React.useCallback(
+    async (key: 'claudeDefaultModel' | 'claudeDefaultEffort' | 'claudeDefaultMode', value: string) => {
+      const next = value === CLAUDE_CLI_DEFAULT ? '' : value;
+      if (key === 'claudeDefaultModel') setClaudeModel(next);
+      if (key === 'claudeDefaultEffort') setClaudeEffort(next);
+      if (key === 'claudeDefaultMode') setClaudeMode(next);
+      try {
+        await updateDesktopSettings({ [key]: next });
+      } catch (error) {
+        console.warn('Failed to save the Claude default:', error);
+      }
+    },
+    []
+  );
 
   const handleModelChange = React.useCallback(
     async (providerId: string, modelId: string) => {
@@ -434,6 +506,50 @@ export const DefaultsSettings: React.FC = () => {
               </SettingsFieldRow>
             </SettingsInset>
           </div>
+        </div>
+      </SettingsSection>
+
+      <SettingsSection title={t('settings.openchamber.defaults.claude.title')} divider>
+        <div className="space-y-3">
+          <SettingsFieldRow
+            settingsItem="sessions.claude-default-model"
+            label={t('settings.openchamber.defaults.claude.model')}
+            info={t('settings.openchamber.defaults.claude.description')}
+          >
+            <ClaudeDefaultSelect
+              value={claudeModel}
+              options={(claudeCatalog?.models ?? []).map((entry) => ({ id: entry.id, label: entry.label }))}
+              onChange={(value) => { void handleClaudeDefaultChange('claudeDefaultModel', value); }}
+              unsetLabel={t('settings.openchamber.defaults.claude.unset')}
+            />
+          </SettingsFieldRow>
+
+          <SettingsFieldRow
+            settingsItem="sessions.claude-default-thinking"
+            label={t('settings.openchamber.defaults.claude.thinking')}
+          >
+            <ClaudeDefaultSelect
+              value={claudeEffort}
+              options={(claudeCatalog?.efforts ?? []).map((entry) => ({ id: entry.id, label: entry.label }))}
+              onChange={(value) => { void handleClaudeDefaultChange('claudeDefaultEffort', value); }}
+              unsetLabel={t('settings.openchamber.defaults.claude.unset')}
+            />
+          </SettingsFieldRow>
+
+          <SettingsFieldRow
+            settingsItem="sessions.claude-default-mode"
+            label={t('settings.openchamber.defaults.claude.mode')}
+          >
+            <ClaudeDefaultSelect
+              value={claudeMode}
+              options={(claudeCatalog?.modes ?? []).map((entry) => ({
+                id: entry.id,
+                label: CLAUDE_MODE_LABELS[entry.id] ? t(CLAUDE_MODE_LABELS[entry.id]) : entry.label,
+              }))}
+              onChange={(value) => { void handleClaudeDefaultChange('claudeDefaultMode', value); }}
+              unsetLabel={t('settings.openchamber.defaults.claude.unset')}
+            />
+          </SettingsFieldRow>
         </div>
       </SettingsSection>
     </>

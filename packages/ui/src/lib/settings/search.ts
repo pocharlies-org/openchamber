@@ -449,6 +449,25 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     keywords: ['agent', 'new sessions'],
   },
   {
+    id: 'sessions.claude-default-model',
+    page: 'sessions',
+    titleKey: 'settings.openchamber.defaults.claude.model',
+    descriptionKey: 'settings.openchamber.defaults.claude.description',
+    keywords: ['claude', 'claude code', 'model', 'new sessions'],
+  },
+  {
+    id: 'sessions.claude-default-thinking',
+    page: 'sessions',
+    titleKey: 'settings.openchamber.defaults.claude.thinking',
+    keywords: ['claude', 'thinking', 'reasoning', 'effort'],
+  },
+  {
+    id: 'sessions.claude-default-mode',
+    page: 'sessions',
+    titleKey: 'settings.openchamber.defaults.claude.mode',
+    keywords: ['claude', 'permission mode', 'plan', 'auto', 'bypass'],
+  },
+  {
     id: 'sessions.deletion-dialog',
     page: 'sessions',
     titleKey: 'settings.openchamber.defaults.field.showDeletionDialog',

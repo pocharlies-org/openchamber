@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils';
 import { useUIStore } from '@/stores/useUIStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
-import { createClaudeSession } from '@/sync/session-actions';
+import { requestNewClaudeSession } from '@/sync/session-actions';
 import { useI18n } from '@/lib/i18n';
 import { WindowsWindowControls } from '@/components/desktop/WindowsWindowControls';
 import { formatShortcutForDisplay, getEffectiveShortcutCombo } from '@/lib/shortcuts';
@@ -52,7 +52,7 @@ export const TitlebarLeftControls: React.FC = () => {
   });
   const handleNewClaudeSession = React.useCallback(() => {
     useUIStore.getState().closeMainSurfaces();
-    void createClaudeSession(activeProjectPath);
+    requestNewClaudeSession(activeProjectPath);
   }, [activeProjectPath]);
   const { usesFramelessChrome, side: windowControlsSide } = useDesktopWindowControlsLayout();
 

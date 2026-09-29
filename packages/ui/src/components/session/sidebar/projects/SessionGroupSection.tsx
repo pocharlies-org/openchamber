@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Icon } from "@/components/icon/Icon";
 import { cn } from '@/lib/utils';
 import { sessionEvents } from '@/lib/sessionEvents';
-import { createClaudeSession } from '@/sync/session-actions';
+import { requestNewClaudeSession } from '@/sync/session-actions';
 import { useUIStore } from '@/stores/useUIStore';
 import { SessionFolderItem } from '../../SessionFolderItem';
 import type { SortableDragHandleProps } from './sortableItems';
@@ -711,7 +711,7 @@ function SessionGroupSectionBase(props: SessionGroupSectionProps): React.ReactNo
               return () => {
                 if (projectId && projectId !== activeProjectId) setActiveProjectIdOnly(projectId);
                 if (mobileVariant) setSessionSwitcherOpen(false);
-                void createClaudeSession(claudeDirectory);
+                requestNewClaudeSession(claudeDirectory);
               };
             })()}
             hideActions={false}

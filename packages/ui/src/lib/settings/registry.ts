@@ -460,6 +460,12 @@ export const SETTINGS_REGISTRY = {
   defaultModel: field({ scope: 'profile', parse: parseNonEmptyString }),
   defaultVariant: field({ scope: 'profile', parse: parseNonEmptyString }),
   defaultAgent: field({ scope: 'profile', parse: parseNonEmptyString }),
+  // A Claude Code session's own start-of-session defaults, so they are set in
+  // OpenChamber instead of ~/.claude/settings.json. They outrank the CLI's
+  // `model` / `effortLevel` / `permissions.defaultMode`; empty falls through.
+  claudeDefaultModel: field({ scope: 'profile', parse: parseNonEmptyString }),
+  claudeDefaultEffort: field({ scope: 'profile', parse: parseNonEmptyString }),
+  claudeDefaultMode: field({ scope: 'profile', parse: parseNonEmptyString }),
   smallModelUseDefault: field({ scope: 'profile', parse: parseBoolean }),
   smallModelOverride: field({ scope: 'profile', parse: parseNonEmptyString }),
   walkthroughModelOverride: field({ scope: 'profile', parse: parseNonEmptyString }),

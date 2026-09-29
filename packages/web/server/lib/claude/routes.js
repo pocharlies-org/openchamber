@@ -623,7 +623,10 @@ export const createClaudeSurface = (dependencies = {}) => {
       if (!isClaude) return next();
       const directory = body.location?.directory || body.directory || directoryOf(req);
       return runtime
-        .createSession({ directory, title: body.title })
+        // `metadata.claude` carries what the new-session dialog picked: the
+        // model, thinking level and mode this session starts on. The runtime
+        // keeps only the values this host offers.
+        .createSession({ directory, title: body.title, selection: body.metadata?.claude })
         .then(async (session) => {
           if (session.directory) workingDirectories.set(session.id, session.directory);
           await refreshProjects();

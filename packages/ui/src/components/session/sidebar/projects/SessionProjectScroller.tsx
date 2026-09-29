@@ -14,7 +14,7 @@ import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
 import { Button } from '@/components/ui/button';
 import { formatDirectoryName, formatPathForDisplay } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n';
-import { createClaudeSession } from '@/sync/session-actions';
+import { requestNewClaudeSession } from '@/sync/session-actions';
 import { requestDirectoryAccess } from '@/lib/desktop';
 import { sessionEvents } from '@/lib/sessionEvents';
 import { CHAT_DRAFT_PROJECT_ID } from '@/lib/chatDirectories';
@@ -303,7 +303,7 @@ function SessionProjectScrollerComponent({ model, view, actions }: Props): React
             setActiveProjectIdOnly: actions.setActiveProjectIdOnly,
             setSessionSwitcherOpen: actions.setSessionSwitcherOpen,
           });
-          void createClaudeSession(project.normalizedPath);
+          requestNewClaudeSession(project.normalizedPath);
         }}
         onNewWorktreeSession={() => {
           prepareSessionProjectAction({
@@ -384,8 +384,9 @@ function SessionProjectScrollerComponent({ model, view, actions }: Props): React
                 setActiveProjectIdOnly: actions.setActiveProjectIdOnly,
                 setSessionSwitcherOpen: actions.setSessionSwitcherOpen,
               });
-              void createClaudeSession(claudeDirectory).then((session) => {
-                // Created from a folder, so it has to land in that folder.
+              // Created from a folder, so it has to land in that folder —
+              // whenever the dialog hands it back.
+              requestNewClaudeSession(claudeDirectory, (session) => {
                 if (session && scopeKey) {
                   useSessionFoldersStore.getState().addSessionToFolder(scopeKey, folderId, session.id);
                 }
