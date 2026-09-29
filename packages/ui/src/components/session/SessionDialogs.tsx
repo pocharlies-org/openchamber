@@ -26,6 +26,7 @@ import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { useDeviceInfo } from '@/lib/device';
 import { sessionEvents, type NewClaudeSessionRequest } from '@/lib/sessionEvents';
+import { loadDesktopSettings } from '@/lib/persistence';
 import { useI18n } from '@/lib/i18n';
 
 const renderToastDescription = (text?: string) =>
@@ -211,11 +212,24 @@ export const SessionDialogs: React.FC = () => {
     // The `+` of a Claude project asks what the session starts on before it
     // exists; the request came from a folder or group, so the session it
     // creates has to be handed back to it.
+    //
+    // Asking is opt-in (`claudeAskSessionDefaults`). By default the click
+    // starts the session straight away on this host's defaults — the same
+    // three picks are in the composer, so the window only cost a click.
     React.useEffect(() => {
-        return sessionEvents.onNewClaudeSessionRequest((payload) => {
-            setNewClaudeSession(payload);
+        return sessionEvents.onNewClaudeSessionRequest(async (payload) => {
+            const settings = await loadDesktopSettings().catch(() => null);
+            if (settings?.claudeAskSessionDefaults === true) {
+                setNewClaudeSession(payload);
+                return;
+            }
+            const session = await sessionActions.createClaudeSession(payload.directory).catch(() => null);
+            if (!session) {
+                toast.error(t('dialog.claudeNew.failed'));
+            }
+            payload.onCreated?.(session);
         });
-    }, []);
+    }, [t]);
 
     React.useEffect(() => {
         if (!deleteDialog) {

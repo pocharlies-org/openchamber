@@ -787,6 +787,7 @@ describe('settings registry gate', () => {
     defaultModel: 'anthropic/claude', defaultVariant: 'high', defaultAgent: 'build', smallModelUseDefault: false, smallModelOverride: 'anthropic/haiku',
     walkthroughModelOverride: 'anthropic/claude', zenModel: 'zen/model',
     claudeDefaultModel: 'anthropic/claude', claudeDefaultEffort: 'high', claudeDefaultMode: 'plan',
+    claudeAskSessionDefaults: true,
     favoriteModels: [{ providerID: 'anthropic', modelID: 'claude' }], hiddenModels: [{ providerID: 'openai', modelID: 'gpt' }], collapsedModelProviders: ['openai'],
     recentModels: [{ providerID: 'anthropic', modelID: 'claude' }], recentAgents: ['build'], recentEfforts: { 'anthropic/claude': ['high'] }, providerOrder: ['anthropic'],
     sessionRecapEnabled: true, sessionSuggestionEnabled: true, sessionGoalEnabled: true, sessionGoalDefaultBudgetEnabled: true, sessionGoalDefaultBudget: 5,
