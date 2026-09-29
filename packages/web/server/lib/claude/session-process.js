@@ -85,7 +85,7 @@ export const toCliContent = (content, { asCommand = false } = {}) => {
  * @param {string} dependencies.directory
  * @param {object} dependencies.options SDK query options, minus `prompt`
  * @param {string} [dependencies.model] model the process was started with
- * @param {{ name: string, reattachSessionId?: string } | null} [dependencies.remoteControl]
+ * @param {{ name?: string, reattachSessionId?: string } | null} [dependencies.remoteControl]
  *   enable Remote Control under this name, reattaching an existing remote session when given
  * @param {(payload: object) => void} dependencies.emit directory-scoped event emitter
  * @param {(status: object) => void} dependencies.setStatus busy/idle publisher
