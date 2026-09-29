@@ -359,6 +359,31 @@ function SessionProjectScrollerComponent({ model, view, actions }: Props): React
             });
             actions.openNewSessionDraft({ selectedProjectId: row.projectId, directoryOverride: row.scopeDirectory ?? row.group.directory, targetFolderId: row.folder.id, target: row.group.draftTarget });
           }}
+          onNewClaudeSession={(() => {
+            // The virtualized list is the only path that renders folder headers
+            // (SessionGroupSection does it with renderBody={false}), so this is
+            // where the folder "+" has to be given the tool choice — without it
+            // the button silently drops back to jumping straight to the draft.
+            const claudeDirectory = row.scopeDirectory ?? row.group.directory;
+            if (!claudeDirectory) return undefined;
+            const scopeKey = row.scopeKey;
+            const folderId = row.folder.id;
+            return () => {
+              prepareSessionProjectAction({
+                projectId: row.projectId,
+                mobileVariant: view.mobileVariant,
+                closeMobileSwitcher: true,
+                setActiveProjectIdOnly: actions.setActiveProjectIdOnly,
+                setSessionSwitcherOpen: actions.setSessionSwitcherOpen,
+              });
+              void createClaudeSession(claudeDirectory).then((session) => {
+                // Created from a folder, so it has to land in that folder.
+                if (session && scopeKey) {
+                  useSessionFoldersStore.getState().addSessionToFolder(scopeKey, folderId, session.id);
+                }
+              });
+            };
+          })()}
           archivedBucket={row.archived}
         />}
       </DroppableFolderWrapper>;
