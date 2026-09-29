@@ -76,3 +76,62 @@ test('archive search uses exact IDs and preserves title search and archive membe
   expect(await search('releaze')).toEqual(['Release notes']);
   expect(await search('')).toHaveLength(2);
 });
+
+const claudeSession = (id: string, title: string, archived = 2): Session => ({
+  ...session(id, title, archived),
+  metadata: { backend: 'claude' },
+});
+
+test('archive rows glyph Claude sessions only, and the tool filter appears when both tools are archived', async () => {
+  useGlobalSessionsStore.setState({
+    archivedSessions: [session('ses_opencode1', 'Native chat', 3), claudeSession('ses_claude1', 'Claude chat', 2)],
+    activeSessions: [],
+  });
+  await act(async () => root.render(<I18nProvider><ArchiveView /></I18nProvider>));
+  const rows = [...document.querySelectorAll('[role="button"]')];
+  const claudeRow = rows.find((row) => row.textContent?.includes('Claude chat'));
+  const opencodeRow = rows.find((row) => row.textContent?.includes('Native chat'));
+  expect(claudeRow?.querySelector('svg[aria-label="Claude Code"]')).toBeTruthy();
+  expect(opencodeRow?.querySelector('svg[aria-label="Claude Code"]')).toBeFalsy();
+  const chips = [...document.querySelectorAll('button[aria-pressed]')];
+  expect(chips.map((chip) => chip.textContent)).toEqual(['All tools', 'opencode', 'Claude Code']);
+});
+
+test('archive tool filter narrows the list, the search and the counts together', async () => {
+  useGlobalSessionsStore.setState({
+    archivedSessions: [
+      session('ses_opencode1', 'Native chat', 3),
+      claudeSession('ses_claude1', 'Claude chat', 2),
+      claudeSession('ses_claude2', 'Claude rewind', 1),
+    ],
+    activeSessions: [],
+  });
+  await act(async () => root.render(<I18nProvider><ArchiveView /></I18nProvider>));
+  const clickChip = async (label: string) => {
+    const chip = [...document.querySelectorAll('button[aria-pressed]')].find((c) => c.textContent === label);
+    if (!chip) throw new Error(`Chip missing: ${label}`);
+    await act(async () => { chip.click(); });
+    return {
+      titles: [...document.querySelectorAll('[role="button"]')].map((row) => row.textContent ?? ''),
+      count: document.querySelector('span.self-start')?.textContent ?? '',
+    };
+  };
+  const claude = await clickChip('Claude Code');
+  expect(claude.titles).toHaveLength(2);
+  expect(claude.titles.every((text) => text.includes('Claude'))).toBe(true);
+  expect(claude.count).toContain('2');
+  const opencode = await clickChip('opencode');
+  expect(opencode.titles).toHaveLength(1);
+  expect(opencode.titles[0]).toContain('Native chat');
+  const all = await clickChip('All tools');
+  expect(all.titles).toHaveLength(3);
+});
+
+test('archive keeps a single-source list free of the tool filter', async () => {
+  useGlobalSessionsStore.setState({
+    archivedSessions: [session('ses_opencode1', 'Native chat'), session('ses_opencode2', 'Another chat', 1)],
+    activeSessions: [],
+  });
+  await act(async () => root.render(<I18nProvider><ArchiveView /></I18nProvider>));
+  expect(document.querySelector('button[aria-pressed]')).toBeFalsy();
+});
