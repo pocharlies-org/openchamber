@@ -26,7 +26,12 @@ test('redirected identity cannot authorize the candidate or receive credentials'
     res.writeHead(302, { Location: `${target}/health` });
     res.end();
   });
-  const result = await probe(candidate, { expectedServerId: 'expected', clientToken: 'fixture-only' });
+  // This case is about redirect identity, not about the deadline. With the
+  // shared 150 ms budget the assertion measures the runner: on a loaded CI
+  // machine the hop to a freshly bound server can exceed it, the abort lands
+  // in the probe's catch-all and the status comes back 'unreachable' instead
+  // of 'wrong-service' (web surface gate, 29-09-2026).
+  const result = await probe(candidate, { expectedServerId: 'expected', clientToken: 'fixture-only', timeoutMs: 5000 });
   assert.equal(result.status, 'wrong-service');
   assert.equal(targetCalls, 0);
   assert.equal(credentialCalls, 0);
