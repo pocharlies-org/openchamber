@@ -11,6 +11,7 @@ import type { GitHubPullRequestRef } from '@/lib/api/types';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import type { SessionTreeItemProps } from '../sessions/SessionTreeItem';
 import { useArchivedAutoFolders } from '../folders/useArchivedAutoFolders';
+import { useCompanyAutoFolders } from '../folders/useCompanyAutoFolders';
 import { ProjectSessionSelectionEffect } from '../projects/useProjectSessionSelection';
 import type { WorktreeMetadata } from '@/types/worktree';
 import { buildActiveSessionNode, useRecentSessionCollection, useSessionProjectCollection } from './sessionCollection';
@@ -317,6 +318,16 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
     hasAuthoritativeGlobalSessions: collection.hasAuthoritativeGlobalSessions,
     isWorktreeTopologyLoading: view.isWorktreeTopologyLoading,
     unresolvedWorktreeProjectPaths: view.unresolvedWorktreeProjectPaths,
+    foldersMap,
+    createFolder,
+    addSessionToFolder,
+  });
+  useCompanyAutoFolders({
+    enabled: true,
+    normalizedProjects: topology.projects,
+    ownership,
+    isSessionsLoading: view.isSessionsLoading,
+    hasAuthoritativeGlobalSessions: collection.hasAuthoritativeGlobalSessions,
     foldersMap,
     createFolder,
     addSessionToFolder,

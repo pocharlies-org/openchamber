@@ -17,6 +17,7 @@ import { createClaudeRequests } from './claude-requests.js';
 import { createClaudeSessionProcess } from './session-process.js';
 import { createTranscriptSidecar, isSafeId } from './transcript-sidecar.js';
 import { remoteControlUrl } from './live-sessions.js';
+import { isCompanyClaudeSession } from './company-sessions.js';
 
 const BACKEND_ID = 'claude';
 const PROVIDER_ID = 'claude';
@@ -559,7 +560,11 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
       title,
       createdAt: info.createdAt ?? info.lastModified,
       updatedAt: info.lastModified,
-      metadata: info.gitBranch ? { gitBranch: info.gitBranch } : null,
+      metadata: {
+        ...(info.gitBranch ? { gitBranch: info.gitBranch } : {}),
+        // The sidebar files these into the "Compañía" folder automatically.
+        ...(isCompanyClaudeSession(info) ? { company: true } : {}),
+      },
     });
   };
 
