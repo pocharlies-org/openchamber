@@ -28,6 +28,7 @@ import type { TrackedItem } from '@/lib/trackedItems/model';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import type { SessionTreeItemProps } from '../sessions/SessionTreeItem';
 import { useArchivedAutoFolders } from '../folders/useArchivedAutoFolders';
+import { useCompanyAutoFolders } from '../folders/useCompanyAutoFolders';
 import { ProjectSessionSelectionEffect } from '../projects/useProjectSessionSelection';
 import type { WorktreeMetadata } from '@/types/worktree';
 import { buildActiveSessionNode, useRecentSessionCollection, useSessionProjectCollection } from './sessionCollection';
@@ -342,7 +343,17 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
     createFolder,
     addSessionToFolder,
   });
-  const { sourceControl } = useRuntimeAPIs();
+useCompanyAutoFolders({
+    enabled: true,
+    normalizedProjects: topology.projects,
+    ownership,
+    isSessionsLoading: view.isSessionsLoading,
+    hasAuthoritativeGlobalSessions: collection.hasAuthoritativeGlobalSessions,
+    foldersMap,
+    createFolder,
+    addSessionToFolder,
+  });
+    const { sourceControl } = useRuntimeAPIs();
   const ensurePrStatusEntry = useGitHubPrStatusStore((state) => state.ensureEntry);
   const setPrStatusParams = useGitHubPrStatusStore((state) => state.setParams);
   const refreshPrStatusTargets = useGitHubPrStatusStore((state) => state.refreshTargets);
