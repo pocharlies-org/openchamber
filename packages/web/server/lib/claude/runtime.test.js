@@ -102,6 +102,37 @@ describe('claude backend availability', () => {
 });
 
 describe('claude backend listSessions', () => {
+  it('replaces a Remote Control placeholder title with the transcript ai-title', async () => {
+    const readAiTitle = vi.fn(async () => 'Debug image issue');
+    const { runtime } = createRuntime({
+      sdk: makeSdk({
+        listSessions: vi.fn(async () => [sessionInfo({
+          customTitle: 'OpenChamber · k8s',
+          summary: 'OpenChamber · k8s',
+          firstPrompt: '',
+        })]),
+      }),
+      fs: Object.assign(makeFs(), { stat: vi.fn(async () => ({ mtimeMs: 123 })) }),
+      transcriptSidecar: { locate: async () => '/transcripts/sess-1.jsonl', readAiTitle },
+    });
+
+    const [session] = await runtime.listSessions({ directory: '/repo/project' });
+    expect(session.title).toBe('Debug image issue');
+
+    // The answer is cached until the transcript changes, and a real title
+    // never asks the transcript at all.
+    await runtime.listSessions({ directory: '/repo/project' });
+    expect(readAiTitle).toHaveBeenCalledTimes(1);
+    readAiTitle.mockClear();
+    const { runtime: clean } = createRuntime({
+      sdk: makeSdk({ listSessions: vi.fn(async () => [sessionInfo()]) }),
+      transcriptSidecar: { locate: async () => '/transcripts/sess-1.jsonl', readAiTitle },
+    });
+    const [untouched] = await clean.listSessions({ directory: '/repo/project' });
+    expect(untouched.title).toBe('summarised work');
+    expect(readAiTitle).not.toHaveBeenCalled();
+  });
+
   it('maps SDK session info to harness sessions', async () => {
     const { runtime } = createRuntime({
       sdk: makeSdk({ listSessions: vi.fn(async () => [sessionInfo()]) }),
@@ -853,6 +884,22 @@ describe('claude backend live processes', () => {
       const [session] = await runtime.listSessions({ directory: '/repo/project' });
       expect(session.metadata.remoteControl).toEqual({ url: 'https://claude.ai/code/session_x' });
     });
+    await runtime.shutdownAll();
+  });
+
+  it('links a fresh untitled session to Remote Control with no name: the CLI keeps its own title', async () => {
+    // The placeholder name used to be persisted by the CLI as the transcript's
+    // custom title, masking the summary the CLI writes after the first turn.
+    const sdk = makeSdk({
+      query: interactiveQuery(),
+      listSessions: vi.fn(async () => []),
+    });
+    const { runtime } = createRuntime({ sdk, remoteControl: { enabled: true } });
+
+    await runtime.promptAsync({ sessionID: 'sess-untitled', directory: '/repo/project', parts: [{ type: 'text', text: 'hi' }] });
+
+    const handle = sdk.query.mock.results[0].value;
+    expect(handle.enableRemoteControl).toHaveBeenCalledWith(true, undefined);
     await runtime.shutdownAll();
   });
 

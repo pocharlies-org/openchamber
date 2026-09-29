@@ -582,6 +582,15 @@ export const mapClaudeSessionMessages = (messages, {
   });
 };
 
+/**
+ * The Remote Control registration name OpenChamber gave untitled sessions
+ * (`OpenChamber · <directory>`). The CLI persisted it as the transcript's
+ * custom title, where it masks the summary the CLI writes once the
+ * conversation has a topic. It is ours, never the user's: a title matching it
+ * is no title.
+ */
+export const isClaudeTitlePlaceholder = (title) => /^OpenChamber · /u.test(String(title ?? '').trim());
+
 export const deriveClaudeTitle = (info) => {
   const custom = typeof info?.customTitle === 'string' ? info.customTitle.trim() : '';
   if (custom) return custom;

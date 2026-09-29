@@ -79,4 +79,21 @@ describe('transcript sidecar', () => {
     expect(empty.subagents.size).toBe(0);
     expect(await sidecar.readSubagent('missing', '/repo', 'a')).toBeNull();
   });
+
+  it('reads the CLI\'s own summary: the last ai-title entry wins', async () => {
+    const dir = `${PROJECTS}/-repo`;
+    const files = {
+      [`${dir}/s3.jsonl`]: [
+        line({ type: 'user', message: { content: 'hi' } }),
+        line({ type: 'ai-title', aiTitle: 'First guess', sessionId: 's3' }),
+        line({ type: 'custom-title', customTitle: 'OpenChamber · repo', sessionId: 's3' }),
+        '{broken "ai-title"',
+        line({ type: 'ai-title', aiTitle: '  Debug image issue  ', sessionId: 's3' }),
+        line({ type: 'ai-title', aiTitle: '   ', sessionId: 's3' }),
+      ].join('\n'),
+    };
+    const sidecar = createTranscriptSidecar({ fsPromises: makeFs(files), path, configDir: CONFIG });
+    expect(await sidecar.readAiTitle('s3', '/repo')).toBe('Debug image issue');
+    expect(await sidecar.readAiTitle('missing', '/repo')).toBe('');
+  });
 });
