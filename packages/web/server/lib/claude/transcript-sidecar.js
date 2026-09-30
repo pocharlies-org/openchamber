@@ -233,5 +233,39 @@ export const createTranscriptSidecar = ({
     return '';
   };
 
-  return { locate, read, readSubagent, readAiTitle, readRealCustomTitle, projectsDir };
+  /**
+   * What the person first asked: the text of the first real user record
+   * (no meta, compact summary, tool result or `<tag>` part). The SDK's
+   * `firstPrompt` comes back empty when that record carries a pasted image —
+   * the line outgrows the head it scans — so this reads the transcript itself.
+   */
+  const readFirstPrompt = async (sessionId, directory) => {
+    const file = await locate(sessionId, directory);
+    if (!file) return '';
+    let raw;
+    try {
+      raw = await fsPromises.readFile(file, 'utf8');
+    } catch {
+      return '';
+    }
+    for (const line of raw.split('\n')) {
+      if (!line.includes('"type":"user"')) continue;
+      let entry;
+      try {
+        entry = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      if (entry.type !== 'user' || entry.isMeta || entry.isCompactSummary || entry.isSidechain) continue;
+      const content = entry.message?.content;
+      const parts = typeof content === 'string' ? [content] : Array.isArray(content)
+        ? content.filter((part) => part?.type === 'text' && typeof part.text === 'string').map((part) => part.text)
+        : [];
+      const text = parts.map((part) => part.trim()).filter((part) => part && !part.startsWith('<')).join(' ').replace(/\s+/g, ' ');
+      if (text) return text;
+    }
+    return '';
+  };
+
+  return { locate, read, readSubagent, readAiTitle, readRealCustomTitle, readFirstPrompt, projectsDir };
 };
