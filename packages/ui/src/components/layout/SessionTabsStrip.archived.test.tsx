@@ -111,6 +111,12 @@ mock.module('@/sync/notification-store', () => ({
   useSessionUnseenCount: () => 0,
 }));
 
+// Upstream v2.0.4: a tab of a multi-run lane reads its run's members, and the
+// real hook pulls the whole multi-run and session-event graph into this test.
+mock.module('@/lib/multirun/useMultiRuns', () => ({
+  useMultiRunMemberIds: (): readonly string[] => [],
+}));
+
 mock.module('@/sync/use-session-ai-rename', () => ({
   useIsSessionAiRenamePending: () => false,
 }));
