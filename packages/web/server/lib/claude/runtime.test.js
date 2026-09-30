@@ -140,7 +140,8 @@ describe('claude backend listSessions', () => {
       readAiTitle,
       readRealCustomTitle: vi.fn(async () => real),
     });
-    const stamp = { customTitle: 'ubuntu-bright-duckling', summary: '', firstPrompt: 'hola' };
+    // As the SDK answers it: `summary` is its display title, the stamp again.
+    const stamp = { customTitle: 'ubuntu-bright-duckling', summary: 'ubuntu-bright-duckling', firstPrompt: 'hola' };
 
     // The conversation had a real title before the stamp: that one shows,
     // and the ai-title has no say over a custom title.
@@ -170,6 +171,16 @@ describe('claude backend listSessions', () => {
     });
     const [prompted] = await untitled.listSessions({ directory: '/repo/project' });
     expect(prompted.title).toBe('hola');
+
+    // The SDK's first prompt empty (a pasted image outgrew its scan): the
+    // transcript's own first prompt.
+    const { runtime: pasted } = createRuntime({
+      sdk: makeSdk({ listSessions: vi.fn(async () => [sessionInfo({ ...stamp, firstPrompt: '' })]) }),
+      fs: Object.assign(makeFs(), { stat: vi.fn(async () => ({ mtimeMs: 123 })) }),
+      transcriptSidecar: { ...sidecar(''), readAiTitle: vi.fn(async () => ''), readFirstPrompt: vi.fn(async () => 'porque hay 2 precios?') },
+    });
+    const [fromTranscript] = await pasted.listSessions({ directory: '/repo/project' });
+    expect(fromTranscript.title).toBe('porque hay 2 precios?');
 
     // A chosen title is never scanned, however many words it hyphenates.
     const scan = sidecar('NO DEBE LLAMARME');
