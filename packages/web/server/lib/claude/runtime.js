@@ -812,12 +812,28 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     if (first && entry.sent.size > 0) return;
     const records = await getMessages({ sessionID: sessionId, directory: entry.directory, internal: true });
     const directory = entry.directory;
+    const refreshRow = async () => {
+      const session = await buildSessionFromInfo(info, directory);
+      if (session) emitSessionUpdate('session.updated', withLiveState(withArchiveState(session)));
+    };
+    // A follow opened by the live-writer lease below: no view waits on its
+    // history, so the first read only seeds the diff base.
+    if (first && entry.auto) {
+      entry.sent = new Map(records.map((record) => [record.info.id, recordJson(record)]));
+      await refreshRow();
+      return;
+    }
+    let flushed = 0;
     for (const record of records) {
       const json = recordJson(record);
       if (entry.sent.get(record.info.id) === json) continue;
       entry.sent.set(record.info.id, json);
       emitRecordEvents(directory, record);
+      flushed += 1;
     }
+    // The list row (title, time.updated, company flag) moves with the
+    // transcript; without this the sidebar keeps the row as it was listed.
+    if (flushed > 0) await refreshRow();
   };
 
   const readOwners = () => liveRegistry.read({ ignoreParentPid: selfPid });
@@ -861,13 +877,33 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
       if (Boolean(before) !== Boolean(after)) {
         markListStale();
         const session = await getSession({ sessionID: sessionId, directory }).catch(() => null);
-        if (session) emitSessionUpdate('session.updated', session);
+        if (session) emitSessionUpdate(before ? 'session.updated' : 'session.created', session);
       }
     }
 
     const sdk = await ensureSdk();
     if (!sdk) return;
     const now = Date.now();
+    // A live foreign writer is its own lease: follow every session another
+    // process is writing, whether or not a browser still pings. The front end
+    // only pings the session it shows, and a backgrounded tab throttles that
+    // ping, so the 15-minute window lapsed and the list froze while VS Code
+    // kept writing (30-09).
+    for (const [sessionId, owner] of owners) {
+      if (processes.has(sessionId)) continue;
+      const entry = followed.get(sessionId);
+      if (entry) {
+        entry.readAt = now;
+        continue;
+      }
+      followed.set(sessionId, {
+        directory: normalizeDirectory(owner.cwd),
+        lastModified: null,
+        sent: new Map(),
+        readAt: now,
+        auto: true,
+      });
+    }
     for (const [sessionId, entry] of followed) {
       if (now - entry.readAt > liveFollowWindowMs) {
         followed.delete(sessionId);
