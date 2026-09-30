@@ -9,8 +9,6 @@ import { setOptimisticRefs } from '@/sync/session-actions';
 import { markSessionViewed } from '@/sync/notification-store';
 import { setExternallyViewedSession } from '@/sync/sync-context';
 import { useSync } from '@/sync/use-sync';
-import { isServerOwnedMessageQueue } from '@/stores/messageQueueStore';
-import { useUIPluginsStore } from '@/stores/useUIPluginsStore';
 import { findEnabledComposerMetricsContributions, useUIPluginsStore } from '@/stores/useUIPluginsStore';
 import { isDesktopShell, isVSCodeRuntime } from '@/lib/desktop';
 import { isCapacitorApp } from '@/lib/platform';
@@ -18,6 +16,7 @@ import { isComposerMetricsContributionSupported, type UIPluginRuntime } from '@/
 import { useUIStore } from '@/stores/useUIStore';
 import { subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 import { streamMetrics } from '@/sync/stream-metrics';
+import { isServerOwnedMessageQueue } from '@/stores/messageQueueStore';
 
 const MINI_CHAT_PRESENCE_CHANNEL = 'openchamber:mini-chat-presence';
 

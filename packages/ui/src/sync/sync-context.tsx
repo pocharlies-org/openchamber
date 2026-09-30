@@ -2062,7 +2062,7 @@ export function handleEvent(
 
   }
 
-  const activityMessageID = getMessageIdFromPayload(payload) ?? undefined
+  const activityMessageID = syncEventMessageID(payload) ?? undefined
   if (activityMessageID && (payload.type === "message.updated" || payload.type.startsWith("message.part."))) {
     touchMessageActivity(activityMessageID)
   }

@@ -14,6 +14,8 @@ import { deriveRecentSessions } from '../recent/activitySections';
 import { normalizePath } from '../utils';
 import { isChatDirectoryPath } from '@/lib/chatDirectories';
 import { isBtwSession } from '@/lib/sessionBtwMetadata';
+import { filterSessionsBySource, hasMultipleSessionSources, type SessionSourceFilter } from '@/lib/sessionSourceFilter';
+import { useSessionSourceFilterStore } from '@/stores/useSessionSourceFilterStore';
 import type { GlobalSessionStructure } from '@/stores/globalSessionStructure';
 import { countSyncPerformance } from '@/sync/performance-diagnostics';
 import type { SessionNode } from '../types';
@@ -158,11 +160,13 @@ export const buildActiveSessionNode = (
 type SidebarSessionProjectionArgs = ProjectSidebarActiveSessionsArgs & {
   pinnedSessionIds: Set<string>;
   sessionOrderRanks: ReadonlyMap<string, number>;
+  sourceFilter?: SessionSourceFilter;
 };
 
 type SidebarSessionStructureArgs = Omit<ProjectSidebarActiveSessionsArgs, 'globalActiveSessions'> & {
   globalActiveSessions?: readonly Session[];
   globalStructure?: GlobalSessionStructure;
+  sourceFilter?: SessionSourceFilter;
 };
 
 const buildSidebarSessionStructure = ({
@@ -171,15 +175,29 @@ const buildSidebarSessionStructure = ({
   knownDirectories,
   isVSCode,
   globalStructure,
+  sourceFilter = 'all',
 }: SidebarSessionStructureArgs) => {
   countSyncPerformance('sidebarStructureBuilds');
   const indexedGlobalSessions = globalActiveSessions ?? [];
   const visibleSessions = mergeSidebarSessionSources(indexedGlobalSessions, liveSessions);
   const partition = partitionSidebarSessions(visibleSessions, isVSCode);
   const knownDirectoryKeys = new Set([...knownDirectories].map((directory) => directory.toLowerCase()));
-  const projectSessions = partition.projectSessions
+  const knownProjectSessions = partition.projectSessions
     .filter((session) => isKnownActiveSessionDirectory(session, knownDirectoryKeys, isVSCode));
-  const sessions = [...projectSessions, ...partition.chatSessions];
+  // Everything the sidebar can show, before the tool filter. Availability is
+  // read from this list rather than the filtered one: reading the filtered list
+  // would hide the control the moment it is used, because a single tool is all
+  // that is left.
+  const unfilteredSessions = [...knownProjectSessions, ...partition.chatSessions];
+  const hasMultipleSources = hasMultipleSessionSources(unfilteredSessions);
+  // The filter applies to both buckets at once. The project tree, the Chats
+  // section, the roots and every count are all derived from here, so filtering
+  // one of them alone leaves counts that disagree with the visible rows.
+  const projectSessions = filterSessionsBySource(knownProjectSessions, sourceFilter);
+  const chatSessions = filterSessionsBySource(partition.chatSessions, sourceFilter);
+  const sessions = sourceFilter === 'all'
+    ? unfilteredSessions
+    : [...projectSessions, ...chatSessions];
   const sessionById = new Map(sessions.map((session) => [session.id, session]));
   const projectSessionIds = new Set(projectSessions.map((session) => session.id));
   const indexedRootIds = globalStructure?.activeRootIds ?? [];
@@ -195,7 +213,8 @@ const buildSidebarSessionStructure = ({
     )),
   ];
   return {
-    chatSessionIds: new Set(partition.chatSessions.map((session) => session.id)),
+    chatSessionIds: new Set(chatSessions.map((session) => session.id)),
+    hasMultipleSources,
     projectSessions,
     rootSessions,
     sessionById,
@@ -240,16 +259,19 @@ export const buildSidebarSessionProjection = ({
   isVSCode,
   pinnedSessionIds,
   sessionOrderRanks,
+  sourceFilter,
 }: SidebarSessionProjectionArgs) => {
   const structure = buildSidebarSessionStructure({
     globalActiveSessions,
     liveSessions,
     knownDirectories,
     isVSCode,
+    sourceFilter,
   });
   const ordering = orderSidebarSessionStructure(structure, pinnedSessionIds, sessionOrderRanks);
   return {
     ...ordering,
+    hasMultipleSources: structure.hasMultipleSources,
     projectSessions: structure.projectSessions,
     sessionById: structure.sessionById,
   };
@@ -279,13 +301,22 @@ export const useSessionProjectCollection = ({
     (state) => isVisible ? state.rankById : EMPTY_SESSION_ORDER_RANKS,
     [isVisible],
   ));
+  const sourceFilter = useSessionSourceFilterStore((state) => state.filter);
+  const setSourceFilterAvailable = useSessionSourceFilterStore((state) => state.setAvailable);
   const structure = React.useMemo(() => buildSidebarSessionStructure({
     globalActiveSessions,
     globalStructure,
     liveSessions,
     knownDirectories,
     isVSCode,
-  }), [globalActiveSessions, globalStructure, isVSCode, knownDirectories, liveSessions]);
+    sourceFilter,
+  }), [globalActiveSessions, globalStructure, isVSCode, knownDirectories, liveSessions, sourceFilter]);
+  // The header owns the control but cannot see the list. Same lift as the
+  // search match count above it.
+  const hasMultipleSources = structure.hasMultipleSources;
+  React.useEffect(() => {
+    setSourceFilterAvailable(hasMultipleSources);
+  }, [hasMultipleSources, setSourceFilterAvailable]);
   const ordering = React.useMemo(
     () => orderSidebarSessionStructure(structure, pinnedSessionIds, sessionOrderRanks),
     [pinnedSessionIds, sessionOrderRanks, structure],
