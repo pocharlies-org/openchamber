@@ -116,4 +116,30 @@ describe('transcript sidecar', () => {
     expect(await build(['OpenChamber · repo', 'ubuntu-bright-duckling']).readRealCustomTitle('s4', '/repo')).toBe('');
     expect(await build([]).readRealCustomTitle('s4', '/repo')).toBe('');
   });
+
+  it('reads the first prompt past meta records, tags and a pasted image', async () => {
+    const dir = `${PROJECTS}/-repo`;
+    const user = (content, extra = {}) => line({ type: 'user', message: { role: 'user', content }, ...extra });
+    const sidecar = createTranscriptSidecar({
+      fsPromises: makeFs({
+        [`${dir}/s5.jsonl`]: [
+          line({ type: 'bridge-session', sessionId: 's5' }),
+          user('This session is being continued…', { isCompactSummary: true }),
+          user([{ type: 'text', text: '<ide_selection>x</ide_selection>' }], { isMeta: true }),
+          user([
+            { type: 'image', source: { type: 'base64', data: 'A'.repeat(4096) } },
+            { type: 'text', text: '<ide_opened_file>app.py</ide_opened_file>' },
+            { type: 'text', text: 'porque hay 2 precios?' },
+          ]),
+          user('segundo prompt'),
+        ].join('\n'),
+        [`${dir}/s6.jsonl`]: user([{ type: 'tool_result', tool_use_id: 't', content: 'ok' }]),
+      }),
+      path,
+      configDir: CONFIG,
+    });
+    expect(await sidecar.readFirstPrompt('s5', '/repo')).toBe('porque hay 2 precios?');
+    expect(await sidecar.readFirstPrompt('s6', '/repo')).toBe('');
+    expect(await sidecar.readFirstPrompt('missing', '/repo')).toBe('');
+  });
 });

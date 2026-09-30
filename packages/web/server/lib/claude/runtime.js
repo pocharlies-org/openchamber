@@ -508,6 +508,18 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
   };
 
   /**
+   * The first prompt read from the transcript (see `readFirstPrompt`), for when
+   * the SDK's comes back empty. It never changes once written, so one read.
+   */
+  const firstPromptCache = new Map();
+  const firstPromptOf = async (sessionId, directory) => {
+    if (firstPromptCache.has(sessionId)) return firstPromptCache.get(sessionId);
+    const prompt = await (sidecar.readFirstPrompt?.(sessionId, directory) ?? Promise.resolve('')).catch(() => '');
+    if (prompt) firstPromptCache.set(sessionId, prompt);
+    return prompt;
+  };
+
+  /**
    * What the engine learns about a session as it runs — the mode it is in,
    * the prompt cache's lifetime, the model's context window — published on
    * the session as `metadata.claude`.
@@ -584,8 +596,12 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
       title = clampText(real, 120);
     } else if (generated || isClaudeTitlePlaceholder(title) || !hasClaudeExplicitTitle(info)) {
       // The stamp is no title even when nothing real sits under it: without an
-      // `ai-title`, the summary or first prompt says what the session is about.
-      if (generated) title = deriveClaudeTitle({ ...info, customTitle: '' });
+      // `ai-title`, the first prompt says what the session is about. Not the
+      // SDK's `summary` — that is its display title, the stamp again.
+      if (generated) {
+        const prompt = info.firstPrompt || await firstPromptOf(info.sessionId, info.cwd || fallbackDirectory || undefined);
+        title = deriveClaudeTitle({ firstPrompt: prompt });
+      }
       // VS Code names a session by its `custom-title` first and the `ai-title`
       // the CLI generated second; the raw first prompt is nobody's title, it
       // is only what the SDK scan falls back to. So whenever the SDK gave us
