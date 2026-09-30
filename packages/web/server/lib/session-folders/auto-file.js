@@ -51,8 +51,17 @@ export const createCompanyFolderAutoFile = (deps) => {
     now = () => Date.now(),
   } = deps;
 
-  /** Session ids already ensured this process, so a repeat list is a no-op. */
-  const filed = new Set();
+  /**
+   * A client that hydrates a folder snapshot taken *before* a filing and then
+   * mutates a folder POSTs its whole (stale) snapshot back, dropping the ids the
+   * server had added — the folder collapses again. So the filing is not a
+   * once-per-process job: it re-asserts membership on the list read, healing any
+   * such clobber. `lastAssertAt` throttles that to at most once per
+   * `REASSERT_MS`, so a busy list does not re-read the file on every call; a
+   * write still only happens when something is actually missing.
+   */
+  const REASSERT_MS = 20_000;
+  let lastAssertAt = 0;
   /** One write at a time; the file is a whole-snapshot replace, not a patch. */
   let queue = Promise.resolve();
 
@@ -95,20 +104,27 @@ export const createCompanyFolderAutoFile = (deps) => {
    * not under a registered project) are skipped — there is no folder for them to
    * live in, exactly as the client hook only files per loaded project.
    *
+   * Re-asserts membership: it never trusts an in-memory "already done" flag, so
+   * a folder a client clobbered back to a stale snapshot is healed on the next
+   * (non-throttled) list. `force` bypasses the throttle (used by tests and any
+   * caller that must reconcile now).
+   *
    * Resolves once the write is queued; never rejects, so a caller can fire it
    * without holding up the list response.
    *
    * @param {{ sessionId: string, scopeKey: string | null }[]} entries
+   * @param {{ force?: boolean }} [options]
    * @returns {Promise<void>}
    */
-  const fileMany = (entries) => {
+  const fileMany = (entries, options = {}) => {
     const pending = (entries || []).filter(
       (entry) => entry && typeof entry.sessionId === 'string' && entry.sessionId
-        && typeof entry.scopeKey === 'string' && entry.scopeKey
-        && !filed.has(entry.sessionId),
+        && typeof entry.scopeKey === 'string' && entry.scopeKey,
     );
     if (pending.length === 0) return Promise.resolve();
-    pending.forEach((entry) => filed.add(entry.sessionId));
+    const at = now();
+    if (!options.force && at - lastAssertAt < REASSERT_MS) return queue;
+    lastAssertAt = at;
 
     const run = async () => {
       const snapshot = await readSnapshot();
@@ -122,7 +138,7 @@ export const createCompanyFolderAutoFile = (deps) => {
             && candidate.name.toLowerCase() === folderName.toLowerCase(),
         );
         if (!folder) {
-          folder = { id: createFolderId(), name: folderName, sessionIds: [], createdAt: now(), parentId: null };
+          folder = { id: createFolderId(), name: folderName, sessionIds: [], createdAt: at, parentId: null };
           folders.push(folder);
         }
         if (!folder.sessionIds.includes(sessionId)) {
@@ -131,13 +147,13 @@ export const createCompanyFolderAutoFile = (deps) => {
         }
       });
       if (!changed) return;
-      snapshot.updatedAt = Math.max(now(), (typeof snapshot.updatedAt === 'number' ? snapshot.updatedAt : 0) + 1);
+      snapshot.updatedAt = Math.max(at, (typeof snapshot.updatedAt === 'number' ? snapshot.updatedAt : 0) + 1);
       await writeSnapshot(snapshot);
     };
 
     queue = queue.then(run, run).catch((error) => {
-      // A failed filing is retried on the next list: forget the ids we claimed.
-      pending.forEach((entry) => filed.delete(entry.sessionId));
+      // Let the next list retry immediately rather than wait out the throttle.
+      lastAssertAt = 0;
       console.warn('[claude-backend] company auto-file failed:', error?.message ?? error);
     });
     return queue;
