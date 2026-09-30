@@ -723,8 +723,8 @@ export const PluginPane: React.FC<PluginPaneProps> = ({
       sandbox="allow-scripts"
       className={cn(
         'h-full w-full min-h-0 min-w-0 border-0 overflow-hidden',
-        // The attach window and the Work Status card draw their own chrome behind the page.
-        surface === 'dialog' || surface === 'status' ? 'bg-transparent' : 'bg-[var(--surface-background)]',
+        // The attach window, the Work Status card and the composer footer draw their own chrome behind the page.
+        surface === 'dialog' || surface === 'status' || surface === 'composer' ? 'bg-transparent' : 'bg-[var(--surface-background)]',
       )}
       onLoad={() => {
         // A kept-alive iframe can navigate again after its scoped URL token

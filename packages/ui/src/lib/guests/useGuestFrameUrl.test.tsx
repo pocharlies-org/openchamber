@@ -15,6 +15,8 @@ describe('guest frame URL lifecycle', () => {
   let expiredMint = false;
   let holdNextMint = false;
   let finishHeldMint: ((response: Response) => void) | undefined;
+  let scopedUrlRejected = false;
+  let probeCount = 0;
   let state: ReturnType<typeof useGuestFrameUrl> | undefined;
   const previousGlobals = new Map<string, PropertyDescriptor | undefined>();
   let restoreFetch = () => {};
@@ -40,9 +42,11 @@ describe('guest frame URL lifecycle', () => {
     expiredMint = false;
     holdNextMint = false;
     finishHeldMint = undefined;
+    scopedUrlRejected = false;
+    probeCount = 0;
     state = undefined;
     window = new Window({ url: 'http://localhost/' });
-    for (const [key, value] of Object.entries({ window, document: window.document, navigator: window.navigator, IS_REACT_ACT_ENVIRONMENT: true })) {
+    for (const [key, value] of Object.entries({ window, document: window.document, navigator: window.navigator, DOMParser: window.DOMParser, IS_REACT_ACT_ENVIRONMENT: true })) {
       previousGlobals.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
       Object.defineProperty(globalThis, key, { configurable: true, value });
     }
@@ -52,7 +56,20 @@ describe('guest frame URL lifecycle', () => {
     const now = spyOn(Date, 'now').mockImplementation(() => clock);
     restoreClock = () => now.mockRestore();
     const fetch = spyOn(globalThis, 'fetch').mockImplementation(async (input, options) => {
-      expect(String(input)).toContain('scope=guest%3Adev-tools');
+      const url = String(input instanceof Request ? input.url : input);
+      if (options?.credentials === 'omit') {
+        // The cookieless probe of the scoped frame URL.
+        expect(url).toContain('oc_url_token=');
+        probeCount++;
+        return scopedUrlRejected ? new Response('Unauthorized\n', { status: 401 }) : new Response('<!doctype html>');
+      }
+      if (url.includes('/api/guests/dev-tools/') && !url.includes('oc_url_token=')) {
+        // The host's own authenticated read for the srcDoc fallback.
+        return new Response('<!doctype html><html><head></head><body><div id="root"></div></body></html>', {
+          headers: { 'content-type': 'text/html; charset=utf-8' },
+        });
+      }
+      expect(url).toContain('scope=guest%3Adev-tools');
       expect(options?.method).toBe('POST');
       mintCount++;
       if (holdNextMint) {
@@ -139,5 +156,21 @@ describe('guest frame URL lifecycle', () => {
     await act(async () => { current().recoverExpiredNavigation(); });
     expect(mintCount).toBe(2);
     expect(current().src).toBe('');
+  });
+
+  test('a scoped URL that loads without cookies stays a URL frame', async () => {
+    await render();
+    expect(probeCount).toBe(1);
+    expect(current().src).toContain('test-scoped-1');
+    expect(current().srcDoc).toBeUndefined();
+  });
+
+  test('behind a cookie proxy that rejects the scoped URL, the frame is a srcDoc document', async () => {
+    scopedUrlRejected = true;
+    await render();
+    expect(probeCount).toBe(1);
+    expect(current().src).toBe('');
+    expect(current().srcDoc).toContain('<div id="root"></div>');
+    expect(current().srcDoc).not.toContain('oc_url_token');
   });
 });
