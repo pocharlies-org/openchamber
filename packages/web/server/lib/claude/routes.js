@@ -158,7 +158,7 @@ const positiveInteger = (value) => {
  *   OpenChamber's archive store (sessions-archive.json), keyed by public id
  */
 export const createClaudeSurface = (dependencies = {}) => {
-  const { publishEvent, readProjects, getArchivedSessions, getStoredMetadata, peekStoredMetadata, forgetStoredMetadata, accountService, ...rest } = dependencies;
+  const { publishEvent, readProjects, getArchivedSessions, getStoredMetadata, peekStoredMetadata, forgetStoredMetadata, accountService, companyFolderAutoFile, ...rest } = dependencies;
   const crypto = rest.crypto;
 
   /**
@@ -285,9 +285,25 @@ export const createClaudeSurface = (dependencies = {}) => {
       runtime.listSessions({ archived: false }),
       runtime.listSessions({ archived: true }),
     ]);
+    const all = [...active, ...archived];
+    // The server is the single source of truth for the "Compañía" grouping: a
+    // session the backend stamped `metadata.company` is filed into the folder of
+    // the project it lives under, so every client (Claude Desktop, VS Code, web)
+    // shows it there without running its own lazy hook. Fire-and-forget: the
+    // folder write must never delay the list. `fileMany` dedupes in-memory, so a
+    // repeat list costs nothing.
+    if (typeof companyFolderAutoFile?.fileMany === 'function') {
+      const companyEntries = all
+        .filter((session) => session?.metadata?.company === true)
+        .map((session) => ({
+          sessionId: toPublicId(session.id),
+          scopeKey: resolveProject(session.directory)?.worktree || null,
+        }));
+      if (companyEntries.length > 0) void companyFolderAutoFile.fileMany(companyEntries);
+    }
     const root = typeof directory === 'string' && directory ? directory.replace(/\/$/, '') : null;
     const needle = typeof search === 'string' && search.trim() ? search.trim().toLowerCase() : null;
-    return [...active, ...archived]
+    return all
       .filter((session) => !root || session.directory === root || String(session.directory || '').startsWith(`${root}/`))
       .filter((session) => !needle || String(session.title || '').toLowerCase().includes(needle))
       .map(toSession);
