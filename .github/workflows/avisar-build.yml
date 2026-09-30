@@ -1,0 +1,48 @@
+name: Avisar al repo de build
+
+# SC-1413: al empujar una rama build/v2.* avisa a
+# pocharlies-org/openchamber-build-pocharlies (repository_dispatch
+# fork-rama-cambio) para que vigilar-fork construya en segundos y no en el
+# siguiente cron. Un webhook nativo no sirve: /dispatches exige cabecera
+# Authorization y un body con event_type.
+#
+# Este fichero tiene que ir EN la rama empujada: un push ejecuta el workflow
+# de la rama que se empuja, no el de main.
+
+on:
+  push:
+    branches: ['build/v2.*']
+
+permissions: {}
+
+concurrency:
+  group: avisar-build-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  avisar:
+    # Solo en el fork propio: en el upstream este workflow no debe existir ni correr.
+    if: github.repository == 'pocharlies-org/openchamber'
+    runs-on: arc-k8s
+    timeout-minutes: 5
+    steps:
+      - name: repository_dispatch fork-rama-cambio
+        env:
+          # PAT fine-grained: solo Contents:write sobre openchamber-build-pocharlies
+          # (lo que exige /dispatches). Secret del repo, nunca se imprime.
+          GH_TOKEN: ${{ secrets.BUILD_DISPATCH_TOKEN }}
+          SHA: ${{ github.sha }}
+          RAMA: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$GH_TOKEN" ]]; then
+            echo "::error::falta el secret BUILD_DISPATCH_TOKEN"; exit 1
+          fi
+          jq -n --arg sha "$SHA" --arg rama "$RAMA" \
+            '{event_type:"fork-rama-cambio",client_payload:{sha:$sha,rama:$rama}}' \
+            | curl -fsS -o /dev/null -w 'dispatch HTTP %{http_code}\n' \
+                -X POST -H "Authorization: Bearer $GH_TOKEN" \
+                -H 'Accept: application/vnd.github+json' \
+                https://api.github.com/repos/pocharlies-org/openchamber-build-pocharlies/dispatches \
+                --data @-
+          echo "avisado ${RAMA} @ ${SHA:0:12}"
