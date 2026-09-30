@@ -150,9 +150,20 @@ Examples:
 - `useSessionFoldersStore.ts`
 - `useProjectContextStore.ts`
 - `messageQueueStore.ts`
+- `useSessionSourceFilterStore.ts`
 - `useRoutingStore.ts`
 
 These stores coordinate persistent project/session metadata across multiple views.
+
+`useSessionSourceFilterStore.ts` holds which tool's sessions the desktop sidebar
+lists, plus whether the control is worth showing. The header owns the control and
+the session collection owns the list, and the two never meet through props, so
+the state sits between them the way `useSessionMultiSelectStore` does for
+selection mode. It is deliberately not persisted: a filter that survives a reload
+can leave the sidebar empty on startup with nothing on screen explaining why. For
+the same reason `setAvailable(false)` also resets the filter, so losing the
+control cannot strand the list behind a filter nobody can clear. The mobile
+sessions sheet keeps its own local filter and does not read this store.
 
 `useProjectContextStore.ts` caches server-owned project notes, todos, and plan links, keyed by the path-derived project id. It replaced a pair of `window` CustomEvents that made every mounted notes panel re-read the whole project config. Writes are optimistic and roll back on failure; they are serialized per project, because the server's own store does a read-modify-write and two concurrent saves would otherwise race it. A load that resolves while a write is in flight keeps the local value for that field group only, so a slow snapshot cannot undo newer typing while still delivering the plan list it fetched. A failed load sets `error` and preserves the cached snapshot — an unreachable server must never render as "this project has no notes". Note and plan creation are deliberately not optimistic, since ids and timestamps are assigned by the server. Notes, todos, and plans are written through separate routes and tracked by separate in-flight flags, so a todo toggle cannot clobber a note edit in the same window. Pinned notes and plans are assembled into a synthetic context part by `lib/projectContextPinning.ts` at send time; that module tracks per-session what it already sent so an unchanged pinned set is not re-sent every turn.
 
