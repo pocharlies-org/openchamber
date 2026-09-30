@@ -96,4 +96,24 @@ describe('transcript sidecar', () => {
     expect(await sidecar.readAiTitle('s3', '/repo')).toBe('Debug image issue');
     expect(await sidecar.readAiTitle('missing', '/repo')).toBe('');
   });
+
+  it('unearths the real custom title a generated VS Code name buried', async () => {
+    const dir = `${PROJECTS}/-repo`;
+    const titles = (names) => [
+      ...names.map((customTitle) => line({ type: 'custom-title', customTitle, sessionId: 's4' })),
+    ].join('\n');
+    const build = (names) => createTranscriptSidecar({
+      fsPromises: makeFs({ [`${dir}/s4.jsonl`]: titles(names) }),
+      path,
+      configDir: CONFIG,
+    });
+    // Stamp over a real title: the real one, closest to the stamp.
+    expect(await build(['iOS: no salen los nombres', 'ubuntu-bright-duckling', 'ubuntu-bright-duckling'])
+      .readRealCustomTitle('s4', '/repo')).toBe('iOS: no salen los nombres');
+    // Newest title is real: nothing to unearth.
+    expect(await build(['ubuntu-bright-duckling', 'Fix auth flow']).readRealCustomTitle('s4', '/repo')).toBe('');
+    // Only stamps (and the old placeholder): nothing real to restore.
+    expect(await build(['OpenChamber · repo', 'ubuntu-bright-duckling']).readRealCustomTitle('s4', '/repo')).toBe('');
+    expect(await build([]).readRealCustomTitle('s4', '/repo')).toBe('');
+  });
 });
