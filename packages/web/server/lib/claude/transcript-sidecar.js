@@ -1,6 +1,7 @@
 import fsDefault from 'fs';
 import osDefault from 'os';
 import pathDefault from 'path';
+import { isClaudeGeneratedName, isClaudeTitlePlaceholder } from './claude-transcript.js';
 
 /**
  * What the Agent SDK's transcript reader leaves out, read from Claude Code's
@@ -195,5 +196,42 @@ export const createTranscriptSidecar = ({
     return title;
   };
 
-  return { locate, read, readSubagent, readAiTitle, projectsDir };
+  /**
+   * The title the session actually had before a generated name masked it.
+   * VS Code stamps `<host>-<adjective>-<animal>` as the transcript's last
+   * `custom-title` on every turn; the titles the conversation earned sit in
+   * the earlier records. Returns the last real custom title when the newest
+   * one is generated (or the old Remote Control placeholder), empty otherwise
+   * — meaning the newest title stands as it is.
+   */
+  const readRealCustomTitle = async (sessionId, directory) => {
+    const file = await locate(sessionId, directory);
+    if (!file) return '';
+    let raw;
+    try {
+      raw = await fsPromises.readFile(file, 'utf8');
+    } catch {
+      return '';
+    }
+    const titles = [];
+    for (const line of raw.split('\n')) {
+      if (!line.includes('"custom-title"')) continue;
+      let entry;
+      try {
+        entry = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      if (typeof entry.customTitle === 'string' && entry.customTitle.trim()) titles.push(entry.customTitle.trim());
+    }
+    if (titles.length === 0) return '';
+    const newest = titles[titles.length - 1];
+    if (!isClaudeGeneratedName(newest) && !isClaudeTitlePlaceholder(newest)) return '';
+    for (let i = titles.length - 2; i >= 0; i -= 1) {
+      if (!isClaudeGeneratedName(titles[i]) && !isClaudeTitlePlaceholder(titles[i])) return titles[i];
+    }
+    return '';
+  };
+
+  return { locate, read, readSubagent, readAiTitle, readRealCustomTitle, projectsDir };
 };

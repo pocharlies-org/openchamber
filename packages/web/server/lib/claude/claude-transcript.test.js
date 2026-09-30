@@ -6,6 +6,7 @@ import {
   findForkCut,
   findPromptUuid,
   hasClaudeExplicitTitle,
+  isClaudeGeneratedName,
   isClaudeTitlePlaceholder,
   mapClaudeSessionMessages,
 } from './claude-transcript.js';
@@ -308,6 +309,25 @@ describe('isClaudeTitlePlaceholder', () => {
     expect(isClaudeTitlePlaceholder('doble motor openchamber')).toBe(false);
     expect(isClaudeTitlePlaceholder('')).toBe(false);
     expect(isClaudeTitlePlaceholder(undefined)).toBe(false);
+  });
+});
+
+describe('isClaudeGeneratedName', () => {
+  it('recognises the host-adjective-animal stamp and nothing chosen', () => {
+    expect(isClaudeGeneratedName('ubuntu-bright-duckling')).toBe(true);
+    expect(isClaudeGeneratedName('mac-scalable-dolphin')).toBe(true);
+    expect(isClaudeGeneratedName(' ubuntu-bubbly-sutherland ')).toBe(true);
+    expect(isClaudeGeneratedName('ubuntu-binary-llama2')).toBe(true);
+    expect(isClaudeGeneratedName('iOS no lee archivo proceso')).toBe(false);
+    expect(isClaudeGeneratedName('iOS: no salen los nombres')).toBe(false);
+    expect(isClaudeGeneratedName('doble motor openchamber')).toBe(false);
+    expect(isClaudeGeneratedName('k8s-1b')).toBe(false);
+    // A chosen name in the stamp's shape reads as generated — and it only
+    // matters when a real title hides under the stamp, which is the case the
+    // sidecar answers; with nothing under it, the ai-title still fits.
+    expect(isClaudeGeneratedName('fix-auth-flow')).toBe(true);
+    expect(isClaudeGeneratedName('')).toBe(false);
+    expect(isClaudeGeneratedName(undefined)).toBe(false);
   });
 });
 

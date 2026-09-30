@@ -12,7 +12,7 @@
 
 import os from 'os';
 import path from 'path';
-import { mapClaudeSessionMessages, deriveClaudeTitle, isClaudeTitlePlaceholder, hasClaudeExplicitTitle, findForkCut, findPromptUuid } from './claude-transcript.js';
+import { mapClaudeSessionMessages, deriveClaudeTitle, isClaudeTitlePlaceholder, isClaudeGeneratedName, hasClaudeExplicitTitle, findForkCut, findPromptUuid } from './claude-transcript.js';
 import { createClaudeRequests } from './claude-requests.js';
 import { createClaudeSessionProcess } from './session-process.js';
 import { createTranscriptSidecar, isSafeId } from './transcript-sidecar.js';
@@ -486,6 +486,28 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
   };
 
   /**
+   * The real custom title an earlier transcript record carries when the newest
+   * one is a generated VS Code name (see `readRealCustomTitle`). Cached the
+   * same way as the ai-title: one read per transcript change.
+   */
+  const realCustomTitleCache = new Map();
+  const realCustomTitleOf = async (sessionId, directory) => {
+    const file = await sidecar.locate(sessionId, directory).catch(() => null);
+    if (!file) return '';
+    let mtimeMs = 0;
+    try {
+      mtimeMs = (await fsPromises.stat(file)).mtimeMs;
+    } catch {
+      return '';
+    }
+    const known = realCustomTitleCache.get(sessionId);
+    if (known && known.file === file && known.mtimeMs === mtimeMs) return known.title;
+    const title = await (sidecar.readRealCustomTitle?.(sessionId, directory) ?? Promise.resolve('')).catch(() => '');
+    realCustomTitleCache.set(sessionId, { file, mtimeMs, title });
+    return title;
+  };
+
+  /**
    * What the engine learns about a session as it runs — the mode it is in,
    * the prompt cache's lifetime, the model's context window — published on
    * the session as `metadata.claude`.
@@ -552,7 +574,15 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
 
   const buildSessionFromInfo = async (info, fallbackDirectory) => {
     let title = deriveClaudeTitle(info);
-    if (isClaudeTitlePlaceholder(title) || !hasClaudeExplicitTitle(info)) {
+    // A generated VS Code name stamped as the newest custom title is not the
+    // session's title: the one the conversation earned sits in an earlier
+    // record, and when there is none, the `ai-title` below gets its say — the
+    // stamp is no more a title than the Remote Control placeholder was.
+    const generated = isClaudeGeneratedName(info?.customTitle);
+    const real = generated ? await realCustomTitleOf(info.sessionId, info.cwd || fallbackDirectory || undefined) : '';
+    if (real) {
+      title = clampText(real, 120);
+    } else if (generated || isClaudeTitlePlaceholder(title) || !hasClaudeExplicitTitle(info)) {
       // VS Code names a session by its `custom-title` first and the `ai-title`
       // the CLI generated second; the raw first prompt is nobody's title, it
       // is only what the SDK scan falls back to. So whenever the SDK gave us
