@@ -75,6 +75,7 @@ import { registerOpenChamberRoutes } from './lib/opencode/openchamber-routes.js'
 import { registerForkUpdateRoutes } from './lib/fork-update/routes.js';
 import { createServerUtilsRuntime } from './lib/opencode/server-utils-runtime.js';
 import { createClaudeSurface, isClaudeSessionId } from './lib/claude/routes.js';
+import { createCompanyFolderAutoFile } from './lib/session-folders/auto-file.js';
 import { createLiveSessionRegistry } from './lib/claude/live-sessions.js';
 import { createRemoteAttachments } from './lib/claude/remote-attach.js';
 import { createStaticRoutesRuntime } from './lib/opencode/static-routes-runtime.js';
@@ -1258,6 +1259,14 @@ const claudeSurface = createClaudeSurface({
     // they go through the same translation to the same consumer.
     for (const translated of translateWireEvent(payload)) messageQueueRuntime.processPayload(translated);
   },
+  // Files a `metadata.company` session into the "Compañía" folder on the list
+  // read, so the grouping is server-authoritative and identical across Claude
+  // Desktop, VS Code and the web (see lib/session-folders/auto-file.js).
+  companyFolderAutoFile: createCompanyFolderAutoFile({
+    fsPromises: fs.promises,
+    path,
+    foldersFilePath: path.join(OPENCHAMBER_DATA_DIR, 'sessions-directories.json'),
+  }),
 });
 
 const serverUtilsRuntime = createServerUtilsRuntime({
