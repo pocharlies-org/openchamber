@@ -209,6 +209,13 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
             ? [{ id: 'openchamber:summary', name: 'summary', source: 'openchamber' as const, description: t('chat.commandAutocomplete.command.summaryDescription'), isOpenChamber: true }]
             : []
           ),
+          // Claude Code only (localCommandAvailable): its `/login` cannot run in a
+          // process the Agent SDK drives, so OpenChamber answers it with the CLI's
+          // own sign-in. On OpenCode the engine keeps the command.
+          ...(hasSession
+            ? [{ id: 'openchamber:login', name: 'login', source: 'openchamber' as const, description: t('chat.commandAutocomplete.command.loginDescription'), isOpenChamber: true }]
+            : []
+          ),
           ...(canStartSessionCommand
             ? [{ id: 'openchamber:workspace-review', name: 'workspace-review', source: 'openchamber' as const, description: t('chat.commandAutocomplete.command.workspaceReviewDescription'), isOpenChamber: true }]
             : []

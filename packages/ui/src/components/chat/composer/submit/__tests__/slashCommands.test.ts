@@ -188,6 +188,16 @@ describe('local commands by engine', () => {
         }
     });
 
+    test('/login is OpenChamber\'s only on Claude Code, where the CLI cannot sign in', () => {
+        expect(localCommandAvailable('login', claude)).toBe(true);
+        expect(localCommandAvailable('login', opencode)).toBe(false);
+        expect(planLocalSlashCommand('/login', 'normal', false, true, claude)?.kind).toBe('action');
+        // On OpenCode the typed text stays the engine's command.
+        expect(planLocalSlashCommand('/login', 'normal', false, true, opencode)).toBeNull();
+        // Without a session there is no engine to ask, so nothing is claimed.
+        expect(planLocalSlashCommand('/login', 'normal', false, false, claude)).toBeNull();
+    });
+
     test('a command the engine cannot run is not planned locally: the text goes to the engine', () => {
         expect(planLocalSlashCommand('/undo', 'normal', false, true, claude)).toBeNull();
         expect(planLocalSlashCommand('/undo', 'normal', false, true, opencode)?.kind).toBe('action');
