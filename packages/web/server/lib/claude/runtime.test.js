@@ -1061,6 +1061,16 @@ describe('claude backend live processes', () => {
     await runtime.shutdownAll();
   });
 
+  it('launches the CLI as `cli` so VS Code lists the session', async () => {
+    const sdk = makeSdk({ query: interactiveQuery() });
+    const { runtime } = createRuntime({ sdk });
+
+    await runtime.promptAsync({ sessionID: 'sess-1', parts: [{ type: 'text', text: 'hi' }] });
+
+    expect(sdk.query.mock.calls[0][0].options.env.CLAUDE_CODE_ENTRYPOINT).toBe('cli');
+    await runtime.shutdownAll();
+  });
+
   it('starts a new process when the effort changes', async () => {
     const sdk = makeSdk({ query: interactiveQuery() });
     const { runtime } = createRuntime({ sdk });
