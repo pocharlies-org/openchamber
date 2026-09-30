@@ -77,6 +77,9 @@ const MetricIndicator: React.FC<{
   const snapshot = React.useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
   if (!snapshot) return null;
 
+  const indicator = formatComposerMetricIndicator(snapshot, isMobile);
+  if (!indicator) return null;
+
   const accuracy = t(snapshot.exact ? 'chat.streamMetrics.exact' : 'chat.streamMetrics.estimated');
 
   return (
@@ -90,7 +93,7 @@ const MetricIndicator: React.FC<{
           )}
           aria-label={t('chat.streamMetrics.openDetails', { accuracy })}
         >
-          <span className="truncate whitespace-nowrap">{formatComposerMetricIndicator(snapshot, isMobile)}</span>
+          <span className="truncate whitespace-nowrap">{indicator}</span>
         </button>
       </TooltipTrigger>
       <TooltipContent side="top" sideOffset={6} className="max-w-[min(22rem,calc(100vw-1rem))]">

@@ -420,6 +420,22 @@ describe('StreamMetricsTracker', () => {
     expectMetric(tracker.getSnapshot(identity), { ttftMs: null, exact: false, characters: 15 });
   });
 
+  test('backfills real token counters into an observed turn that completes with usage', () => {
+    const { tracker, setNow } = createHarness();
+    setNow(500);
+    tracker.ingest(identity.runtimeKey, identity.directory, assistantUpdated('evt_seen'));
+    setNow(900);
+    tracker.ingest(identity.runtimeKey, identity.directory, assistantUpdated('evt_done', { completed: 900 }));
+    tracker.flush();
+    expectMetric(tracker.getSnapshot(identity), {
+      status: 'completed',
+      exact: true,
+      ttftMs: null,
+      durationMs: null,
+      tokens: { input: 120, output: 40, reasoning: 7, cacheRead: 11, cacheWrite: 3 },
+    });
+  });
+
   test('does not treat echoed user-message parts as assistant visibility', () => {
     const { tracker, setNow } = createHarness();
     begin(tracker);
