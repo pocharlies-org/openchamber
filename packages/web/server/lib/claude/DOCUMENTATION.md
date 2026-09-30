@@ -21,6 +21,7 @@ the way the Claude Code VS Code extension drives its panel.
 | `transcript-sidecar.js` | What the SDK's reader drops: structured tool results (`toolUseResult`), subagent `.meta.json`. |
 | `v2-wire.js` | Internal events → OpenCode 2 wire events; records → v2 shapes. |
 | `live-sessions.js`, `remote-attach.js` | Sessions live in another CLI process; writing to them through Remote Control. |
+| `account.js` | The Claude Code account these sessions run as: its status, and the sign-in that changes it. |
 
 ## Ids
 
@@ -66,6 +67,37 @@ the dialog opens on them. Nothing here changes a session already running.
 | Prompt cache clock | The lifetime the API reported (`cache_creation.ephemeral_1h/5m_input_tokens`) → the answer's `metadata.claude.cacheTtlMs` (read back) and the session's `metadata.claude.cacheTtlMs` (live). A local model's prefix cache reports none: no clock. |
 
 Checkpoint rewind (`rewindFiles`) is not wired yet.
+
+## The account the sessions run as
+
+Claude Code owns the credential: OpenChamber never holds an Anthropic token of
+its own for a Claude session. `account.js` asks the CLI (`auth status --json`,
+the same read `lib/opencode/claude-cli-auth.js` does for the provider source)
+and changes it with `auth login` / `auth logout`, on the same executable the
+sessions spawn — so the account picked here is the one a turn is billed to.
+
+`/login` is not available to a process the Agent SDK drives ("isn't available in
+this environment"), so the composer's `/login` opens this surface instead of
+sending the text to the session. The OAuth exchange stays inside the CLI: it
+prints the URL to open and waits for the code the sign-in page hands back, and
+OpenChamber shows the URL, writes the pasted code to the child's stdin, and
+reports what the child said. A wrong code costs a retry in the same flow — the
+CLI re-prompts — not a new sign-in page.
+
+- One login runs at a time: a second `POST /api/claude/account/login` returns
+  the flow already in flight rather than starting a second child to write
+  credentials over the first. A flow nobody finishes dies at 10 minutes.
+- Outcomes come from the CLI, not from scraping its words: when the child ends,
+  the account is read again, and that answer is what `signed-in` or `failed`
+  means. The child's own lines ride along as `messages` for the user to read.
+- Every API-key variable is stripped from the child's environment first, or the
+  CLI would authenticate with the key and report that instead of the account.
+- A session already running keeps the token it started with until its next turn
+  spawns a process. Switching account is not a restart of what is answering.
+
+Routes: `GET /api/claude/account`, `POST /api/claude/account/login`,
+`GET|DELETE /api/claude/account/login/:id`,
+`POST /api/claude/account/login/:id/code`, `POST /api/claude/account/logout`.
 
 ## Pending requests
 

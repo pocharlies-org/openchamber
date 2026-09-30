@@ -19,6 +19,7 @@
  */
 
 import { createClaudeBackendRuntime, parseChildSessionId } from './runtime.js';
+import { createClaudeAccountService } from './account.js';
 import { operationOfPath, sendUnsupportedOperation } from '../engines/engines.js';
 import { createClaudeV2EventTranslator, pageOf, toV2Message, toV2Session } from './v2-wire.js';
 
@@ -157,7 +158,7 @@ const positiveInteger = (value) => {
  *   OpenChamber's archive store (sessions-archive.json), keyed by public id
  */
 export const createClaudeSurface = (dependencies = {}) => {
-  const { publishEvent, readProjects, getArchivedSessions, getStoredMetadata, peekStoredMetadata, forgetStoredMetadata, ...rest } = dependencies;
+  const { publishEvent, readProjects, getArchivedSessions, getStoredMetadata, peekStoredMetadata, forgetStoredMetadata, accountService, ...rest } = dependencies;
   const crypto = rest.crypto;
 
   /**
@@ -237,6 +238,15 @@ export const createClaudeSurface = (dependencies = {}) => {
     ...rest,
     toPublicId,
     publishEvent: publishEvent ? ({ payload }) => translator.translate(payload) : undefined,
+  });
+
+  /**
+   * The Claude Code account these sessions run as (account.js). It signs into
+   * the same executable the sessions spawn, so the account chosen here is the
+   * account a turn is billed to.
+   */
+  const account = dependencies.accountService || createClaudeAccountService({
+    resolveExecutable: runtime.resolveExecutable,
   });
 
   /**
@@ -658,6 +668,75 @@ export const createClaudeSurface = (dependencies = {}) => {
       .listCommands({ directory: directoryOf(req) })
       .then((commands) => res.json({ commands }))
       .catch((error) => sendTagged(res, 500, 'UnknownError', error?.message || 'Failed')));
+
+    // The Claude Code account these sessions run as. `/login` is not a command
+    // an SDK-driven session can run, so the composer's `/login` opens this
+    // surface instead: the CLI performs the sign-in and OpenChamber relays its
+    // URL and the code the browser hands back.
+    app.get('/api/claude/account', (_req, res) => {
+      const { loggedIn, account: current, reason } = account.readAccount();
+      res.json({ loggedIn, account: current, reason, flow: account.activeFlow() });
+    });
+
+    // Starts (or rejoins) a sign-in. One runs at a time: a second request gets
+    // the flow already in flight rather than a second child writing credentials.
+    app.post('/api/claude/account/login', async (req, res) => {
+      const body = await readJsonBody(req);
+      const mode = body?.mode === 'console' ? 'console' : 'claudeai';
+      try {
+        res.json({ flow: await account.startLogin({ mode }) });
+      } catch (error) {
+        sendTagged(res, 500, 'UnknownError', error?.message || 'The sign-in could not start');
+      }
+      return undefined;
+    });
+
+    app.get('/api/claude/account/login/:id', (req, res) => {
+      const flow = account.getFlow(req.params.id);
+      if (!flow) return sendTagged(res, 404, 'LoginFlowNotFoundError', 'That sign-in is no longer running');
+      res.json({ flow });
+      return undefined;
+    });
+
+    // The code the sign-in page shows, pasted back. A wrong one is the CLI's
+    // answer, not a dead flow: it re-prompts and the user can try again.
+    app.post('/api/claude/account/login/:id/code', async (req, res) => {
+      const body = await readJsonBody(req);
+      const result = account.submitCode(req.params.id, body?.code);
+      if (result.error === 'not-found') {
+        return sendTagged(res, 404, 'LoginFlowNotFoundError', 'That sign-in is no longer running');
+      }
+      if (result.error === 'invalid-code') {
+        return sendTagged(res, 400, 'InvalidRequestError', 'The code is not a single token — copy it whole from the sign-in page');
+      }
+      if (result.error === 'closed') {
+        return sendTagged(res, 409, 'ConflictError', 'That sign-in has already ended');
+      }
+      res.json({ flow: result.flow });
+      return undefined;
+    });
+
+    app.delete('/api/claude/account/login/:id', (req, res) => {
+      const flow = account.cancelFlow(req.params.id);
+      if (!flow) return sendTagged(res, 404, 'LoginFlowNotFoundError', 'That sign-in is no longer running');
+      res.json({ flow });
+      return undefined;
+    });
+
+    // Signing out is the CLI clearing the credential the next session reads.
+    // Sessions already running keep the token they hold until their next turn.
+    app.post('/api/claude/account/logout', async (_req, res) => {
+      try {
+        const result = await account.logout();
+        if (!result.ok) {
+          return sendTagged(res, 500, 'UnknownError', result.error || 'Claude Code could not sign out');
+        }
+        res.json({ loggedIn: result.connected, account: result.account });
+      } catch (error) {
+        sendTagged(res, 500, 'UnknownError', error?.message || 'Claude Code could not sign out');
+      }
+      return undefined;
+    });
 
     // The composer puts a session on a model/agent before prompting; for
     // Claude that choice rides the next prompt (model, effort, mode). Only a

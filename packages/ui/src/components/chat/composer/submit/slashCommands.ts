@@ -150,7 +150,16 @@ const LOCAL_ACTION_COMMANDS = new Set([
     'handoff-review',
     'compact',
     'fork',
+    'login',
 ]);
+
+/**
+ * Commands that belong to one engine only. `/login` is Claude Code's sign-in,
+ * and a process the Agent SDK drives answers it with "isn't available in this
+ * environment" — OpenChamber runs the CLI's own `auth login` in its place (see
+ * server/lib/claude/account.js). On OpenCode the text stays OpenCode's.
+ */
+const CLAUDE_ONLY_COMMANDS = new Set(['login']);
 
 /**
  * The engine operation each local command relies on (see lib/sessionEngine.ts).
@@ -178,6 +187,7 @@ export const LOCAL_COMMAND_REQUIRES: Readonly<Record<string, EngineOperation | n
 
 /** Whether a session whose engine has `capabilities` gets the local command `name`. */
 export function localCommandAvailable(name: string, capabilities: EngineCapabilities): boolean {
+    if (CLAUDE_ONLY_COMMANDS.has(name)) return capabilities.commands === 'prompt';
     const requirement = LOCAL_COMMAND_REQUIRES[name];
     return requirement === undefined || requirement === null || capabilities[requirement];
 }
