@@ -92,7 +92,9 @@ export function ComposerStatusSurface({
   return (
     <div className={cn('flex min-w-0 max-w-full items-center gap-x-1 overflow-hidden', className)} data-composer-status="true">
       {mounted.map(({ contribution, guest }, index) => (
-        <div key={contribution.id} className="flex h-6 min-w-24 shrink-0 items-center overflow-hidden">
+        // A chip-sized slot: an iframe has no intrinsic content width and
+        // falls back to 300px, which pushed a blank box into the footer.
+        <div key={contribution.id} className="flex h-6 w-[4.75rem] shrink-0 items-center overflow-hidden">
           <ErrorBoundary fallback={null}>
             <React.Suspense fallback={null}>
               <PluginPane
