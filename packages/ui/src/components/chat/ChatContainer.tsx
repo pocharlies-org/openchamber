@@ -50,6 +50,7 @@ import { useScrollShadow } from '@/components/ui/useScrollShadow';
 import { useChatTimelineScroll, type LinkedMessageState, type TimelineListHandle } from '@/hooks/useChatTimelineScroll';
 import { useChatTimelineController } from './hooks/useChatTimelineController';
 import { TimelineDialog } from './TimelineDialog';
+import { ClaudeAccountDialog } from './ClaudeAccountDialog';
 import { useChatTurnNavigation } from './hooks/useChatTurnNavigation';
 import { ChatQuoteHighlightContext, useChatQuoteHighlightStore } from './hooks/chatQuoteHighlightStore';
 import { ChatQuoteHighlightLayer } from './message/ChatQuoteHighlightLayer';
@@ -790,6 +791,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
     const [embeddedAllowPrompting, setEmbeddedAllowPrompting] = React.useState(initialAllowPromptingSubagentSessions);
     const isTimelineDialogOpen = useUIStore((s) => s.isTimelineDialogOpen);
     const setTimelineDialogOpen = useUIStore((s) => s.setTimelineDialogOpen);
+    const isClaudeAccountDialogOpen = useUIStore((s) => s.isClaudeAccountDialogOpen);
+    const setClaudeAccountDialogOpen = useUIStore((s) => s.setClaudeAccountDialogOpen);
 
     // Streaming state
     const streamingMessageId = useStreamingStore(
@@ -1842,6 +1845,13 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
                     repositoryEnabled={!isManagedChatContext}
                 />
             ) : null}
+
+            {/* The Claude Code account: `/login` in a Claude session opens this,
+                because the engine itself cannot sign in from a driven process. */}
+            <ClaudeAccountDialog
+                open={isClaudeAccountDialogOpen}
+                onOpenChange={setClaudeAccountDialogOpen}
+            />
 
             <TimelineDialog
                 open={isTimelineDialogOpen}

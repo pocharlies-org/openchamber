@@ -907,3 +907,112 @@ describe('POST /api/session with a picked start', () => {
     expect(queries[0]).toMatchObject({ model: 'sonnet', permissionMode: 'default' });
   });
 });
+
+describe('the Claude account routes', () => {
+  const ACCOUNT = { authMethod: 'claude.ai', email: 'me@example.com', orgName: null, subscriptionType: 'max', configDirectory: '/home/test/.claude' };
+  const FLOW = { id: 'clf_1', mode: 'claudeai', status: 'waiting-code', url: 'https://claude.com/cai/oauth/authorize?state=abc', messages: [], error: null, createdAt: 1, expiresAt: 2, account: null };
+
+  const accountApp = (accountService) => surfaceApp({ accountService });
+
+  const fakeAccount = (overrides = {}) => ({
+    readAccount: () => ({ loggedIn: true, account: ACCOUNT, reason: 'logged-in' }),
+    activeFlow: () => null,
+    startLogin: async () => FLOW,
+    getFlow: () => null,
+    submitCode: () => ({ flow: FLOW }),
+    cancelFlow: () => null,
+    logout: async () => ({ ok: true, connected: false, account: null, error: null }),
+    ...overrides,
+  });
+
+  it('answers GET /api/claude/account with the CLI status and any sign-in in flight', async () => {
+    const flow = { ...FLOW, status: 'exchanging' };
+    const { app } = accountApp(fakeAccount({ activeFlow: () => flow }));
+
+    const response = await request(app).get('/api/claude/account');
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ loggedIn: true, account: ACCOUNT, reason: 'logged-in', flow });
+  });
+
+  it('starts a sign-in and normalizes the mode', async () => {
+    const startLogin = vi.fn(async () => FLOW);
+    const { app } = accountApp(fakeAccount({ startLogin }));
+
+    const asked = await request(app).post('/api/claude/account/login').send({ mode: 'console' });
+    expect(asked.status).toBe(200);
+    expect(asked.body.flow).toEqual(FLOW);
+    expect(startLogin).toHaveBeenLastCalledWith({ mode: 'console' });
+
+    await request(app).post('/api/claude/account/login').send({ mode: 'nonsense' });
+    expect(startLogin).toHaveBeenLastCalledWith({ mode: 'claudeai' });
+
+    await request(app).post('/api/claude/account/login').send({});
+    expect(startLogin).toHaveBeenLastCalledWith({ mode: 'claudeai' });
+  });
+
+  it('reports a sign-in that is no longer running as a 404, not an empty flow', async () => {
+    const { app } = accountApp(fakeAccount());
+
+    const response = await request(app).get('/api/claude/account/login/clf_gone');
+
+    expect(response.status).toBe(404);
+    expect(response.body._tag).toBe('LoginFlowNotFoundError');
+    expect(response.body.flow).toBeUndefined();
+  });
+
+  it('routes a pasted code by what the flow accepted', async () => {
+    const cases = [
+      [{ error: 'not-found' }, 404, 'LoginFlowNotFoundError'],
+      [{ error: 'invalid-code', flow: FLOW }, 400, 'InvalidRequestError'],
+      [{ error: 'closed', flow: FLOW }, 409, 'ConflictError'],
+      [{ flow: FLOW }, 200, undefined],
+    ];
+    for (const [result, status, tag] of cases) {
+      const { app } = accountApp(fakeAccount({ submitCode: () => result }));
+      const response = await request(app).post('/api/claude/account/login/clf_1/code').send({ code: 'abc' });
+      expect(response.status).toBe(status);
+      if (tag) expect(response.body._tag).toBe(tag);
+      else expect(response.body.flow).toEqual(FLOW);
+    }
+  });
+
+  it('passes the code through and cancels a flow', async () => {
+    const submitCode = vi.fn(() => ({ flow: FLOW }));
+    const cancelFlow = vi.fn((id) => (id === 'clf_1' ? { ...FLOW, status: 'cancelled' } : null));
+    const { app } = accountApp(fakeAccount({ submitCode, cancelFlow }));
+
+    await request(app).post('/api/claude/account/login/clf_1/code').send({ code: '  abc  ' });
+    expect(submitCode).toHaveBeenCalledWith('clf_1', '  abc  ');
+
+    const cancelled = await request(app).delete('/api/claude/account/login/clf_1');
+    expect(cancelled.body.flow.status).toBe('cancelled');
+    expect(cancelFlow).toHaveBeenCalledWith('clf_1');
+
+    const gone = await request(app).delete('/api/claude/account/login/clf_gone');
+    expect(gone.status).toBe(404);
+  });
+
+  it('answers a logout with what the CLI has left, and a failed one with its reason', async () => {
+    const { app } = accountApp(fakeAccount());
+    const response = await request(app).post('/api/claude/account/logout');
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ loggedIn: false, account: null });
+
+    const failing = accountApp(fakeAccount({ logout: async () => ({ ok: false, error: 'logout exploded', connected: true, account: ACCOUNT }) }));
+    const refused = await request(failing.app).post('/api/claude/account/logout');
+    expect(refused.status).toBe(500);
+    expect(refused.body.message).toBe('logout exploded');
+  });
+
+  it('serves no account route when the Claude surface is switched off', async () => {
+    process.env.OPENCHAMBER_CLAUDE_LIST_DISABLED = '1';
+    try {
+      const { app } = accountApp(fakeAccount());
+      const response = await request(app).get('/api/claude/account');
+      expect(response.status).toBe(418);
+    } finally {
+      delete process.env.OPENCHAMBER_CLAUDE_LIST_DISABLED;
+    }
+  });
+});
