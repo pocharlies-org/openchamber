@@ -862,13 +862,15 @@ export const createClaudeSurface = (dependencies = {}) => {
 
     // The front end still shows a session another process is writing: keep
     // following its transcript (the follow lapses otherwise, see runtime).
+    // `lapsed` says this renewal started a follow from scratch — the events of
+    // the gap are gone from the stream, so the window must read the transcript.
     app.post('/api/session/:id/claude/follow', async (req, res, next) => {
       const sessionId = fromPublicId(req.params.id);
       if (!sessionId) return next();
       const body = await readJsonBody(req);
       return runtime
         .keepFollowing({ sessionID: sessionId, directory: body.directory || directoryOf(req) })
-        .then(() => res.status(204).end())
+        .then((result) => res.json({ data: { lapsed: result?.lapsed === true } }))
         .catch((error) => sendTagged(res, 500, 'UnknownError', error?.message || 'Failed'));
     });
 
