@@ -600,6 +600,15 @@ export const mapClaudeSessionMessages = (messages, {
  */
 export const isClaudeTitlePlaceholder = (title) => /^OpenChamber · /u.test(String(title ?? '').trim());
 
+/**
+ * The machine-generated session name VS Code stamps as the transcript's
+ * custom title — `<host>-<adjective>-<animal>` (`ubuntu-bright-duckling`),
+ * rewritten on every turn, over any title the session had earned before. Three
+ * lowercase hyphenated words with no spaces is nobody's chosen name; when an
+ * earlier custom title or an `ai-title` exists, that one is the session's.
+ */
+export const isClaudeGeneratedName = (title) => /^[a-z0-9]+-[a-z]+-[a-z0-9]+$/u.test(String(title ?? '').trim());
+
 export const deriveClaudeTitle = (info) => {
   const custom = typeof info?.customTitle === 'string' ? info.customTitle.trim() : '';
   if (custom) return custom;

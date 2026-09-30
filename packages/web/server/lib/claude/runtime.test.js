@@ -133,6 +133,46 @@ describe('claude backend listSessions', () => {
     expect(readAiTitle).not.toHaveBeenCalled();
   });
 
+  it('unmasks a title buried under the generated VS Code name', async () => {
+    const readAiTitle = vi.fn(async () => 'El título que sacó la IA');
+    const sidecar = (real) => ({
+      locate: async () => '/transcripts/sess-1.jsonl',
+      readAiTitle,
+      readRealCustomTitle: vi.fn(async () => real),
+    });
+    const stamp = { customTitle: 'ubuntu-bright-duckling', summary: '', firstPrompt: 'hola' };
+
+    // The conversation had a real title before the stamp: that one shows,
+    // and the ai-title has no say over a custom title.
+    const { runtime } = createRuntime({
+      sdk: makeSdk({ listSessions: vi.fn(async () => [sessionInfo(stamp)]) }),
+      fs: Object.assign(makeFs(), { stat: vi.fn(async () => ({ mtimeMs: 123 })) }),
+      transcriptSidecar: sidecar('iOS no lee archivo proceso'),
+    });
+    const [masked] = await runtime.listSessions({ directory: '/repo/project' });
+    expect(masked.title).toBe('iOS no lee archivo proceso');
+    expect(readAiTitle).not.toHaveBeenCalled();
+
+    // Nothing real under the stamp: it is no title, so the ai-title decides.
+    const { runtime: bare } = createRuntime({
+      sdk: makeSdk({ listSessions: vi.fn(async () => [sessionInfo(stamp)]) }),
+      fs: Object.assign(makeFs(), { stat: vi.fn(async () => ({ mtimeMs: 123 })) }),
+      transcriptSidecar: sidecar(''),
+    });
+    const [unmasked] = await bare.listSessions({ directory: '/repo/project' });
+    expect(unmasked.title).toBe('El título que sacó la IA');
+
+    // A chosen title is never scanned, however many words it hyphenates.
+    const scan = sidecar('NO DEBE LLAMARME');
+    const { runtime: clean } = createRuntime({
+      sdk: makeSdk({ listSessions: vi.fn(async () => [sessionInfo()]) }),
+      transcriptSidecar: scan,
+    });
+    const [untouched] = await clean.listSessions({ directory: '/repo/project' });
+    expect(untouched.title).toBe('summarised work');
+    expect(scan.readRealCustomTitle).not.toHaveBeenCalled();
+  });
+
   it('names a prompt-only session by its ai-title, as VS Code does', async () => {
     const readAiTitle = vi.fn(async () => 'Apagar y relanzar SC-1340');
     const { runtime } = createRuntime({
