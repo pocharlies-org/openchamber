@@ -8,6 +8,7 @@ import { claudeVSCodeUrl, getClaudeLiveState, type ClaudeLiveOwnerKind } from '@
 import { CLAUDE_FOLLOW_KEEPALIVE_MS, keepFollowingClaudeSession, releaseClaudeSession, takeOverClaudeSession } from '@/lib/claudeTakeOver';
 import { useI18n } from '@/lib/i18n';
 import { useSession } from '@/sync/sync-context';
+import { refetchSessionMessages } from '@/sync/session-actions';
 import { cn } from '@/lib/utils';
 
 const TITLE_KEYS = {
@@ -47,13 +48,31 @@ export const ClaudeLiveSessionBanner = memo(({ sessionId, directory }: ClaudeLiv
 
   // While this banner shows a session another process writes, its messages
   // keep streaming here however long it stays open.
+  //
+  // The follow is a lease the server drops 15 min after the last renewal, and a
+  // tab Chrome throttles (backgrounded, a sleeping laptop) misses renewals — so
+  // the stream stays healthy while the server has quietly stopped publishing
+  // this session into it. Nothing else notices: no reconnect, so no resync. The
+  // renewal therefore says whether the lease was dead, and a dead one pulls the
+  // transcript once; a hidden tab renews the moment it is visible again instead
+  // of waiting out the interval.
   React.useEffect(() => {
     if (!sessionId || !isLiveElsewhere) return undefined;
-    void keepFollowingClaudeSession(sessionId, directory);
-    const timer = window.setInterval(() => {
-      void keepFollowingClaudeSession(sessionId, directory);
-    }, CLAUDE_FOLLOW_KEEPALIVE_MS);
-    return () => window.clearInterval(timer);
+    const renew = () => {
+      void keepFollowingClaudeSession(sessionId, directory).then((lapsed) => {
+        if (lapsed) void refetchSessionMessages(sessionId).catch(() => undefined);
+      });
+    };
+    renew();
+    const timer = window.setInterval(renew, CLAUDE_FOLLOW_KEEPALIVE_MS);
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') renew();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   }, [directory, isLiveElsewhere, sessionId]);
 
   const handleTakeOver = React.useCallback(async () => {
