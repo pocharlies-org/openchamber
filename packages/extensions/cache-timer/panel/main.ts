@@ -44,7 +44,7 @@ style.textContent = `
   .ct-timer {
     display: inline-flex; align-items: center; gap: 4px;
     color: var(--oc-muted); font: 12px/1 var(--oc-font);
-    padding: 0 6px; border-radius: var(--oc-radius); white-space: nowrap;
+    padding: 0 4px; border-radius: var(--oc-radius); white-space: nowrap;
   }
   .ct-timer[data-tone="warning"] { color: var(--oc-warning-text); }
   .ct-timer[data-tone="error"] { color: var(--oc-error-text); }
