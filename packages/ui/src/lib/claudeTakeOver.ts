@@ -46,17 +46,26 @@ export const releaseClaudeSession = async (sessionId: string, directory: string 
 /** How often a session shown live keeps its server-side follow alive (the follow lapses after 15 min). */
 export const CLAUDE_FOLLOW_KEEPALIVE_MS = 4 * 60 * 1000;
 /**
- * Tell the server this window still shows a session another process is
- * writing, so it keeps publishing that process's messages here.
+ * Renew this window's lease on the server-side follow of a session another
+ * process is writing, so it keeps publishing that process's messages here.
+ *
+ * Returns whether the lease had lapsed — the follow started over, so the events
+ * between the lapse and now never reached this window and the caller must pull
+ * the transcript. A tab Chrome throttles stops renewing while its event stream
+ * stays healthy, which is exactly the case nothing else notices.
  */
-export const keepFollowingClaudeSession = async (sessionId: string, directory: string | null): Promise<void> => {
+export const keepFollowingClaudeSession = async (sessionId: string, directory: string | null): Promise<boolean> => {
   try {
-    await runtimeFetch(`/api/session/${encodeURIComponent(sessionId)}/claude/follow`, {
+    const response = await runtimeFetch(`/api/session/${encodeURIComponent(sessionId)}/claude/follow`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ directory }),
     });
+    if (!response.ok) return false;
+    const body = await response.json().catch(() => null);
+    return body?.data?.lapsed === true;
   } catch {
     // The next tick retries; the transcript stays readable either way.
+    return false;
   }
 };
