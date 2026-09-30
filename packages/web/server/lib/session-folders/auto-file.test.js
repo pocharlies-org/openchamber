@@ -26,7 +26,6 @@ const createMemoryFs = (initial = {}) => {
 const FILE = path.join('/data', 'sessions-directories.json');
 const companyFolder = (snapshot) => (snapshot.foldersMap['/home/dibanez/k8s'] ?? [])
   .find((folder) => folder.name === COMPANY_FOLDER_NAME);
-
 const readSnapshot = (fs) => JSON.parse(fs.files.get(FILE));
 
 describe('createCompanyFolderAutoFile', () => {
@@ -36,19 +35,50 @@ describe('createCompanyFolderAutoFile', () => {
 
     await autoFile.fileMany([{ sessionId: 'ses_ccc1', scopeKey: '/home/dibanez/k8s' }]);
 
-    const snapshot = readSnapshot(fs);
-    expect(snapshot.version).toBe(1);
-    expect(companyFolder(snapshot).sessionIds).toEqual(['ses_ccc1']);
+    expect(readSnapshot(fs).version).toBe(1);
+    expect(companyFolder(readSnapshot(fs)).sessionIds).toEqual(['ses_ccc1']);
   });
 
-  it('is idempotent: filing the same session twice adds it once', async () => {
+  it('is idempotent: asserting the same session twice adds it once', async () => {
+    const fs = createMemoryFs();
+    const autoFile = createCompanyFolderAutoFile({ fsPromises: fs, path, foldersFilePath: FILE });
+
+    await autoFile.fileMany([{ sessionId: 'ses_ccc1', scopeKey: '/home/dibanez/k8s' }], { force: true });
+    await autoFile.fileMany([{ sessionId: 'ses_ccc1', scopeKey: '/home/dibanez/k8s' }], { force: true });
+
+    expect(companyFolder(readSnapshot(fs)).sessionIds).toEqual(['ses_ccc1']);
+  });
+
+  it('heals a clobber: re-asserting after a client dropped the ids puts them back', async () => {
+    const fs = createMemoryFs();
+    const autoFile = createCompanyFolderAutoFile({ fsPromises: fs, path, foldersFilePath: FILE });
+    const entries = [{ sessionId: 'ses_ccc1', scopeKey: '/home/dibanez/k8s' }];
+
+    await autoFile.fileMany(entries, { force: true });
+    // A client POSTs a stale snapshot that lost the filing (folder emptied).
+    const clobbered = readSnapshot(fs);
+    clobbered.foldersMap['/home/dibanez/k8s'] = [];
+    clobbered.updatedAt = Date.now() + 1000;
+    fs.files.set(FILE, JSON.stringify(clobbered));
+
+    await autoFile.fileMany(entries, { force: true });
+
+    expect(companyFolder(readSnapshot(fs)).sessionIds).toEqual(['ses_ccc1']);
+  });
+
+  it('throttles: a second non-forced assert inside the window does not re-read the file', async () => {
     const fs = createMemoryFs();
     const autoFile = createCompanyFolderAutoFile({ fsPromises: fs, path, foldersFilePath: FILE });
 
     await autoFile.fileMany([{ sessionId: 'ses_ccc1', scopeKey: '/home/dibanez/k8s' }]);
-    await autoFile.fileMany([{ sessionId: 'ses_ccc1', scopeKey: '/home/dibanez/k8s' }]);
+    const afterFirst = fs.files.get(FILE);
+    // Same clock (now() is Date.now; both calls land inside REASSERT_MS).
+    await autoFile.fileMany([{ sessionId: 'ses_ccc2', scopeKey: '/home/dibanez/k8s' }]);
 
-    expect(companyFolder(readSnapshot(fs)).sessionIds).toEqual(['ses_ccc1']);
+    expect(fs.files.get(FILE)).toBe(afterFirst);
+    // Force reconciles regardless of the throttle.
+    await autoFile.fileMany([{ sessionId: 'ses_ccc2', scopeKey: '/home/dibanez/k8s' }], { force: true });
+    expect(companyFolder(readSnapshot(fs)).sessionIds).toEqual(['ses_ccc1', 'ses_ccc2']);
   });
 
   it('reuses an existing Compañía folder and leaves other folders untouched', async () => {
@@ -96,7 +126,6 @@ describe('createCompanyFolderAutoFile', () => {
 
     await autoFile.fileMany([{ sessionId: 'ses_ccc1', scopeKey: '/home/dibanez/k8s' }]);
 
-    // The write is fire-and-forget and swallowed; the corrupt file is left alone.
     expect(fs.files.get(FILE)).toBe(corrupt);
   });
 
