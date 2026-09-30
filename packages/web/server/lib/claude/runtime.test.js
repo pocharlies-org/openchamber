@@ -162,6 +162,15 @@ describe('claude backend listSessions', () => {
     const [unmasked] = await bare.listSessions({ directory: '/repo/project' });
     expect(unmasked.title).toBe('El título que sacó la IA');
 
+    // No ai-title either (the title call failed): the first prompt, never the stamp.
+    const { runtime: untitled } = createRuntime({
+      sdk: makeSdk({ listSessions: vi.fn(async () => [sessionInfo(stamp)]) }),
+      fs: Object.assign(makeFs(), { stat: vi.fn(async () => ({ mtimeMs: 123 })) }),
+      transcriptSidecar: { ...sidecar(''), readAiTitle: vi.fn(async () => '') },
+    });
+    const [prompted] = await untitled.listSessions({ directory: '/repo/project' });
+    expect(prompted.title).toBe('hola');
+
     // A chosen title is never scanned, however many words it hyphenates.
     const scan = sidecar('NO DEBE LLAMARME');
     const { runtime: clean } = createRuntime({
