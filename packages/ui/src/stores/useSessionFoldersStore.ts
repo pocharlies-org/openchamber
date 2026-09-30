@@ -616,10 +616,12 @@ const hydrateSessionFoldersFromDisk = async (): Promise<void> => {
     return;
   }
 
-  if (isVSCodeWebview()) {
-    diskHydrated = true;
-    return;
-  }
+  // VS Code reads the folder store from the server like every other client, so
+  // the grouping (not least the server-filed "Compañía" folder) is identical
+  // across Claude Desktop, VS Code and the web. It still does not *persist* back
+  // (see `schedulePersistToDisk`): a VS Code window's local `localStorage` may
+  // hold a stale snapshot, and letting it POST would clobber the shared store.
+  // Reading server truth without writing it is the safe half.
 
   diskHydrationInFlight = true;
   const runtimeKey = activeFolderRuntimeKey;
