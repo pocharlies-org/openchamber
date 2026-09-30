@@ -883,16 +883,17 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
 
   /**
    * The front end still shows this session: keep following its transcript.
-   * A follow that lapsed (a sleeping laptop) starts over and republishes every
-   * record, so the view catches up on what it missed.
+   * Answers whether the lease was dead when it renewed — a follow that lapsed
+   * (a sleeping laptop, a throttled tab) starts over, and the caller has to pull
+   * the transcript to cover the gap the stream never carried.
    */
   const keepFollowing = async (input = {}) => {
     const sessionId = typeof input.sessionID === 'string' ? input.sessionID.trim() : '';
-    if (!sessionId) return;
+    if (!sessionId) return { lapsed: false };
     const entry = followed.get(sessionId);
     if (entry) {
       entry.readAt = Date.now();
-      return;
+      return { lapsed: false };
     }
     followed.set(sessionId, {
       directory: normalizeDirectory(input.directory),
@@ -901,6 +902,10 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
       readAt: Date.now(),
     });
     ensureLivePolling();
+    // A new entry means the lease was gone when this window renewed it, so the
+    // events of that gap never reached it: republishing them from the transcript
+    // takes a poll, and the window has no way to notice. Say so and it pulls.
+    return { lapsed: true };
   };
 
   const ensureLivePolling = () => {

@@ -1337,6 +1337,10 @@ describe('claude backend sessions live in another process', () => {
     };
 
     await runtime.getMessages({ sessionID: 'sess-1', directory: '/repo/project' });
+    // Reading a foreign session already armed the follow, so a renewal right
+    // after it is not a lapse: nothing was missed.
+    await expect(runtime.keepFollowing({ sessionID: 'sess-1', directory: '/repo/project' }))
+      .resolves.toEqual({ lapsed: false });
     // Shown for longer than the window: the keep-alive holds the follow.
     const keepAlive = setInterval(() => { void runtime.keepFollowing({ sessionID: 'sess-1', directory: '/repo/project' }); }, 10);
     await new Promise((resolve) => setTimeout(resolve, 120));
@@ -1350,8 +1354,10 @@ describe('claude backend sessions live in another process', () => {
     await new Promise((resolve) => setTimeout(resolve, 60));
     expect(texts()).not.toContain('mientras dormia');
 
-    // Shown again: it catches up on what it missed.
-    await runtime.keepFollowing({ sessionID: 'sess-1', directory: '/repo/project' });
+    // Shown again: it catches up on what it missed, and the renewal says the
+    // lease was dead — the stream carried none of that gap.
+    await expect(runtime.keepFollowing({ sessionID: 'sess-1', directory: '/repo/project' }))
+      .resolves.toEqual({ lapsed: true });
     await vi.waitFor(() => expect(texts()).toContain('mientras dormia'));
     await runtime.shutdownAll();
   });
