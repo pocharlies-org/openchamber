@@ -208,7 +208,10 @@ footer subscribes to the active runtime-directory-session snapshot. It also
 reads only that session's message bucket when the bucket changes so opening or
 reloading Web can hydrate the latest completed assistant's authoritative token
 counters; streaming part deltas remain isolated in the tracker and do not
-rerender the footer.
+rerender the footer. The compact indicator is built only from parts the
+tracker measured: an observed or loaded turn without accepted-at timing shows
+the token counters alone, and with neither timing nor counters the footer
+renders nothing rather than an all-dash placeholder.
 
 ## Testing
 
