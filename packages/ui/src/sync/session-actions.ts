@@ -49,13 +49,13 @@ import { normalizePath } from "@/lib/pathNormalization"
 import { mergeMessages } from "./optimistic"
 import { messagesBefore, messagesFrom } from "./message-ordering"
 import { deleteChatDirectory } from "@/lib/chatDirectories"
+import { streamMetrics } from "./stream-metrics"
 import { createChatDraftIdentity } from "@/lib/chatDraftPersistence"
 import { cancelSessionTitleGeneration } from "./session-title-generation"
 import { recordSessionActionFailure } from "./session-action-failures"
 import { applyForkInheritance } from "@/lib/sessionForkInheritance"
 import { getSessionGoal } from "@/lib/sessionGoalMetadata"
 import { fetchGoalObjectiveContent, writeGoalObjectiveFile } from "@/lib/goalObjectiveFiles"
-import { streamMetrics } from "./stream-metrics"
 
 const MESSAGE_REFETCH_LIMIT = 100
 const SEND_CONFIRMATION_REFETCH_LIMIT = 30
@@ -2067,8 +2067,10 @@ export async function optimisticSend(input: {
     sessionId: input.sessionId,
     turnId: messageID,
     userMessageId: messageID,
-    providerId: input.providerID,
-    modelId: input.modelID,
+    // v2: the user message carries no model; label the metric with the model the
+    // session last answered with (the assistant message will confirm it).
+    providerId: getSessionLastAssistantModel(input.sessionId)?.providerID,
+    modelId: getSessionLastAssistantModel(input.sessionId)?.modelID,
   })
 
   try {

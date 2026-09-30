@@ -2147,7 +2147,6 @@ export const dict = {
   'chat.commandAutocomplete.command.redoDescription': 'Refaire les messages précédemment annulés',
   'chat.commandAutocomplete.command.timelineDescription': 'Ouvrir la chronologie de la conversation',
   'chat.commandAutocomplete.command.compactDescription': 'Compresser l\'historique des sessions à l\'aide de l\'IA pour réduire la taille du contexte',
-  'chat.commandAutocomplete.command.sideDescription': 'Poser une question ciblée dans une discussion latérale séparée',
   'chat.commandAutocomplete.command.summaryDescription': 'Résumé de session non destructif. Indice de sujet facultatif après la commande.',
   'chat.commandAutocomplete.command.workspaceReviewDescription': 'Examine les modifications actuelles de l’espace de travail pour ne signaler que les problèmes importants.',
   'chat.commandAutocomplete.badge.skill': 'skill',

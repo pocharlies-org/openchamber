@@ -1,4 +1,4 @@
-import { SESSION_SOURCE_FILTERS, SESSION_SOURCE_LABEL_KEYS, type SessionSourceFilter } from '@/lib/sessionSourceFilter';
+import { SESSION_SOURCE_FILTERS, SESSION_SOURCE_LABEL_KEYS } from '@/lib/sessionSourceFilter';
 import React from 'react';
 import {
   DropdownMenu,
@@ -14,10 +14,10 @@ import { cn } from '@/lib/utils';
 import { Icon } from "@/components/icon/Icon";
 import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
 import { useSessionMultiSelectStore } from '@/stores/useSessionMultiSelectStore';
+import { useSessionSourceFilterStore } from '@/stores/useSessionSourceFilterStore';
 import { useI18n } from '@/lib/i18n';
 import { updateDesktopSettings } from '@/lib/persistence';
 import { SessionSearchInput } from '@/components/session/SessionSearchInput';
-import { Button } from '@/components/ui/button';
 import { GuestIcon } from '@/components/layout/GuestRailIcon';
 import { useGuestPages } from '@/hooks/useGuestSurfaces';
 import { guestPackageIconSrc, resolveGuestIconName } from '@/lib/guests/icon';
@@ -42,9 +42,6 @@ type Props = {
   searchMatchCount: number;
   collapseAllProjects: () => void;
   expandAllProjects: () => void;
-  sessionSourceFilter: SessionSourceFilter;
-  setSessionSourceFilter: (filter: SessionSourceFilter) => void;
-  showSessionSourceFilter: boolean;
 };
 
 export function SidebarHeader(props: Props): React.ReactNode {
@@ -68,13 +65,14 @@ export function SidebarHeader(props: Props): React.ReactNode {
     searchMatchCount,
     collapseAllProjects,
     expandAllProjects,
-    sessionSourceFilter,
-    setSessionSourceFilter,
-    showSessionSourceFilter,
   } = props;
 
   const selectionModeEnabled = useSessionMultiSelectStore((state) => state.enabled);
   const toggleSelectionMode = useSessionMultiSelectStore((state) => state.toggleMode);
+
+  const sessionSourceFilter = useSessionSourceFilterStore((state) => state.filter);
+  const setSessionSourceFilter = useSessionSourceFilterStore((state) => state.setFilter);
+  const showSessionSourceFilter = useSessionSourceFilterStore((state) => state.available);
 
   const showRecentSection = useSessionDisplayStore((state) => state.showRecentSection);
   const toggleRecentSection = useSessionDisplayStore((state) => state.toggleRecentSection);
