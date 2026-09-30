@@ -1348,17 +1348,30 @@ describe('claude backend sessions live in another process', () => {
     await vi.waitFor(() => expect(texts()).toContain('sigue en vivo'));
     clearInterval(keepAlive);
 
-    // Nobody shows it: the follow lapses and nothing more is published.
+    // Nobody pings, but the foreign writer is still live: the writer is its own
+    // lease, so the follow holds and the list keeps moving (30-09: without this
+    // the sidebar froze while VS Code wrote and the tab was backgrounded).
     await new Promise((resolve) => setTimeout(resolve, 120));
-    write('a2', 'mientras dormia');
+    write('a2', 'sin keep-alive');
+    await vi.waitFor(() => expect(texts()).toContain('sin keep-alive'));
+    await expect(runtime.keepFollowing({ sessionID: 'sess-1', directory: '/repo/project' }))
+      .resolves.toEqual({ lapsed: false });
+
+    // The writer exits: with no browser holding it either, the lease lapses and
+    // nothing more is published.
+    liveRegistry.state.owners.delete('sess-1');
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    write('a3', 'mientras dormia');
     await new Promise((resolve) => setTimeout(resolve, 60));
     expect(texts()).not.toContain('mientras dormia');
 
-    // Shown again: it catches up on what it missed, and the renewal says the
-    // lease was dead — the stream carried none of that gap.
+    // Shown again: the renewal says the lease was dead — the stream carried
+    // none of that gap, so the window pulls the transcript, which has it all.
     await expect(runtime.keepFollowing({ sessionID: 'sess-1', directory: '/repo/project' }))
       .resolves.toEqual({ lapsed: true });
-    await vi.waitFor(() => expect(texts()).toContain('mientras dormia'));
+    const reread = await runtime.getMessages({ sessionID: 'sess-1', directory: '/repo/project' });
+    expect(reread.map((record) => record.parts.map((part) => part.text).join('')).join('\n'))
+      .toContain('mientras dormia');
     await runtime.shutdownAll();
   });
 
