@@ -605,6 +605,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     const isExpandedInput = !isBtwActive && persistedExpandedInput;
     const setExpandedInput = useUIStore((state) => state.setExpandedInput);
     const setTimelineDialogOpen = useUIStore((state) => state.setTimelineDialogOpen);
+    const setClaudeAccountDialogOpen = useUIStore((state) => state.setClaudeAccountDialogOpen);
     const { git: runtimeGit, vscode: vscodeApi, linear: runtimeLinear } = useRuntimeAPIs();
     const cycleAgentShortcutOverride = useUIStore((state) => state.shortcutOverrides.cycle_agent);
     const cycleAgentShortcut = React.useMemo(() => (
@@ -785,7 +786,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     const availableSkills = useSkillsStore((s) => selectSkillsForDirectory(s, currentDirectory));
     const knownSlashNames = React.useMemo(() => {
         const names = new Set<string>([
-            'init', 'review', 'undo', 'redo', 'timeline', 'compact', 'fork', 'btw', 'summary', 'workspace-review', 'plan-feature', 'craft-goal', 'schedule-task', 'catch-up', 'debug', 'weigh', 'explore',
+            'init', 'review', 'undo', 'redo', 'timeline', 'compact', 'fork', 'btw', 'summary', 'login', 'workspace-review', 'plan-feature', 'craft-goal', 'schedule-task', 'catch-up', 'debug', 'weigh', 'explore',
         ]);
         if (!isMobile && !isVSCodeRuntime()) names.add('handoff-review');
         for (const command of availableCommands) names.add(command.name.toLowerCase());
@@ -1716,6 +1717,10 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                     setTimelineDialogOpen(true);
                 } else if (actionName === 'handoff-review') {
                     setReviewDialogOpen(true);
+                } else if (actionName === 'login') {
+                    // Claude Code's own sign-in, run by the server: a driven process
+                    // answers `/login` with "isn't available in this environment".
+                    setClaudeAccountDialogOpen(true);
                 } else if (actionName === 'fork') {
                     const forkOutcome = await runForkCommand(currentSessionId, commandPlan.command.argument, {
                         // The fork branches the main session, so it keeps that session's
