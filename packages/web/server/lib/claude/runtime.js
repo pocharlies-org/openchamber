@@ -1554,6 +1554,15 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     }
     const proc = processes.get(sessionId);
     if (proc) await proc.applyPermissionMode(mode.permissionMode);
+    else {
+      // A session another process holds changes mode in that process, through
+      // its Remote Control bridge; one without a bridge cannot be reached.
+      const owner = await readForeignOwner(sessionId);
+      if (owner) {
+        if (!remoteAttach || !owner.bridgeSessionId) throw new ClaudeSessionLiveElsewhereError(owner);
+        await remoteAttach.setPermissionMode(owner.bridgeSessionId, mode.permissionMode);
+      }
+    }
     if (rememberState(sessionId, { mode: mode.id })) await announce(sessionId);
     return mode.id;
   };
@@ -1686,9 +1695,11 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
         if (!remoteAttach || !owner.bridgeSessionId) throw new ClaudeSessionLiveElsewhereError(owner);
         // Follow the transcript so the owner's answer streams here.
         if (!followed.has(sessionId)) await getMessages({ sessionID: sessionId, directory: directory || owner.cwd });
-        // Only a model picked in the composer: the owner keeps its own otherwise.
+        // Only a model or effort picked in the composer: the owner keeps its own otherwise.
         const pickedModel = typeof input.model?.modelID === 'string' ? input.model.modelID.trim() : '';
         if (pickedModel) await remoteAttach.setModel(owner.bridgeSessionId, pickedModel);
+        const pickedEffort = effortIdOf(input.variant);
+        if (pickedEffort) await remoteAttach.setEffort(owner.bridgeSessionId, pickedEffort);
         await remoteAttach.send(owner.bridgeSessionId, blocks);
         input.onStarted?.();
         return;
