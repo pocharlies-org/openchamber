@@ -1371,7 +1371,9 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
         }),
         settingSources,
         includePartialMessages: true,
-        env: { ...process.env },
+        // The SDK stamps `sdk-ts` unless an entrypoint is set, and the VS Code
+        // extension hides every sdk-* transcript from its session list.
+        env: { ...process.env, CLAUDE_CODE_ENTRYPOINT: 'cli' },
         // Prompts from another surface (claude.ai) reach the stream only as
         // echoes; this is the flag the VS Code extension runs with too.
         extraArgs: { 'replay-user-messages': null },
