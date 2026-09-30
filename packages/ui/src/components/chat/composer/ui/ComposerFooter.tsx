@@ -224,7 +224,7 @@ export function ComposerFooter(props: ComposerFooterProps) {
                                 directory={directory}
                                 runtimeKey={runtimeKey}
                                 placement="footer"
-                                className="max-w-[9rem] flex-1 justify-end"
+                                className="flex-none justify-end"
                             />
                             <div className="flex items-center gap-x-1 flex-shrink-0">
                                 {!isBtw && showDictation ? <button
@@ -307,13 +307,15 @@ export function ComposerFooter(props: ComposerFooterProps) {
                         {!isBtw ? <SessionGoalObjectiveCounter length={messageLength} /> : null}
                     </div>
                     <div className={cn('flex items-center flex-1 justify-end', footerGapClass, 'md:gap-x-3')}>
+                        {/* Both surfaces size to their content: growing, they took the
+                            width the model and mode pickers need and truncated them. */}
                         <ComposerMetricsSurface
                             isMobile={false}
                             sessionId={currentSessionId}
                             directory={directory}
                             runtimeKey={runtimeKey}
                             placement="footer"
-                            className="max-w-[22rem] flex-[1_1_12rem] justify-end"
+                            className="max-w-[22rem] flex-[0_1_auto] justify-end"
                         />
                         <ComposerStatusSurface
                             isMobile={false}
@@ -321,7 +323,7 @@ export function ComposerFooter(props: ComposerFooterProps) {
                             directory={directory}
                             runtimeKey={runtimeKey}
                             placement="footer"
-                            className="max-w-[22rem] flex-[1_1_12rem] justify-end"
+                            className="flex-none justify-end"
                         />
                         {!isBtw && currentSessionId && sessionEngine.id === 'claude'
                             ? <>

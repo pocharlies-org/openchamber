@@ -1286,6 +1286,36 @@ describe('claude backend sessions live in another process', () => {
     await runtime.shutdownAll();
   });
 
+  it('puts a live session on the effort picked here, and changes its mode through the bridge at once', async () => {
+    const sdk = makeSdk({ getSessionInfo: vi.fn(async () => sessionInfo()) });
+    const liveRegistry = makeRegistry([owner()]);
+    const remoteAttach = {
+      send: vi.fn(async () => {}), setModel: vi.fn(async () => {}), setEffort: vi.fn(async () => {}),
+      setPermissionMode: vi.fn(async () => {}), closeAll: vi.fn(),
+    };
+    const { runtime } = createRuntime({ sdk, liveRegistry, remoteAttach, livePollMs: 0 });
+
+    await runtime.promptAsync({ sessionID: 'sess-1', directory: '/repo/project', parts: [{ type: 'text', text: 'hola' }], variant: 'max' });
+    expect(remoteAttach.setEffort).toHaveBeenCalledWith('session_01REMOTE', 'max');
+    expect(remoteAttach.setEffort.mock.invocationCallOrder[0]).toBeLessThan(remoteAttach.send.mock.invocationCallOrder[0]);
+
+    await expect(runtime.setSessionMode({ sessionID: 'sess-1', mode: 'plan' })).resolves.toBe('plan');
+    expect(remoteAttach.setPermissionMode).toHaveBeenCalledWith('session_01REMOTE', 'plan');
+    expect(sdk.query).not.toHaveBeenCalled();
+    await runtime.shutdownAll();
+  });
+
+  it('refuses a mode change for a live session that is not linked to claude.ai', async () => {
+    const sdk = makeSdk();
+    const liveRegistry = makeRegistry([owner({ bridgeSessionId: '' })]);
+    const remoteAttach = { send: vi.fn(async () => {}), setPermissionMode: vi.fn(async () => {}), closeAll: vi.fn() };
+    const { runtime } = createRuntime({ sdk, liveRegistry, remoteAttach, livePollMs: 0 });
+
+    await expect(runtime.setSessionMode({ sessionID: 'sess-1', mode: 'plan' }))
+      .rejects.toMatchObject({ code: 'CLAUDE_SESSION_LIVE_ELSEWHERE' });
+    expect(remoteAttach.setPermissionMode).not.toHaveBeenCalled();
+  });
+
   it('still refuses a live session that is not linked to claude.ai', async () => {
     const sdk = makeSdk();
     const liveRegistry = makeRegistry([owner({ bridgeSessionId: '' })]);

@@ -91,9 +91,12 @@ export const ClaudeModelControls: React.FC<{ sessionId: string; directory?: stri
         directory,
     );
     const answeredModelId = answerKey ? answerKey.slice(answerKey.indexOf('\n') + 1) : null;
-    // Another process owns the session: its effort was fixed when it started.
+    // Another process owns the session. Linked to claude.ai, its mode and
+    // effort change through that bridge like the model does; without a
+    // bridge nothing here reaches it, so the pickers stay hidden.
     const session = useSession(sessionId, directory);
     const liveElsewhere = getClaudeLiveState(session).liveElsewhere;
+    const unreachable = Boolean(liveElsewhere && !liveElsewhere.attachable);
     // The mode the engine reports for the session. A pick shows until the engine
     // moves on its own (`/plan`, an approved plan): the FIRST report of a session
     // is the mode it started on — often the one just picked at creation — so it
@@ -166,7 +169,7 @@ export const ClaudeModelControls: React.FC<{ sessionId: string; directory?: stri
 
     return (
         <div className={cn('flex items-center justify-end min-w-0', isMobile ? 'gap-x-1' : 'gap-x-3', className)}>
-            {!liveElsewhere && modes.length > 0 ? (
+            {!unreachable && modes.length > 0 ? (
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                         <div
@@ -208,7 +211,7 @@ export const ClaudeModelControls: React.FC<{ sessionId: string; directory?: stri
                     </DropdownMenuContent>
                 </DropdownMenu>
             ) : null}
-            {!liveElsewhere ? (
+            {!unreachable ? (
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                         <div className={triggerClass}>
