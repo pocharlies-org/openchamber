@@ -583,6 +583,9 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     if (real) {
       title = clampText(real, 120);
     } else if (generated || isClaudeTitlePlaceholder(title) || !hasClaudeExplicitTitle(info)) {
+      // The stamp is no title even when nothing real sits under it: without an
+      // `ai-title`, the summary or first prompt says what the session is about.
+      if (generated) title = deriveClaudeTitle({ ...info, customTitle: '' });
       // VS Code names a session by its `custom-title` first and the `ai-title`
       // the CLI generated second; the raw first prompt is nobody's title, it
       // is only what the SDK scan falls back to. So whenever the SDK gave us
