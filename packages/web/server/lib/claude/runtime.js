@@ -1923,6 +1923,7 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
   return {
     ensureAvailable,
     isAvailable,
+    resolveExecutable,
     listSessions,
     createSession,
     forkSession,

@@ -965,6 +965,8 @@ interface UIStore {
   /** One-shot identifier for opening a Linear issue in the rail panel. Not persisted. */
   linearIssueFocus: string | null;
   isTimelineDialogOpen: boolean;
+  /** The Claude Code account dialog (the composer's `/login`). Not persisted. */
+  isClaudeAccountDialogOpen: boolean;
   isPromptNavigatorPanelOpen: boolean;
   isImagePreviewOpen: boolean;
   nativeNotificationsEnabled: boolean;
@@ -1205,6 +1207,7 @@ interface UIStore {
   setLinearIssueFocus: (identifier: string | null) => void;
   setRunOverviewKey: (runKey: string | null) => void;
   setTimelineDialogOpen: (open: boolean) => void;
+  setClaudeAccountDialogOpen: (open: boolean) => void;
   setPromptNavigatorPanelOpen: (open: boolean) => void;
   togglePromptNavigatorPanel: () => void;
   setImagePreviewOpen: (open: boolean) => void;
@@ -1391,6 +1394,7 @@ export const useUIStore = create<UIStore>()(
         linearIssueListPriority: 'all',
         linearIssueFocus: null,
         isTimelineDialogOpen: false,
+        isClaudeAccountDialogOpen: false,
         isPromptNavigatorPanelOpen: false,
         isImagePreviewOpen: false,
         nativeNotificationsEnabled: false,
@@ -2723,6 +2727,10 @@ export const useUIStore = create<UIStore>()(
 
         setTimelineDialogOpen: (open) => {
           set({ isTimelineDialogOpen: open });
+        },
+
+        setClaudeAccountDialogOpen: (open) => {
+          set({ isClaudeAccountDialogOpen: open });
         },
 
         setPromptNavigatorPanelOpen: (open) => {
