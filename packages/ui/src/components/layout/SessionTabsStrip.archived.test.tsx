@@ -104,7 +104,7 @@ mock.module('@/lib/sessionTabs', () => ({
 }));
 
 mock.module('@/sync/global-session-status', () => ({
-  useSessionTurnActive: () => false,
+  useSessionTurnActivity: () => null,
 }));
 
 mock.module('@/sync/notification-store', () => ({
