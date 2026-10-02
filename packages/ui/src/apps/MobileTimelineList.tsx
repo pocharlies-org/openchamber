@@ -212,7 +212,6 @@ const MobileTimelineRow: React.FC<{
                 ) : isStreaming || showUnreadDot ? (
                   <SessionActivityIndicator
                     state={isStreaming ? 'running' : 'unread'}
-                    label={isStreaming ? t('sessions.sidebar.session.status.active') : t('sessions.sidebar.session.status.unread')}
                   />
                 ) : null}
                 {showActivityDuration ? (

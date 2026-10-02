@@ -100,6 +100,8 @@ test('the chats of a deleted space are grouped under its name and cannot be rest
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
 const claudeSession = (id: string, title: string, archived = 2): Session => ({
   ...session(id, title, archived),
   metadata: { backend: 'claude' },
