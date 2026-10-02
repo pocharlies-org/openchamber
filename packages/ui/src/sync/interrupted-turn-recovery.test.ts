@@ -4,6 +4,8 @@ import type { Message, Part, SessionOutcome } from "@/lib/opencode/model"
 import { getRuntimeKey } from "@/lib/runtime-switch"
 import { ChildStoreManager } from "./child-store"
 import { createEventRoutingIndex, handleEvent, markRecordedInterruptedTurn } from "./sync-context"
+import type { MessagePage } from "@/lib/opencode/client"
+import { SessionMessageLoader, setImperativeSessionMessageLoader } from "./session-message-loader"
 
 const cleanups: Array<() => void> = []
 afterEach(() => { for (const cleanup of cleanups.splice(0).reverse()) cleanup() })
@@ -110,6 +112,7 @@ describe("settle events", () => {
       expect(store.getState().message.ses_1[1]).toBe(openAssistant)
     })
   }
+});
 
 describe("recoverInterruptedTurnAfterMessageLoad — a Claude Code session", () => {
   // The Claude engine streams an answer live as `msg_<API message id>` and,
@@ -142,7 +145,7 @@ describe("recoverInterruptedTurnAfterMessageLoad — a Claude Code session", () 
     setImperativeSessionMessageLoader(loader)
     cleanups.push(() => { setImperativeSessionMessageLoader(null); childStores.disposeAll() })
 
-    await recoverInterruptedTurnAfterMessageLoad("/repo", store, "ses_1")
+    await loader.refreshTail({ directory: "/repo", sessionID: "ses_1" }, 50)
 
     const answers = store.getState().message.ses_1.filter((message) => message.role === "assistant")
     expect(answers).toHaveLength(1)

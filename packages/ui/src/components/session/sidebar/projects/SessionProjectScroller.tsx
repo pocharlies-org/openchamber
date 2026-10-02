@@ -16,7 +16,6 @@ import { formatDirectoryName, formatPathForDisplay } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n';
 import { isVSCodeRuntime, requestDirectoryAccess } from '@/lib/desktop';
 import { requestNewClaudeSession } from '@/sync/session-actions';
-import { requestDirectoryAccess } from '@/lib/desktop';
 import { sessionEvents } from '@/lib/sessionEvents';
 import { CHAT_DRAFT_PROJECT_ID } from '@/lib/chatDirectories';
 import { useSessionFoldersStore } from '@/stores/useSessionFoldersStore';
