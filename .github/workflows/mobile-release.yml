@@ -72,7 +72,7 @@ env:
 jobs:
   resolve-version:
     name: Resolve mobile version
-    runs-on: ubuntu-latest
+    runs-on: arc-k8s
     outputs:
       version_name: ${{ steps.version.outputs.version_name }}
       build_number: ${{ steps.version.outputs.build_number }}
@@ -111,7 +111,7 @@ jobs:
   android-release:
     name: Android signed release
     if: inputs.build_android
-    runs-on: ubuntu-latest
+    runs-on: arc-k8s
     needs: resolve-version
     permissions:
       contents: write
@@ -187,6 +187,7 @@ jobs:
   ios-testflight:
     name: iOS TestFlight upload
     if: inputs.build_ios
+    # 2026-10-05 devops · fuera de pool: no existe hardware de esa plataforma en el clúster (skill ci-runners-arc, INFRA-548)
     runs-on: macos-26
     needs: resolve-version
     env:
