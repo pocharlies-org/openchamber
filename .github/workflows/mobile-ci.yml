@@ -10,7 +10,7 @@ concurrency:
 jobs:
   android-debug:
     name: Android debug APK
-    runs-on: ubuntu-latest
+    runs-on: arc-k8s
     steps:
       - uses: actions/checkout@v4
 
@@ -44,6 +44,7 @@ jobs:
 
   ios-simulator:
     name: iOS simulator app
+    # 2026-10-05 devops · fuera de pool: no existe hardware de esa plataforma en el clúster (skill ci-runners-arc, INFRA-548)
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4

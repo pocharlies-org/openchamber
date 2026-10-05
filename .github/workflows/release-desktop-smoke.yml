@@ -46,6 +46,7 @@ jobs:
   build-macos-electron:
     if: ${{ inputs.build_macos }}
     name: Build macOS Electron (${{ matrix.arch }})
+    # 2026-10-05 devops · fuera de pool: no existe hardware de esa plataforma en el clúster (skill ci-runners-arc, INFRA-548)
     runs-on: macos-26
     strategy:
       fail-fast: false
@@ -190,6 +191,7 @@ jobs:
     # Match the production release workflow. windows-latest currently resolves
     # to a runner with Visual Studio 18, which this Electron/node-gyp stack does
     # not detect correctly.
+    # 2026-10-05 devops · fuera de pool: no existe hardware de esa plataforma en el clúster (skill ci-runners-arc, INFRA-548)
     runs-on: windows-2022
     strategy:
       fail-fast: false
@@ -285,11 +287,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: ubuntu-24.04
+          - runner: arc-k8s
             arch: x64
             host_arch: x86_64
             artifact_arch: x86_64
             manifest: latest-linux.yml
+          # 2026-10-05 devops · fuera de pool: no existe pool arm64 en el clúster (skill ci-runners-arc, INFRA-548)
           - runner: ubuntu-24.04-arm
             arch: arm64
             host_arch: aarch64
