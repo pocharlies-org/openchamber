@@ -33,6 +33,8 @@ describe('resolveQuotaProviderId', () => {
 
   test('maps the known divergences', () => {
     expect(resolveQuotaProviderId('anthropic')).toBe('claude');
+    expect(resolveQuotaProviderId('kilocode')).toBe('kilo');
+    expect(resolveQuotaProviderId('kilo-code')).toBe('kilo');
     expect(resolveQuotaProviderId('gemini')).toBe('google');
   });
 

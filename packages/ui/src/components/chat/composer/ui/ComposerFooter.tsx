@@ -11,6 +11,7 @@
  * survives the expand.
  */
 
+import type { SourceControlProvider } from '@/lib/api/types';
 import React from 'react';
 
 import { SessionGoalButton, SessionGoalObjectiveCounter } from '@/components/chat/SessionGoalButton';
@@ -19,6 +20,9 @@ import { Icon } from '@/components/icon/Icon';
 import type { GuestAttachItem } from '@/hooks/useGuestSurfaces';
 import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
+import { useConfigStore } from '@/stores/useConfigStore';
+import { isVSCodeRuntime } from '@/lib/desktop';
+import { isDictationCaptureSupported } from '@/lib/dictation/use-dictation-audio-source';
 import { ModelControls } from '../../ModelControls';
 import { ClaudeAgentMap } from '../../ClaudeAgentMap';
 import { ClaudeTodoPill } from '../../ClaudeTodos';
@@ -63,8 +67,9 @@ export interface ComposerFooterProps {
 
     onOpenSettings?: () => void;
     onPickLocalFiles: () => void;
-    onOpenIssuePicker: () => void;
-    onOpenPrPicker: () => void;
+    onOpenGitHubPicker: () => void;
+    /** The host the project's issues and change requests come from. */
+    repositoryProvider?: SourceControlProvider;
     showLinearPicker?: boolean;
     onOpenLinearPicker?: () => void;
     attachGuests?: readonly GuestAttachItem[];
@@ -78,11 +83,14 @@ export interface ComposerFooterProps {
     onStartDictation: () => void;
     onDictationInsert: (text: string) => void;
     onDictationInsertAndSend: (text: string) => void;
+    onDictationSendStart: () => void;
     onDictationStart: () => void;
     onDictationContentHeightChange: (height: number | null) => void;
     isBtw?: boolean;
     modelSessionId?: string | null;
     btwSelection: BtwSelection;
+    /** A pinned column's own model, agent and effort (see pinnedComposerSelection.ts). */
+    pinnedSelection?: BtwSelection | null;
     /** Offers "Run on several models" in the model picker (desktop). */
     onRunInParallel?: () => void;
     /** Set while the composer is in "Run in parallel" mode: the primary action launches the run. */
@@ -115,8 +123,8 @@ export function ComposerFooter(props: ComposerFooterProps) {
         dictationActive,
         onOpenSettings,
         onPickLocalFiles,
-        onOpenIssuePicker,
-        onOpenPrPicker,
+        onOpenGitHubPicker,
+        repositoryProvider,
         showLinearPicker,
         onOpenLinearPicker,
         attachGuests,
@@ -130,16 +138,22 @@ export function ComposerFooter(props: ComposerFooterProps) {
         onStartDictation,
         onDictationInsert,
         onDictationInsertAndSend,
+        onDictationSendStart,
         onDictationStart,
         onDictationContentHeightChange,
         isBtw = false,
         modelSessionId,
         btwSelection,
+        pinnedSelection = null,
         onRunInParallel,
         parallelRun = null,
     } = props;
     // Which model picker: the one of the engine that owns the session.
     const sessionEngine = useSessionEngine(currentSessionId, directory ?? undefined);
+
+    const dictationEnabled = useConfigStore((state) => state.dictationEnabled);
+    const [dictationSupported] = React.useState(() => !isVSCodeRuntime() && isDictationCaptureSupported());
+    const showDictation = dictationEnabled && dictationSupported;
 
     return (
         <div
@@ -163,8 +177,8 @@ export function ComposerFooter(props: ComposerFooterProps) {
                                 footerIconButtonClass={footerIconButtonClass}
                                 iconSizeClass={iconSizeClass}
                                 handlePickLocalFiles={onPickLocalFiles}
-                                openIssuePicker={onOpenIssuePicker}
-                                openPrPicker={onOpenPrPicker}
+                                openGitHubPicker={onOpenGitHubPicker}
+                                repositoryProvider={repositoryProvider}
                                 showLinearPicker={showLinearPicker}
                                 openLinearPicker={onOpenLinearPicker}
                                 onOpenSettings={isBtw ? undefined : onOpenSettings}
@@ -213,7 +227,7 @@ export function ComposerFooter(props: ComposerFooterProps) {
                                 className="flex-none justify-end"
                             />
                             <div className="flex items-center gap-x-1 flex-shrink-0">
-                                {!isBtw ? <button
+                                {!isBtw && showDictation ? <button
                                     type="button"
                                     className={footerIconButtonClass}
                                     // Keep the soft keyboard open (same guard as
@@ -259,8 +273,8 @@ export function ComposerFooter(props: ComposerFooterProps) {
                             footerIconButtonClass={footerIconButtonClass}
                             iconSizeClass={iconSizeClass}
                             handlePickLocalFiles={onPickLocalFiles}
-                            openIssuePicker={onOpenIssuePicker}
-                            openPrPicker={onOpenPrPicker}
+                            openGitHubPicker={onOpenGitHubPicker}
+                            repositoryProvider={repositoryProvider}
                             showLinearPicker={showLinearPicker}
                             openLinearPicker={onOpenLinearPicker}
                             onOpenSettings={isBtw ? undefined : onOpenSettings}
@@ -319,6 +333,7 @@ export function ComposerFooter(props: ComposerFooterProps) {
                             : null}
                         {parallelRun ? <div className="flex-1" />
                             : isBtw ? <ModelControls className="flex-1 min-w-0 justify-end" sessionId={modelSessionId ?? null} selection={btwSelection} />
+                            : pinnedSelection ? <ModelControls className="flex-1 min-w-0 justify-end" sessionId={currentSessionId} selection={pinnedSelection} agentSelectable />
                             : currentSessionId && sessionEngine.ownModelCatalog
                                 ? <ClaudeModelControls className="flex-1" sessionId={currentSessionId} directory={directory} />
                                 : <MemoModelControls className={cn('flex-1 min-w-0 justify-end')} onRunInParallel={onRunInParallel} />}
@@ -331,6 +346,7 @@ export function ComposerFooter(props: ComposerFooterProps) {
                             sendIconSizeClass={sendIconSizeClass}
                             onInsert={onDictationInsert}
                             onInsertAndSend={onDictationInsertAndSend}
+                            onSendStart={onDictationSendStart}
                             onStart={onDictationStart}
                             onContentHeightChange={onDictationContentHeightChange}
                         /> : null}

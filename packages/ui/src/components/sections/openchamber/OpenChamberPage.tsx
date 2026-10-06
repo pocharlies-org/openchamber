@@ -2,6 +2,7 @@ import React from 'react';
 import { OpenChamberVisualSettings } from './OpenChamberVisualSettings';
 import { AboutSettings } from './AboutSettings';
 import { SessionRetentionSettings } from './SessionRetentionSettings';
+import { MergedWorktreeCleanupSettings } from './MergedWorktreeCleanupSettings';
 import { SessionWorkSettings } from './SessionWorkSettings';
 import { PasskeySettings } from './PasskeySettings';
 import { AppLinkSecuritySettings } from './AppLinkSecuritySettings';
@@ -59,6 +60,7 @@ export const OpenChamberPage: React.FC<OpenChamberPageProps> = ({ section }) => 
                 {!isVSCode && <OpenCodeCliSettings />}
                 {!isVSCode && <OpenChamberToolsSettings />}
                 <SessionRetentionSettings />
+                {!isVSCode && <MergedWorktreeCleanupSettings />}
                 <AppLinkSecuritySettings />
                 {isWebRuntime() && !isDesktopShell() && !isVSCode && !isCapacitorApp() && <PasskeySettings />}
                 {showAbout && <AboutSettings />}
@@ -211,6 +213,8 @@ const ChatSectionContent: React.FC = () => {
                 'promptNavigatorEnabled',
                 'wideChatLayout',
                 'codeBlockLineWrap',
+                'tableCellWrap',
+                'copyMessagesAsPlainText',
                 'splitAssistantMessageActions',
                 'subagentReadOnlyBanner',
                 'diffLayout',
@@ -238,6 +242,7 @@ const SessionsSectionContent: React.FC<{ runtimeEndpointEpoch: number }> = ({ ru
             <DefaultsSettings key={runtimeEndpointEpoch} />
             <SessionWorkSettings />
             <SessionRetentionSettings />
+            {!isVSCodeRuntime() && <MergedWorktreeCleanupSettings />}
         </>
     );
 };

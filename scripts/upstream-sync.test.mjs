@@ -134,6 +134,48 @@ describe('upstream-sync', () => {
     assert.deepEqual(second.applied.map((c) => c.slice(8)), ['own: add b', 'own: add c']);
   });
 
+  it('after a squashed rebase onto a new tag, the next sync carries only what is new, not the originals', () => {
+    const upstream = path.join(root, 'squash-upstream');
+    const fork = path.join(root, 'squash-fork');
+    mkdirSync(upstream);
+    git(upstream, 'init', '-q');
+    commit(upstream, 'a.txt', 'one\ntwo\nthree\n', 'upstream: base');
+    git(upstream, 'tag', 'v1.0.0');
+    commit(upstream, 'a.txt', 'one\nTWO upstream\nthree\n', 'upstream: edit two');
+    git(upstream, 'tag', 'v1.1.0');
+    git(root, 'clone', '-q', upstream, fork);
+    git(fork, 'checkout', '-q', '-B', 'main', 'v1.0.0');
+    commit(fork, 'own/b.txt', 'b\n', 'own: add b');
+    commit(fork, 'own/c.txt', 'c\n', 'own: add c');
+    const originals = git(fork, 'rev-list', '--reverse', 'main', '--not', 'v1.0.0').split('\n');
+    assert.equal(originals.length, 2);
+
+    // The own stack rebased onto v1.1.0 in ONE commit (no -x trailers), then an empty
+    // commit naming every original, then main merged in with -s ours (the integrator's step).
+    git(fork, 'checkout', '-q', '-B', 'stack', 'v1.1.0');
+    commit(fork, 'own/b.txt', 'b\n', 'DGX-638: own stack on v1.1.0');
+    commit(fork, 'own/c.txt', 'c\n', 'DGX-638: own stack on v1.1.0 (second file)');
+    git(fork, 'reset', '-q', '--soft', 'v1.1.0');
+    git(fork, 'commit', '-qm', 'DGX-638: own stack on v1.1.0');
+    const trailers = originals.map((sha) => `(cherry picked from commit ${sha})`).join('\n');
+    git(fork, 'commit', '-q', '--allow-empty', '-m', `DGX-638: mark carried originals\n\n${trailers}`);
+    git(fork, 'merge', '-q', '-s', 'ours', 'main', '-m', 'merge main (ours)');
+    git(fork, 'checkout', '-q', '-B', 'main', 'stack');
+    git(fork, 'update-ref', 'refs/remotes/origin/main', 'main');
+    commit(upstream, 'a.txt', 'one\nTWO upstream\nthree\nfour\n', 'upstream: edit four');
+    git(upstream, 'tag', 'v1.2.0');
+
+    const result = runSync({ repoDir: fork, upstreamUrl: upstream });
+    assert.equal(result.status, 'clean');
+    assert.equal(result.tag, 'v1.2.0');
+    const titles = result.applied.map((c) => c.slice(8));
+    assert.deepEqual(titles, ['DGX-638: own stack on v1.1.0', 'DGX-638: mark carried originals']);
+    assert.ok(!titles.some((t) => t.startsWith('own: add')), 'an original was carried twice');
+    // The new branch holds each file once and sits on v1.2.0.
+    assert.equal(git(fork, 'show', `${result.branch}:own/b.txt`), 'b');
+    git(fork, 'merge-base', '--is-ancestor', 'refs/upstream/tags/v1.2.0', result.branch);
+  });
+
   it('flags a tag that changes workflows so the run does not push', () => {
     const { upstream, fork } = makeFixture('wf', { ownEdits: clean, upstreamWorkflow: true });
     const result = runSync({ repoDir: fork, upstreamUrl: upstream });
