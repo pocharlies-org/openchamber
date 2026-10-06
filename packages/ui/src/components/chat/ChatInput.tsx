@@ -64,7 +64,6 @@ import type { SnippetAutocompleteHandle } from './SnippetAutocomplete';
 import { cn } from "@/lib/utils";
 import { ModelControls } from './ModelControls';
 import { ClaudeModelControls } from './ClaudeModelControls';
-import { focusChatInput } from './composer/editor/dom';
 import { parseAgentMentions } from '@/lib/messages/agentMentions';
 import { CONTEXT_METADATA_KEY, draftFromContextPayload } from '@/lib/messages/contextParts';
 import { shouldSubmitEnter } from './composer/keyboardPolicy';
@@ -640,7 +639,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     }, [getLargeTextPasteScope]);
     const { expanded: persistedExpandedInput, setExpanded: setExpandedInput } = useChatColumnExpandedInput();
     const isExpandedInput = !isBtwActive && persistedExpandedInput;
-    const setTimelineDialogOpen = useUIStore((state) => state.setTimelineDialogOpen);
     const setClaudeAccountDialogOpen = useUIStore((state) => state.setClaudeAccountDialogOpen);
     const { git: runtimeGit, vscode: vscodeApi, linear: runtimeLinear } = useRuntimeAPIs();
     const cycleAgentShortcutOverride = useUIStore((state) => state.shortcutOverrides.cycle_agent);
