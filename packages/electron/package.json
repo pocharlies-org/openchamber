@@ -56,8 +56,8 @@
     "lint": "node -e \"process.exit(0)\""
   },
   "build": {
-    "appId": "dev.openchamber.desktop",
-    "productName": "OpenChamber",
+    "appId": "com.pocharlies.agentchamber",
+    "productName": "AgentChamber",
     "asarUnpack": [
       "node_modules/@openchamber/web/server/built-in-extensions/**/*"
     ],
@@ -136,14 +136,16 @@
       "artifactName": "${productName}-${version}-linux-${arch}.${ext}",
       "desktop": {
         "entry": {
-          "Name": "OpenChamber",
-          "Comment": "Desktop runtime for OpenChamber",
+          "Name": "AgentChamber",
+          "Comment": "Work with AI coding agents on your projects",
+          "Comment[es]": "Trabaja con agentes de IA en tus proyectos de código",
           "Icon": "openchamber",
           "StartupWMClass": "openchamber"
         }
       }
     },
     "nsis": {
+      "guid": "103a64e2-d142-5f36-803b-284d778c8afd",
       "oneClick": true,
       "perMachine": false,
       "installerIcon": "resources/icons/icon.ico",

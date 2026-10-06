@@ -11,6 +11,7 @@ import { Icon } from "@/components/icon/Icon";
 import { useI18n } from '@/lib/i18n';
 import { getDesktopAppVersion } from '@/lib/desktopNative';
 import { runtimeFetch } from '@/lib/runtime-fetch';
+import { BRAND_NAME } from '@/lib/brand';
 
 interface AboutDialogProps {
   open: boolean;
@@ -147,7 +148,7 @@ export const AboutDialog: React.FC<AboutDialogProps> = ({
           <OpenChamberLogo width={64} height={64} />
 
           <div className="space-y-1">
-            <h2 className="text-lg font-semibold">OpenChamber</h2>
+            <h2 className="text-lg font-semibold">{BRAND_NAME}</h2>
             <div className="space-y-0.5 typography-meta text-muted-foreground">
               {displayVersion && (
                 <p>{t('aboutDialog.openChamberVersionLabel', { version: displayVersion })}</p>

@@ -41,7 +41,7 @@ export const pluginPanelI18n = {
     'chat.chatInput.toast.guestCommandNothing': '{name} found nothing to attach.',
     'chat.chatInput.toast.guestCommandFailed': '/{command} failed: {reason}',
     'chat.chatInput.toast.guestCommandUnavailable': '{name} did not answer.',
-    'chat.chatInput.toast.guestUnavailableHere': 'This extension is not available here. Open it on OpenChamber web or desktop.',
+    'chat.chatInput.toast.guestUnavailableHere': 'This extension is not available here. Open it on {brand} web or desktop.',
   },
   nl: {
     'chat.workStatus.sections.extensionBadge': 'Extensie',
@@ -84,7 +84,7 @@ export const pluginPanelI18n = {
     'chat.chatInput.toast.guestCommandNothing': '{name} vond niets om toe te voegen.',
     'chat.chatInput.toast.guestCommandFailed': '/{command} mislukt: {reason}',
     'chat.chatInput.toast.guestCommandUnavailable': '{name} gaf geen antwoord.',
-    'chat.chatInput.toast.guestUnavailableHere': 'Deze extensie is hier niet beschikbaar. Open hem in OpenChamber web of desktop.',
+    'chat.chatInput.toast.guestUnavailableHere': 'Deze extensie is hier niet beschikbaar. Open hem in {brand} web of desktop.',
   },
   de: {
     'chat.workStatus.sections.extensionBadge': 'Erweiterung',
@@ -127,7 +127,7 @@ export const pluginPanelI18n = {
     'chat.chatInput.toast.guestCommandNothing': '{name} hat nichts zum Anhängen gefunden.',
     'chat.chatInput.toast.guestCommandFailed': '/{command} fehlgeschlagen: {reason}',
     'chat.chatInput.toast.guestCommandUnavailable': '{name} hat nicht geantwortet.',
-    'chat.chatInput.toast.guestUnavailableHere': 'Diese Erweiterung ist hier nicht verfügbar. Öffne sie in OpenChamber Web oder Desktop.',
+    'chat.chatInput.toast.guestUnavailableHere': 'Diese Erweiterung ist hier nicht verfügbar. Öffne sie in {brand} Web oder Desktop.',
   },
   fr: {
     'chat.workStatus.sections.extensionBadge': 'Extension',
@@ -170,7 +170,7 @@ export const pluginPanelI18n = {
     'chat.chatInput.toast.guestCommandNothing': '{name} n’a rien trouvé à joindre.',
     'chat.chatInput.toast.guestCommandFailed': '/{command} a échoué : {reason}',
     'chat.chatInput.toast.guestCommandUnavailable': '{name} n’a pas répondu.',
-    'chat.chatInput.toast.guestUnavailableHere': 'Cette extension n’est pas disponible ici. Ouvrez-la dans OpenChamber web ou desktop.',
+    'chat.chatInput.toast.guestUnavailableHere': 'Cette extension n’est pas disponible ici. Ouvrez-la dans {brand} web ou desktop.',
   },
   es: {
     'chat.workStatus.sections.extensionBadge': 'Extensión',
@@ -213,7 +213,7 @@ export const pluginPanelI18n = {
     'chat.chatInput.toast.guestCommandNothing': '{name} no encontró nada que adjuntar.',
     'chat.chatInput.toast.guestCommandFailed': '/{command} falló: {reason}',
     'chat.chatInput.toast.guestCommandUnavailable': '{name} no respondió.',
-    'chat.chatInput.toast.guestUnavailableHere': 'Esta extensión no está disponible aquí. Ábrela en OpenChamber web o escritorio.',
+    'chat.chatInput.toast.guestUnavailableHere': 'Esta extensión no está disponible aquí. Ábrela en {brand} web o escritorio.',
   },
   ja: {
     'chat.workStatus.sections.extensionBadge': '拡張機能',
@@ -256,7 +256,7 @@ export const pluginPanelI18n = {
     'chat.chatInput.toast.guestCommandNothing': '{name} には添付するものが見つかりませんでした。',
     'chat.chatInput.toast.guestCommandFailed': '/{command} が失敗しました: {reason}',
     'chat.chatInput.toast.guestCommandUnavailable': '{name} が応答しませんでした。',
-    'chat.chatInput.toast.guestUnavailableHere': 'この拡張機能はここでは利用できません。OpenChamber のウェブ版かデスクトップ版で開いてください。',
+    'chat.chatInput.toast.guestUnavailableHere': 'この拡張機能はここでは利用できません。{brand} のウェブ版かデスクトップ版で開いてください。',
   },
   ko: {
     'chat.workStatus.sections.extensionBadge': '확장 프로그램',
@@ -299,7 +299,7 @@ export const pluginPanelI18n = {
     'chat.chatInput.toast.guestCommandNothing': '{name}에서 첨부할 항목을 찾지 못했습니다.',
     'chat.chatInput.toast.guestCommandFailed': '/{command} 실패: {reason}',
     'chat.chatInput.toast.guestCommandUnavailable': '{name}이(가) 응답하지 않았습니다.',
-    'chat.chatInput.toast.guestUnavailableHere': '이 확장은 여기에서 사용할 수 없습니다. OpenChamber 웹 또는 데스크톱에서 여세요.',
+    'chat.chatInput.toast.guestUnavailableHere': '이 확장은 여기에서 사용할 수 없습니다. {brand} 웹 또는 데스크톱에서 여세요.',
   },
   pl: {
     'chat.workStatus.sections.extensionBadge': 'Rozszerzenie',
@@ -342,7 +342,7 @@ export const pluginPanelI18n = {
     'chat.chatInput.toast.guestCommandNothing': '{name} nie znalazło nic do załączenia.',
     'chat.chatInput.toast.guestCommandFailed': '/{command} nie powiodło się: {reason}',
     'chat.chatInput.toast.guestCommandUnavailable': '{name} nie odpowiedziało.',
-    'chat.chatInput.toast.guestUnavailableHere': 'To rozszerzenie nie jest tu dostępne. Otwórz je w OpenChamber web lub na desktopie.',
+    'chat.chatInput.toast.guestUnavailableHere': 'To rozszerzenie nie jest tu dostępne. Otwórz je w {brand} web lub na desktopie.',
   },
   'pt-BR': {
     'chat.workStatus.sections.extensionBadge': 'Extensão',
@@ -385,7 +385,7 @@ export const pluginPanelI18n = {
     'chat.chatInput.toast.guestCommandNothing': '{name} não encontrou nada para anexar.',
     'chat.chatInput.toast.guestCommandFailed': '/{command} falhou: {reason}',
     'chat.chatInput.toast.guestCommandUnavailable': '{name} não respondeu.',
-    'chat.chatInput.toast.guestUnavailableHere': 'Esta extensão não está disponível aqui. Abra no OpenChamber web ou desktop.',
+    'chat.chatInput.toast.guestUnavailableHere': 'Esta extensão não está disponível aqui. Abra no {brand} web ou desktop.',
   },
   uk: {
     'chat.workStatus.sections.extensionBadge': 'Розширення',
@@ -428,7 +428,7 @@ export const pluginPanelI18n = {
     'chat.chatInput.toast.guestCommandNothing': '{name} не знайшло, що прикріпити.',
     'chat.chatInput.toast.guestCommandFailed': '/{command} не спрацювала: {reason}',
     'chat.chatInput.toast.guestCommandUnavailable': '{name} не відповіло.',
-    'chat.chatInput.toast.guestUnavailableHere': 'Це розширення тут недоступне. Відкрийте його в OpenChamber web або на десктопі.',
+    'chat.chatInput.toast.guestUnavailableHere': 'Це розширення тут недоступне. Відкрийте його в {brand} web або на десктопі.',
   },
   'zh-CN': {
     'chat.workStatus.sections.extensionBadge': '扩展',
@@ -471,7 +471,7 @@ export const pluginPanelI18n = {
     'chat.chatInput.toast.guestCommandNothing': '{name} 没有找到可附加的内容。',
     'chat.chatInput.toast.guestCommandFailed': '/{command} 失败：{reason}',
     'chat.chatInput.toast.guestCommandUnavailable': '{name} 没有响应。',
-    'chat.chatInput.toast.guestUnavailableHere': '此扩展在此处不可用。请在 OpenChamber 网页版或桌面版中打开。',
+    'chat.chatInput.toast.guestUnavailableHere': '此扩展在此处不可用。请在 {brand} 网页版或桌面版中打开。',
   },
   'zh-TW': {
     'chat.workStatus.sections.extensionBadge': '擴充功能',
@@ -514,7 +514,7 @@ export const pluginPanelI18n = {
     'chat.chatInput.toast.guestCommandNothing': '{name} 沒有找到可附加的內容。',
     'chat.chatInput.toast.guestCommandFailed': '/{command} 失敗：{reason}',
     'chat.chatInput.toast.guestCommandUnavailable': '{name} 沒有回應。',
-    'chat.chatInput.toast.guestUnavailableHere': '此擴充功能在此處無法使用。請在 OpenChamber 網頁版或桌面版中開啟。',
+    'chat.chatInput.toast.guestUnavailableHere': '此擴充功能在此處無法使用。請在 {brand} 網頁版或桌面版中開啟。',
   },
   tr: {
     'chat.workStatus.sections.extensionBadge': 'Uzantı',
@@ -557,6 +557,6 @@ export const pluginPanelI18n = {
     'chat.chatInput.toast.guestCommandNothing': '{name} eklenecek bir şey bulamadı.',
     'chat.chatInput.toast.guestCommandFailed': '/{command} başarısız oldu: {reason}',
     'chat.chatInput.toast.guestCommandUnavailable': '{name} yanıt vermedi.',
-    'chat.chatInput.toast.guestUnavailableHere': 'Bu eklenti burada kullanılamıyor. OpenChamber web veya masaüstünde açın.',
+    'chat.chatInput.toast.guestUnavailableHere': 'Bu eklenti burada kullanılamıyor. {brand} web veya masaüstünde açın.',
   },
 } as const;

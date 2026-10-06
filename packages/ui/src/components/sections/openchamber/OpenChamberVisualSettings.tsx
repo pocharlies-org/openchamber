@@ -75,6 +75,7 @@ import { subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 import { formatShortcutForDisplay } from '@/lib/shortcuts';
 import { useInputHistoryStore } from '@/stores/useInputHistoryStore';
 import { SessionGoalCheckerField } from './SessionGoalCheckerField';
+import { BRAND_NAME } from '@/lib/brand';
 
 interface Option<T extends string> {
     id: T;
@@ -131,7 +132,7 @@ const MERMAID_RENDERING_OPTIONS: Option<'svg' | 'ascii'>[] = [
     },
 ];
 
-const DEFAULT_PWA_INSTALL_NAME = 'OpenChamber - AI Coding Assistant';
+const DEFAULT_PWA_INSTALL_NAME = `${BRAND_NAME} - AI Coding Assistant`;
 const PWA_ORIENTATION_OPTIONS: Option<'system' | 'portrait' | 'landscape'>[] = [
     {
         id: 'system',

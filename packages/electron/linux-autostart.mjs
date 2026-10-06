@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { APP_NAME } from './brand.mjs';
 
 const AUTOSTART_FILE_NAME = 'openchamber.desktop';
 
@@ -38,7 +39,7 @@ const quoteDesktopExecArg = (value) => {
 };
 
 export const buildLinuxAutostartDesktopEntry = ({
-  appName = 'OpenChamber',
+  appName = APP_NAME,
   executable,
   backgroundArg,
   env = process.env,
@@ -73,7 +74,7 @@ export const readLinuxAutostartEnabled = async (options = {}) => {
 
 export const setLinuxAutostartEnabled = async ({
   enabled,
-  appName = 'OpenChamber',
+  appName = APP_NAME,
   backgroundArg,
   env = process.env,
   execPath = process.execPath,

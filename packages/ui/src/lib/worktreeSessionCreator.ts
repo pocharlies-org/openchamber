@@ -29,6 +29,7 @@ import {
 import { waitForWorktreeBootstrap } from '@/lib/worktrees/worktreeBootstrap';
 import { normalizePath } from '@/lib/pathNormalization';
 import { resolveProjectForDirectory } from '@/lib/projectResolution';
+import { BRAND_NAME } from '@/lib/brand';
 
 const waitForWorktreeBootstrapIfEnabled = async (project: ProjectRef, directory: string): Promise<void> => {
   if (await getWorktreeSetupWaitEnabled(project)) {
@@ -328,7 +329,7 @@ export async function createWorktreeSessionForNewBranch(
 
     const projectRef = resolveProjectRef(projectDirectory);
     if (!projectRef) {
-      throw new Error('Project is not registered in OpenChamber');
+      throw new Error(`Project is not registered in ${BRAND_NAME}`);
     }
 
     let isGitRepo = false;

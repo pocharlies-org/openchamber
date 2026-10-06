@@ -4,8 +4,9 @@ import { isDesktopLocalOriginActive, isDesktopShell } from '@/lib/desktop';
 import { desktopHostsGet, getDesktopHostApiUrl, locationMatchesHost, redactSensitiveUrl } from '@/lib/desktopHosts';
 import { setDesktopWindowTitle } from '@/lib/desktopNative';
 import { getRuntimeApiBaseUrl } from '@/lib/runtime-switch';
+import { BRAND_NAME } from '@/lib/brand';
 
-const APP_TITLE = 'OpenChamber';
+const APP_TITLE = BRAND_NAME;
 
 const formatProjectLabel = (label: string): string => label.trim();
 

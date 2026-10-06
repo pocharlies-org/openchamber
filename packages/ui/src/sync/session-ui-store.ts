@@ -1,3 +1,4 @@
+import { BRAND_NAME } from '@/lib/brand';
 /**
  * Session UI Store — ephemeral UI state only.
  *
@@ -2218,7 +2219,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
         sourceDirectory,
       )
       if (!project?.path) {
-        throw new Error("Project is not registered in OpenChamber")
+        throw new Error(`Project is not registered in ${BRAND_NAME}`)
       }
 
       const [branchNameModule, configModule, trustModule, createModule] = await Promise.all([

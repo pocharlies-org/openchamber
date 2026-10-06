@@ -1,0 +1,4 @@
+Old: Electron `appId` dev.openchamber.desktop (AUMID, NSIS key), `productName` OpenChamber, Capacitor `appId` com.openchamber.app / `appName` OpenChamber.
+New: Electron `appId` com.pocharlies.agentchamber, `productName` AgentChamber, `nsis.guid` pinned to the old appId's GUID (103a64e2-d142-5f36-803b-284d778c8afd); Capacitor `appId` com.pocharlies.agentchamber, `appName` AgentChamber.
+Who moves: macOS/Linux installs do not update in place (new bundle id / app name): reinstall AgentChamber; user data is kept (userData stays in the OpenChamber folder). Windows updates in place thanks to the pinned GUID. iOS TestFlight keeps vars.IOS_BUNDLE_ID (com.pocharlies.openchamber) until DGX-516 registers a new App ID; native Xcode/Gradle ids are untouched.
+Decided in: DGX-513 `nota-architect-plan.md` (P3) and designer handoff (DGX-514).

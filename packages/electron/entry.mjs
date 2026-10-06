@@ -10,6 +10,7 @@
 
 import { app, protocol } from 'electron';
 import path from 'node:path';
+import { APP_NAME, LEGACY_USER_DATA_DIR } from './brand.mjs';
 import { shouldIgnoreLoopbackConnectionLimit } from './startup-url-selection.mjs';
 import {
   APP_USER_MODEL_ID,
@@ -25,14 +26,17 @@ import {
 
 recordEarlyStartupMark('electron.entry');
 
-// Set the product name early so electron-log derives its log directory as
-// ~/Library/Logs/OpenChamber/ (not ~/Library/Logs/@openchamber/electron/).
-app.setName('OpenChamber');
+// Set the product name early so electron-log derives its log directory from it
+// (e.g. ~/Library/Logs/AgentChamber/, not ~/Library/Logs/@openchamber/electron/).
+app.setName(APP_NAME);
+// The name also decides userData; keep the pre-rename folder so existing installs keep
+// their settings, sessions and window state.
+app.setPath('userData', path.join(app.getPath('appData'), LEGACY_USER_DATA_DIR));
 if (process.platform === 'linux') {
   app.setDesktopName('openchamber.desktop');
 }
 if (isDev) {
-  app.setPath('userData', path.join(app.getPath('appData'), 'OpenChamber Dev'));
+  app.setPath('userData', path.join(app.getPath('appData'), `${LEGACY_USER_DATA_DIR} Dev`));
 }
 // Test hook for scripts/profile-startup.mjs: a packaged launch that must not
 // share the single-instance lock or the Chromium profile with the installed

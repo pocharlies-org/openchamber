@@ -23,6 +23,7 @@ import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { buildSessionContextUsage, isSameContextUsage } from '@/stores/utils/tokenUtils';
 import type { SessionContextUsage } from '@/stores/types/sessionTypes';
 import { isChatDirectoryPath } from '@/lib/chatDirectories';
+import { BRAND_NAME } from '@/lib/brand';
 
 type MiniChatMode = 'session' | 'draft';
 
@@ -132,7 +133,7 @@ const MiniChatHeader: React.FC<{ mode: MiniChatMode }> = ({ mode }) => {
   const projectLabel = React.useMemo(() => {
     if (isChatContext) return null;
     const project = pathMatchedProject ?? activeProject;
-    if (!project) return directoryLabel || 'OpenChamber';
+    if (!project) return directoryLabel || BRAND_NAME;
     const label = project.label?.trim();
     if (label) return label;
     const segments = project.path.split(/[\\/]/).filter(Boolean);

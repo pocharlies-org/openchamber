@@ -158,10 +158,6 @@ export const OpenChamberLogo: React.FC<OpenChamberLogoProps> = ({
     return isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.4)';
   }, [themeContext, supportsColorMix, strokeColor, isDark, variant]);
 
-  const logoFillColor = strokeColor;
-
-
-
   // Isometric cube geometry (mathematically correct)
   // For true isometric: horizontal edges at ±30° from horizontal
   // cos(30°) ≈ 0.866, sin(30°) = 0.5
@@ -179,14 +175,6 @@ export const OpenChamberLogo: React.FC<OpenChamberLogoProps> = ({
   const bottomLeft = { x: 50 - edge * cos30, y: centerY + edge * sin30 };  // bottom-left
   const bottomRight = { x: 50 + edge * cos30, y: centerY + edge * sin30 }; // bottom-right
   const bottom = { x: 50, y: centerY + edge };                         // bottom vertex
-
-  // Isometric transformation matrix for top face
-  // Maps a flat square to the isometric rhombus (top face)
-  // Center of top face rhombus: average of top, left, center, right vertices
-  // topFaceCenter.x = (top.x + left.x + center.x + right.x) / 4 = 50
-  // topFaceCenter.y = (top.y + left.y + center.y + right.y) / 4
-  const topFaceCenterY = (top.y + left.y + center.y + right.y) / 4;
-  const isoMatrix = `matrix(0.866, 0.5, -0.866, 0.5, 50, ${topFaceCenterY})`;
 
   // Generate grid cells for both faces
   // Left face: center -> left -> bottomLeft -> bottom
@@ -256,33 +244,14 @@ export const OpenChamberLogo: React.FC<OpenChamberLogoProps> = ({
         strokeLinejoin="round"
       />
       
-      {/* OpenCode logo on top face */}
-      <g
-        opacity={1}
+      {/* Agent: an accent diamond on the open top face (fixed brand colour, not the theme accent) */}
+      <path
+        d="M50 14 L70.78 26 L50 38 L29.22 26 Z"
+        fill={isDark ? '#ff5a1f' : '#ee4f0c'}
         className={isAnimated ? 'oc-logo-glow' : undefined}
-        style={isAnimated ? ({ '--oc-glow-color': strokeColor } as React.CSSProperties) : undefined}
-      >
-        {/*
-          Isometric transform for top face:
-          OpenCode logo (32x40 viewBox) centered and projected to isometric plane
-        */}
-        <g transform={`${isoMatrix} scale(0.75)`}>
-          {/* OpenCode logo - outer frame with inner square */}
-          {/* Outer frame (centered at origin, original: 0,0 to 32,40) */}
-          <path
-            fillRule="evenodd"
-            clipRule="evenodd"
-            d="M-16 -20 L16 -20 L16 20 L-16 20 Z M-8 -12 L-8 12 L8 12 L8 -12 Z"
-            fill={logoFillColor}
-          />
-          {/* Inner square */}
-          <path
-            d="M-8 -4 L8 -4 L8 12 L-8 12 Z"
-            fill={logoFillColor}
-            fillOpacity="0.4"
-          />
-        </g>
-      </g>
+        // SAFETY: React's CSSProperties has no index for custom properties; `--oc-glow-color` is a plain string read by .oc-logo-glow.
+        style={isAnimated ? ({ '--oc-glow-color': isDark ? '#ff5a1f' : '#ee4f0c' } as React.CSSProperties) : undefined}
+      />
     </svg>
   );
 };

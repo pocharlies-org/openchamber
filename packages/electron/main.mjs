@@ -331,7 +331,7 @@ const quitConfirmationMessage = () => {
   if (reasons.length === 0) {
     return 'Background processes (sidecar, SSH sessions) will be stopped.';
   }
-  return `OpenChamber detected ${reasons.join(', ')}. Quitting now will stop sidecar/background processes and may interrupt pending work.`;
+  return `${APP_NAME} detected ${reasons.join(', ')}. Quitting now will stop sidecar/background processes and may interrupt pending work.`;
 };
 
 const shutdownBackgroundServices = () => {
@@ -449,8 +449,8 @@ const requestQuitWithConfirmation = async () => {
   try {
     const result = await dialog.showMessageBox({
       type: 'warning',
-      title: 'Quit OpenChamber?',
-      message: 'Quit OpenChamber?',
+      title: `Quit ${APP_NAME}?`,
+      message: `Quit ${APP_NAME}?`,
       detail: quitConfirmationMessage(),
       buttons: ['Quit', 'Cancel'],
       defaultId: 1,
@@ -1165,7 +1165,7 @@ const maybeShowNativeNotification = (rawInput) => {
 
   const title = typeof payload.title === 'string' && payload.title.trim()
     ? payload.title.trim()
-    : 'OpenChamber';
+    : APP_NAME;
   const body = typeof payload.body === 'string' ? payload.body : '';
   const sessionId = typeof payload.sessionId === 'string' && payload.sessionId.trim()
     ? payload.sessionId.trim()
@@ -1204,6 +1204,7 @@ const mapUpdaterProgressEvent = (payload) => ({
 
 import { pathLooksUserConfigured, mergePathValues } from '@openchamber/web/server/lib/opencode/path-utils.js';
 import { provideLoginShellEnvSnapshot } from '@openchamber/web/server/lib/opencode/login-shell-env.js';
+import { APP_NAME } from './brand.mjs';
 
 // Merge the user's login-shell env (PATH, etc.) into this process before we
 // import/start the server in-process. The server and its children (opencode
@@ -1599,7 +1600,7 @@ const loginRemoteAndIssueClientToken = async ({ url, password, trustDevice, requ
       password: candidatePassword,
       trustDevice: trustDevice === true,
       issueClientToken: true,
-      clientLabel: 'OpenChamber Desktop',
+      clientLabel: `${APP_NAME} Desktop`,
       ...clientIdentity,
     }),
   });
@@ -1627,7 +1628,7 @@ const loginRemoteAndIssueClientToken = async ({ url, password, trustDevice, requ
       Cookie: cookie,
     },
     body: JSON.stringify({
-      label: 'OpenChamber Desktop',
+      label: `${APP_NAME} Desktop`,
       ...clientIdentity,
     }),
   });
@@ -1759,7 +1760,7 @@ const parseConnectPairingDeepLinkPayload = (raw) => {
     return {
       pairingId,
       secret,
-      label: typeof payload.label === 'string' && payload.label.trim() ? payload.label.trim() : 'OpenChamber',
+      label: typeof payload.label === 'string' && payload.label.trim() ? payload.label.trim() : APP_NAME,
       fingerprint: typeof payload.fingerprint === 'string' && payload.fingerprint.trim() ? payload.fingerprint.trim() : '',
       expiresAt: expiresAt || null,
       candidates: candidates.sort((left, right) => left.priority - right.priority),
@@ -1831,9 +1832,9 @@ const redeemConnectPairingDeepLink = async (payload, serverUrl) => {
     body: JSON.stringify({
       pairingId: payload.pairingId,
       secret: payload.secret,
-      clientLabel: 'OpenChamber Desktop',
+      clientLabel: `${APP_NAME} Desktop`,
       clientKind: 'desktop',
-      deviceName: 'OpenChamber Desktop',
+      deviceName: `${APP_NAME} Desktop`,
       ...desktopDeviceMetadata(),
       dedupeKey: `desktop:${await getOrCreateDesktopInstallId()}`,
     }),
@@ -1893,7 +1894,7 @@ const confirmConnectDeepLink = async (payload) => {
   }
   const options = {
     type: 'warning',
-    title: 'Connect to OpenChamber server?',
+    title: `Connect to ${APP_NAME} server?`,
     message: `Connect to "${payload.label}"?`,
     detail:
       `This will add ${payload.serverUrl} as a remote instance and route this app's activity ` +
@@ -2661,7 +2662,7 @@ const createMiniChatWindow = async ({ mode, sessionId = '', directory = '', proj
   const desktopClientToken = effectiveRuntimeConfig.clientToken || '';
   const desktopRequestHeaders = effectiveRuntimeConfig.requestHeaders || {};
   const browserWindow = new BrowserWindow({
-    title: 'OpenChamber Mini Chat',
+    title: `${APP_NAME} Mini Chat`,
     width: MINI_CHAT_WINDOW_WIDTH,
     height: MINI_CHAT_WINDOW_HEIGHT,
     minWidth: MINI_CHAT_MIN_WINDOW_WIDTH,
@@ -4449,7 +4450,7 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
       if (applyUpdate && process.platform === 'darwin' && typeof app.isInApplicationsFolder === 'function') {
         try {
           if (!app.isInApplicationsFolder()) {
-            throw new Error('Desktop update requires OpenChamber.app to be installed in /Applications');
+            throw new Error(`Desktop update requires ${APP_NAME}.app to be installed in /Applications`);
           }
         } catch (error) {
           log.warn('[electron] desktop_restart blocked', error);
@@ -4679,7 +4680,7 @@ const buildMacMenu = () => {
     {
       label: app.name,
       submenu: [
-        { label: 'About OpenChamber', click: () => dispatchAction('about') },
+        { label: `About ${APP_NAME}`, click: () => dispatchAction('about') },
         {
           label: 'Check for Updates',
           click: () => dispatchCheckForUpdates(),
@@ -4787,9 +4788,9 @@ const buildAutoHiddenMenu = () => {
 
   return Menu.buildFromTemplate([
     {
-      label: 'OpenChamber',
+      label: APP_NAME,
       submenu: [
-        { label: 'About OpenChamber', click: () => dispatchAction('about') },
+        { label: `About ${APP_NAME}`, click: () => dispatchAction('about') },
         {
           label: 'Check for Updates',
           click: () => dispatchCheckForUpdates(),
