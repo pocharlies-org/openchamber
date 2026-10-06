@@ -7,3 +7,6 @@
  * are contracts and keep their names; see `scripts/brand-allowlist.txt`.
  */
 export const BRAND_NAME = 'AgentChamber';
+
+/** The fork's repository: releases, About links. Upstream's slug must not come back (see scripts/upstream-slug.test.mjs). */
+export const BRAND_REPO_URL = 'https://github.com/pocharlies-org/openchamber';

@@ -6,6 +6,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { fetchUpdateNotes } from './changelog/update-notes.js';
 import { isEnterpriseMode } from './enterprise-mode.js';
+import { REPO_SLUG } from './brand.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -13,8 +14,8 @@ const __dirname = path.dirname(__filename);
 const PACKAGE_NAME = '@openchamber/web';
 const PACKAGE_PATH_SEGMENTS = PACKAGE_NAME.split('/');
 const NPM_REGISTRY_URL = `https://registry.npmjs.org/${PACKAGE_NAME}`;
-const GITHUB_RELEASES_URL = 'https://github.com/openchamber/openchamber/releases';
-const GITHUB_RELEASES_API_URL = 'https://api.github.com/repos/openchamber/openchamber/releases';
+const GITHUB_RELEASES_URL = `https://github.com/${REPO_SLUG}/releases`;
+const GITHUB_RELEASES_API_URL = `https://api.github.com/repos/${REPO_SLUG}/releases`;
 let cachedDetectedPm = null;
 
 function getSpawnSyncBaseOptions() {

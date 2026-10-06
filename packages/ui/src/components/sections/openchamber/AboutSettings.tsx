@@ -20,9 +20,9 @@ import {
   SETTINGS_BRAND_TITLE_CLASS,
   SETTINGS_FIELD_LABEL_CLASS,
 } from '@/components/sections/shared/SettingsSection';
-import { BRAND_NAME } from '@/lib/brand';
+import { BRAND_NAME, BRAND_REPO_URL } from '@/lib/brand';
 
-const GITHUB_URL = 'https://github.com/openchamber/openchamber';
+const GITHUB_URL = BRAND_REPO_URL;
 const DISCORD_URL = 'https://discord.gg/ZYRSdnwwKA';
 const X_URL = 'https://x.com/openchamber_dev';
 

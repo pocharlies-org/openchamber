@@ -10,7 +10,9 @@
 // Any failure (network, 404, unexpected shape) yields null: the update is
 // still offered, only without notes.
 
-export const CHANGELOG_INDEX_URL = 'https://raw.githubusercontent.com/openchamber/openchamber/main/changelog/index.json';
+import { REPO_SLUG } from '../brand.js';
+
+export const CHANGELOG_INDEX_URL = `https://raw.githubusercontent.com/${REPO_SLUG}/main/changelog/index.json`;
 
 const GROUPS = [
   ['new', 'New'],

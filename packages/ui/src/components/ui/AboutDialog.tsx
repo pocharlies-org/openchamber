@@ -11,7 +11,7 @@ import { Icon } from "@/components/icon/Icon";
 import { useI18n } from '@/lib/i18n';
 import { getDesktopAppVersion } from '@/lib/desktopNative';
 import { runtimeFetch } from '@/lib/runtime-fetch';
-import { BRAND_NAME } from '@/lib/brand';
+import { BRAND_NAME, BRAND_REPO_URL } from '@/lib/brand';
 
 interface AboutDialogProps {
   open: boolean;
@@ -185,7 +185,7 @@ export const AboutDialog: React.FC<AboutDialogProps> = ({
           <div className="flex flex-col items-center gap-2 pt-2">
             <div className="flex items-center justify-center gap-4">
               <a
-                href="https://github.com/openchamber/openchamber"
+                href={BRAND_REPO_URL}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center gap-1.5 typography-meta text-muted-foreground hover:text-foreground transition-colors"

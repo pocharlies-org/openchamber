@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
@@ -16,9 +17,14 @@ test('production updater feed is immutable GitHub configuration', () => {
   assert.equal(Object.isFrozen(PRODUCTION_UPDATER_FEED), true);
   assert.deepEqual(PRODUCTION_UPDATER_FEED, {
     provider: 'github',
-    owner: 'openchamber',
+    owner: 'pocharlies-org',
     repo: 'openchamber',
   });
+});
+
+test('the feed in package.json (electron-builder publish) is the same as the runtime feed', () => {
+  const { build } = JSON.parse(fs.readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
+  assert.deepEqual(build.publish, PRODUCTION_UPDATER_FEED);
 });
 
 test('requires the complete E2E environment and embedded build-marker conjunction', () => {
