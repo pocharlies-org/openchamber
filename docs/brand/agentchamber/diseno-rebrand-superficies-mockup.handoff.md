@@ -9,7 +9,7 @@ Este handoff sustituye al del 2026-10-03. El canvas sigue siendo de baja fidelid
 - **Canvas**: `docs/brand/agentchamber/diseno-rebrand-superficies-mockup.dc.html`, en la rama `designer/DGX-514-assets` (PR en borrador #116 contra `main`: https://github.com/pocharlies-org/openchamber/pull/116). Hay una copia adjunta a DGX-513 con el mismo nombre. Se abre en el editor de Claude Design o en cualquier navegador. Para ver el otro tema, cambia `data-theme` del `<x-dc>` raíz.
 - **Assets**: en sus **rutas finales**, en la misma rama. No hay carpeta intermedia de la que copiar. Para llevarlos a tu rama:
   `git fetch origin && git checkout origin/designer/DGX-514-assets -- packages/electron/resources/icons packages/web/public packages/mobile docs/brand`
-- **Regenerarlos** (si hay que tocar el icono): `bun install`, luego `node docs/brand/agentchamber/build-icons.mjs` desde la raíz. Usa `sharp`, que ya es dependencia de la raíz. Hay una sola geometría para todos los ficheros. `Assets.car` (macOS 26) sale aparte, en un Mac: `bun run --cwd packages/electron generate:macos-icon`. El de la rama ya está compilado con `actool` de Xcode (2026-10-06).
+- **Regenerarlos** (si hay que tocar el icono): `bun install` y luego `bun run brand:icons` (= `node scripts/build-brand-icons.mjs`) desde la raíz. Usa `sharp`, que ya es dependencia de la raíz. Hay una sola geometría para todos los ficheros. Comprobación de que es reproducible: `bun run brand:icons && git diff --exit-code -- packages docs/brand` (un salto de versión de `sharp` puede mover bytes de un PNG sin cambiar la imagen). `Assets.car` (macOS 26) sale aparte, en un Mac: `bun run --cwd packages/electron generate:macos-icon`. El de la rama ya está compilado con `actool` de Xcode (2026-10-06).
 
 ## Hallazgos de UX y cómo se cierran
 
@@ -30,7 +30,7 @@ Además, sin que lo pidiera UX: en iOS hoy se publica el **icono por defecto de 
 
 Se queda el cubo isométrico con la cara de arriba abierta, la cámara, para que quien venía de OpenChamber reconozca la silueta. Lo que cambia es el sello de OpenCode de la cara superior: pasa a ser un **rombo `--accent`**, el agente dentro de la cámara. Es la misma idea que ya usan el glifo de la bandeja de macOS (`tray/tray-glyph.svg`) y el icono de notificación de Android (`ic_stat_notify.xml`), y por eso esos dos **no cambian**.
 
-Geometría (`build-icons.mjs`, función `cube`): centro (cx, cy), arista e. Cara superior: T=(cx, cy−e), L=(cx−e·cos30, cy−e/2), F=(cx, cy), R=(cx+e·cos30, cy−e/2). El rombo es la cara superior escalada k = 0,5 sobre su centro (cx, cy−e/2); a 32 px o menos, k = 0,6.
+Geometría (`scripts/build-brand-icons.mjs`, función `cube`): centro (cx, cy), arista e. Cara superior: T=(cx, cy−e), L=(cx−e·cos30, cy−e/2), F=(cx, cy), R=(cx+e·cos30, cy−e/2). El rombo es la cara superior escalada k = 0,5 sobre su centro (cx, cy−e/2); a 32 px o menos, k = 0,6.
 
 **Logo dentro de la app (`packages/ui/src/components/ui/OpenChamberLogo.tsx`, del developer):** se conservan el cubo, la rejilla y la animación. Solo se sustituye el grupo «OpenCode logo on top face» por el rombo, en el viewBox 100 del componente:
 `<path d="M50 14 L70.78 26 L50 38 L29.22 26 Z" fill={isDark ? '#ff5a1f' : '#ee4f0c'} />`
