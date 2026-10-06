@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // AgentChamber icon set (DGX-514). One geometry, every platform file.
-// Run from the repo root after `bun install`:  node docs/brand/agentchamber/build-icons.mjs
+// Run from the repo root after `bun install`:  node scripts/build-brand-icons.mjs  (or `bun run brand:icons`)
 // Colours are the values of the company design-token template
 // (pocharlies-org/dgx-infra k8s/apps/chat/tools/design_tokens_template.dc.html).
 import { createRequire } from 'node:module';
@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 const require = createRequire(import.meta.url);
 const sharp = require('sharp');
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const BRAND = join(ROOT, 'docs/brand/agentchamber');
 
 const DARK = { bg: '#101012', surface2: '#26262c', text: '#f2f2f2', accent: '#ff5a1f' };
