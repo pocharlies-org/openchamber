@@ -1,7 +1,9 @@
 export type QuotaProviderId =
   | 'openai'
+  | 'codex'
   | 'cursor'
   | 'claude'
+  | 'cline-pass'
   | 'github-copilot'
   | 'github-copilot-addon'
   | 'google'
@@ -15,8 +17,9 @@ export type QuotaProviderId =
   | 'ollama-cloud'
   | 'wafer'
   | 'opencode-go'
-  | 'crof'
   | 'deepseek'
+  | 'exe-dev'
+  | 'hyper'
   | 'neuralwatt'
   | 'xai';
 

@@ -102,7 +102,7 @@ export const createRemoteAttachments = ({
     const abort = new AbortController();
     /** Map<event id, { resolve, reject }> of sends waiting for the worker. */
     const pending = new Map();
-    const attachment = { prompts, abort, pending, idleTimer: null };
+    const attachment = { prompts, abort, pending, idleTimer: null, stream: null, applied: {} };
 
     const stream = query({
       prompt: prompts,
@@ -124,6 +124,7 @@ export const createRemoteAttachments = ({
         },
       },
     });
+    attachment.stream = stream;
     // The owner's messages reach OpenChamber through its transcript on disk;
     // the stream is drained only to keep the connection flowing.
     void (async () => {
@@ -138,11 +139,8 @@ export const createRemoteAttachments = ({
     return attachment;
   };
 
-  /**
-   * Send a user message to the live session behind `bridgeSessionId`.
-   * Resolves once its owning process has received it.
-   */
-  const send = async (bridgeSessionId, content) => {
+  /** The attachment to `bridgeSessionId`, opened if needed, its idle timer restarted. */
+  const attach = async (bridgeSessionId) => {
     const bridgeId = toBridgeId(bridgeSessionId);
     let attachment = attachments.get(bridgeId);
     if (!attachment) {
@@ -152,6 +150,52 @@ export const createRemoteAttachments = ({
     clearTimeout(attachment.idleTimer);
     attachment.idleTimer = setTimeout(() => close(bridgeId), idleMs);
     attachment.idleTimer.unref?.();
+    return { bridgeId, attachment };
+  };
+
+  /**
+   * Put the live session behind `bridgeSessionId` on `model` for its next
+   * turns, as Claude Desktop's model picker does (a `set_model` control
+   * request its owning process applies). A model already set through this
+   * attachment is not sent again.
+   */
+  const setModel = (bridgeSessionId, model) => applyControl(bridgeSessionId, 'model', model,
+    (stream) => stream.setModel(model), 'The live session did not acknowledge the model change');
+
+  /**
+   * Put the live session in a permission mode at once (a `set_permission_mode`
+   * control request), as the mode picker of the Claude app does.
+   */
+  const setPermissionMode = (bridgeSessionId, permissionMode) => applyControl(bridgeSessionId, 'permissionMode', permissionMode,
+    (stream) => stream.setPermissionMode(permissionMode), 'The live session did not acknowledge the mode change');
+
+  /** Put the live session on an effort level for its next turns (session flag settings). */
+  const setEffort = (bridgeSessionId, effort) => applyControl(bridgeSessionId, 'effort', effort,
+    (stream) => stream.applyFlagSettings({ effortLevel: effort }), 'The live session did not acknowledge the effort change');
+
+  /** One control request through the attachment; a value it already set is not sent again. */
+  const applyControl = async (bridgeSessionId, key, value, request, timeoutMessage) => {
+    const { attachment } = await attach(bridgeSessionId);
+    if (!value || attachment.applied[key] === value) return;
+    let timer;
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new ClaudeRemoteAttachError(timeoutMessage)), deliveryTimeoutMs);
+      timer.unref?.();
+    });
+    try {
+      await Promise.race([request(attachment.stream), timeout]);
+    } finally {
+      clearTimeout(timer);
+    }
+    attachment.applied[key] = value;
+  };
+
+  /**
+   * Send a user message to the live session behind `bridgeSessionId`.
+   * Resolves once its owning process has received it.
+   */
+  const send = async (bridgeSessionId, content) => {
+    const { bridgeId, attachment } = await attach(bridgeSessionId);
 
     const uuid = randomUUID();
     const delivered = new Promise((resolve, reject) => {
@@ -179,5 +223,5 @@ export const createRemoteAttachments = ({
     for (const bridgeId of Array.from(attachments.keys())) close(bridgeId);
   };
 
-  return { send, closeAll };
+  return { send, setModel, setPermissionMode, setEffort, closeAll };
 };

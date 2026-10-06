@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test';
-import type { Session } from '@opencode-ai/sdk/v2';
-import { buildLinkedIssue, buildLinkedIssueId, buildLinkedLinearIssue, canOpenLinearIssueInContextPanel, getLinkedIssues, withLinkedIssue, type LinkedIssue } from './linkedIssues';
+import type { Session } from '@/lib/opencode/model';
+import { buildLinkedGuestIssue, buildLinkedIssue, buildLinkedIssueId, buildLinkedLinearIssue, canOpenLinearIssueInContextPanel, getLinkedGitHubPullRequests, getLinkedIssues, getLinkedSidebarIssues, withLinkedIssue, type LinkedIssue } from './linkedIssues';
 
-type LinkedGitHubIssue = Exclude<LinkedIssue, { kind: 'linear' }>;
+type LinkedGitHubIssue = Extract<LinkedIssue, { kind: 'issue' | 'pull' }>;
 
 const issue = (overrides: Partial<LinkedGitHubIssue> = {}): LinkedGitHubIssue => ({
   id: 'owner/repo#12',
@@ -119,6 +119,71 @@ describe('getLinkedIssues', () => {
     expect(getLinkedIssues(session)).toEqual([good]);
   });
 
+  test('keeps a guest entry without inventing a number', () => {
+    const guest = buildLinkedGuestIssue({
+      providerId: 'hello',
+      identifier: 'HELLO-1',
+      title: 'Sample ticket',
+      url: 'https://example.com/HELLO-1',
+      linkedAt: 3,
+    });
+    expect(guest.kind).toBe('guest');
+    expect(guest.thread).toBe('issue');
+    expect(guest.id).toBe('guest:hello:HELLO-1');
+    expect(getLinkedIssues(sessionWith([guest]))).toEqual([guest]);
+  });
+
+  test('keeps the opaque guest data through the snapshot round trip', () => {
+    const data = { status: 'open', comments: [{ author: 'mara', text: 'hi' }], count: 2, ok: true, none: null };
+    const guest = buildLinkedGuestIssue({
+      providerId: 'hello',
+      identifier: 'HELLO-1',
+      title: 'Sample ticket',
+      url: 'https://example.com/HELLO-1',
+      data,
+      linkedAt: 3,
+    });
+    expect(guest.data).toEqual(data);
+    // SAFETY: a JSON round trip of a session fixture is the same session shape the
+    // metadata channel hands back; the guard under test re-checks every field.
+    const stored = JSON.parse(JSON.stringify(sessionWith([guest]))) as Parameters<typeof getLinkedIssues>[0];
+    expect(getLinkedIssues(stored)).toEqual([guest]);
+    const restored = getLinkedIssues(stored)[0];
+    expect(restored?.kind === 'guest' ? restored.data : undefined).toEqual(data);
+  });
+
+  test('keeps a guest pull with author and branches', () => {
+    const guest = buildLinkedGuestIssue({
+      providerId: 'gitlab',
+      identifier: '!12',
+      title: 'Fix login',
+      url: 'https://gitlab.com/acme/app/-/merge_requests/12',
+      thread: 'pull',
+      author: 'ada',
+      head: 'feature',
+      base: 'main',
+      linkedAt: 4,
+    });
+    expect(guest.thread).toBe('pull');
+    expect(guest.author).toBe('ada');
+    expect(guest.head).toBe('feature');
+    expect(guest.base).toBe('main');
+    expect(getLinkedIssues(sessionWith([guest]))).toEqual([guest]);
+  });
+
+  test('treats a stored guest row without thread as an issue', () => {
+    const stored = {
+      id: 'guest:hello:HELLO-1',
+      providerId: 'hello',
+      identifier: 'HELLO-1',
+      title: 'Sample ticket',
+      url: 'https://example.com/HELLO-1',
+      kind: 'guest',
+      linkedAt: 3,
+    };
+    expect(getLinkedIssues(sessionWith([stored]))).toEqual([stored]);
+  });
+
   test('keeps Linear entries next to GitHub ones', () => {
     const github = issue();
     const linear = buildLinkedLinearIssue({
@@ -214,5 +279,42 @@ describe('canOpenLinearIssueInContextPanel', () => {
       inDedicatedMobileShell: false,
       directory: '  ',
     })).toBe(false);
+  });
+});
+
+describe('getLinkedGitHubPullRequests', () => {
+  test('reads the repository of each linked GitHub PR from its id', () => {
+    const session = sessionWith([
+      issue(),
+      issue({ id: 'acme/app#7', number: 7, kind: 'pull', title: 'Fix', url: 'https://github.com/acme/app/pull/7' }),
+      { id: 'linear:ENG-1', identifier: 'ENG-1', title: 'Linear', url: 'https://linear.app/x', kind: 'linear', linkedAt: 1 },
+    ]);
+    expect(getLinkedGitHubPullRequests(session)).toEqual([
+      { owner: 'acme', repo: 'app', number: 7, url: 'https://github.com/acme/app/pull/7', title: 'Fix' },
+    ]);
+  });
+
+  test('skips a PR whose id could not name its repository', () => {
+    const session = sessionWith([
+      issue({ id: 'https://ghe.example/acme/app/pull/7#7', number: 7, kind: 'pull', url: 'https://ghe.example/acme/app/pull/7' }),
+    ]);
+    expect(getLinkedGitHubPullRequests(session)).toEqual([]);
+  });
+});
+
+describe('getLinkedSidebarIssues', () => {
+  test('lists GitHub issues with their repository and trackers by identifier, never pull requests', () => {
+    const session = sessionWith([
+      issue(),
+      issue({ id: 'acme/app#7', number: 7, kind: 'pull', url: 'https://github.com/acme/app/pull/7' }),
+      { id: 'linear:ENG-1', identifier: 'ENG-1', title: 'Linear task', url: 'https://linear.app/x', kind: 'linear', linkedAt: 1 },
+      { id: 'guest:jira:OPS-2', providerId: 'jira', identifier: 'OPS-2', title: 'Ops', url: 'https://jira/x', kind: 'guest', thread: 'issue', linkedAt: 1 },
+      { id: 'guest:gitea:5', providerId: 'gitea', identifier: '5', title: 'Guest PR', url: 'https://gitea/x', kind: 'guest', thread: 'pull', linkedAt: 1 },
+    ]);
+    expect(getLinkedSidebarIssues(session)).toEqual([
+      { source: 'github', key: 'owner/repo#12', owner: 'owner', repo: 'repo', number: 12, url: 'https://github.com/owner/repo/issues/12', title: 'Rail badge count' },
+      { source: 'linear', key: 'linear:ENG-1', identifier: 'ENG-1', url: 'https://linear.app/x', title: 'Linear task' },
+      { source: 'guest', key: 'guest:jira:OPS-2', identifier: 'OPS-2', url: 'https://jira/x', title: 'Ops' },
+    ]);
   });
 });

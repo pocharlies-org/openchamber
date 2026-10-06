@@ -12,18 +12,59 @@ import {
   SETTINGS_SELECT_ROW_TRIGGER_CLASS,
   SETTINGS_SELECT_SIZE,
   SETTINGS_OPTION_STACK_CLASS,
+  SETTINGS_FIELDS_STACK_CLASS,
 } from '@/components/sections/shared/SettingsSection';
+import { SessionWarmingCheckbox } from './SessionWarmingCheckbox';
+import { PermissionDefaultModeField } from './PermissionDefaultModeField';
+import { isVSCodeRuntime } from '@/lib/desktop';
 import { SettingsInfoHint } from '@/components/sections/shared/SettingsInfoHint';
-import { updateDesktopSettings } from '@/lib/persistence';
+import { loadDesktopSettings, updateDesktopSettings } from '@/lib/persistence';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { useSelectionStore } from '@/sync/selection-store';
 import { useSessionUIStore } from '@/sync/session-ui-store';
-import { getRegisteredRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
-import { useI18n } from '@/lib/i18n';
+import { useI18n, type I18nKey } from '@/lib/i18n';
 import { parseModelIdentifier } from '@/lib/modelIdentifier';
+import { fetchClaudeModelCatalog, type ClaudeModelCatalog } from '@/lib/claudeModels';
+import { isAutoModel } from '@/lib/routing/autoModel';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { isPrimaryMode } from '@/components/chat/mobileControlsUtils';
+import { listModelVariantIds, type ModelVariantSource } from '@/lib/modelVariants';
+
+/** Radix gives an empty select value no entry; this one stands for "unset". */
+const CLAUDE_CLI_DEFAULT = '__claude_cli_default__';
+
+/** The permission modes, named as the composer's mode indicator names them. */
+const CLAUDE_MODE_LABELS: Record<string, I18nKey> = {
+  default: 'chat.claudeMode.default',
+  acceptEdits: 'chat.claudeMode.acceptEdits',
+  plan: 'chat.claudeMode.plan',
+  auto: 'chat.claudeMode.auto',
+  bypassPermissions: 'chat.claudeMode.bypassPermissions',
+};
+
+/** One of the three Claude defaults: its catalog options, plus "the CLI's own". */
+const ClaudeDefaultSelect: React.FC<{
+  value: string;
+  options: Array<{ id: string; label: string }>;
+  unsetLabel: string;
+  onChange: (value: string) => void;
+}> = ({ value, options, unsetLabel, onChange }) => {
+  const current = value ? options.find((option) => option.id === value) : undefined;
+  return (
+    <Select value={value || CLAUDE_CLI_DEFAULT} onValueChange={onChange}>
+      <SelectTrigger size={SETTINGS_SELECT_SIZE} className={SETTINGS_SELECT_ROW_TRIGGER_CLASS}>
+        <SelectValue>{current?.label ?? unsetLabel}</SelectValue>
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value={CLAUDE_CLI_DEFAULT}>{unsetLabel}</SelectItem>
+        {options.map((option) => (
+          <SelectItem key={option.id} value={option.id}>{option.label}</SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+};
 
 const getDisplayModel = (
   storedModel: string | undefined
@@ -54,12 +95,22 @@ export const DefaultsSettings: React.FC = () => {
   const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
   const getSessionModelSelection = useSelectionStore((state) => state.getSessionModelSelection);
   const getSessionAgentSelection = useSelectionStore((state) => state.getSessionAgentSelection);
+  const agentIsPicked = useConfigStore((state) => state.agentSelectionSource === 'manual');
+  // An agent picked for this chat brings the model its config pins, and a pin
+  // outranks the global default the same way it does in `setAgent`.
+  const pickedAgentPinsModel = useConfigStore((state) => {
+    if (state.agentSelectionSource !== 'manual') return false;
+    const agent = state.agents.find((candidate) => candidate.name === state.currentAgentName);
+    return Boolean(agent?.model?.providerID && agent.model.id);
+  });
   const chatHasOwnModel = Boolean(
-    selectionIsManual && currentSessionId && getSessionModelSelection(currentSessionId),
+    pickedAgentPinsModel
+    || (selectionIsManual && currentSessionId && getSessionModelSelection(currentSessionId)),
   );
   const chatHasOwnAgent = Boolean(
-    selectionIsManual && currentSessionId && getSessionAgentSelection(currentSessionId),
+    agentIsPicked && currentSessionId && getSessionAgentSelection(currentSessionId),
   );
+  const isVSCode = React.useMemo(() => isVSCodeRuntime(), []);
   const showDeletionDialog = useUIStore((state) => state.showDeletionDialog);
   const setShowDeletionDialog = useUIStore((state) => state.setShowDeletionDialog);
   const providers = useConfigStore((state) => state.providers);
@@ -72,6 +123,14 @@ export const DefaultsSettings: React.FC = () => {
   const [smallModelOverride, setSmallModelOverride] = React.useState<string | undefined>();
   const [smallModelProviders, setSmallModelProviders] = React.useState<string[]>([]);
   const [walkthroughModelOverride, setWalkthroughModelOverride] = React.useState<string | undefined>();
+  // A new Claude Code session's start-of-session defaults. Empty means the
+  // CLI's own (~/.claude/settings.json), which is what the pick falls through to.
+  const [claudeModel, setClaudeModel] = React.useState('');
+  const [claudeEffort, setClaudeEffort] = React.useState('');
+  const [claudeMode, setClaudeMode] = React.useState('');
+  // Opt-in window on the `+` of a Claude project. Unset means don't ask.
+  const [claudeAskOnCreate, setClaudeAskOnCreate] = React.useState(false);
+  const [claudeCatalog, setClaudeCatalog] = React.useState<ClaudeModelCatalog | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
 
   const parsedModel = React.useMemo(() => getDisplayModel(defaultModel), [defaultModel]);
@@ -79,76 +138,28 @@ export const DefaultsSettings: React.FC = () => {
   React.useEffect(() => {
     const loadSettings = async () => {
       try {
-        let data: {
-          defaultModel?: string;
-          defaultVariant?: string;
-          defaultAgent?: string;
-          smallModelUseDefault?: boolean;
-          smallModelOverride?: string;
-          walkthroughModelOverride?: string;
-        } | null = null;
-
-        if (!data) {
-          const runtimeSettings = getRegisteredRuntimeAPIs()?.settings;
-          if (runtimeSettings) {
-            try {
-              const result = await runtimeSettings.load();
-              const settings = result?.settings;
-              if (settings) {
-                const raw = settings as Record<string, unknown>;
-                data = {
-                  defaultModel: typeof settings.defaultModel === 'string' ? settings.defaultModel : undefined,
-                  defaultVariant:
-                    typeof raw.defaultVariant === 'string'
-                      ? (raw.defaultVariant as string)
-                      : undefined,
-                  defaultAgent: typeof settings.defaultAgent === 'string' ? settings.defaultAgent : undefined,
-                  smallModelUseDefault: typeof raw.smallModelUseDefault === 'boolean' ? raw.smallModelUseDefault : undefined,
-                  smallModelOverride: typeof raw.smallModelOverride === 'string' ? raw.smallModelOverride : undefined,
-                  walkthroughModelOverride:
-                    typeof raw.walkthroughModelOverride === 'string' ? raw.walkthroughModelOverride : undefined,
-                };
-              }
-            } catch {
-              // fall through
-            }
-          }
-        }
-
-        if (!data) {
-          const response = await runtimeFetch('/api/config/settings', {
-            method: 'GET',
-            headers: { Accept: 'application/json' },
-          });
-          if (response.ok) {
-            data = await response.json();
-          }
-        }
-
+        const data = await loadDesktopSettings();
         if (data) {
-          const model =
-            typeof data.defaultModel === 'string' && data.defaultModel.trim().length > 0
-              ? data.defaultModel.trim()
-              : undefined;
-          const variant =
-            typeof data.defaultVariant === 'string' && data.defaultVariant.trim().length > 0
-              ? data.defaultVariant.trim()
-              : undefined;
-          const agent =
-            typeof data.defaultAgent === 'string' && data.defaultAgent.trim().length > 0
-              ? data.defaultAgent.trim()
-              : undefined;
+          const model = data.defaultModel?.trim() || undefined;
+          const variant = data.defaultVariant?.trim() || undefined;
+          const agent = data.defaultAgent?.trim() || undefined;
 
           if (model !== undefined) setDefaultModel(model);
           if (variant !== undefined) setDefaultVariant(variant);
           if (agent !== undefined) setDefaultAgent(agent);
-          if (typeof data.smallModelUseDefault === 'boolean') setSmallModelUseDefault(data.smallModelUseDefault);
-          if (typeof data.smallModelOverride === 'string' && data.smallModelOverride.trim()) {
-            setSmallModelOverride(data.smallModelOverride.trim());
+          if (data.smallModelUseDefault !== undefined) setSmallModelUseDefault(data.smallModelUseDefault);
+          const smallOverride = data.smallModelOverride?.trim();
+          if (smallOverride) {
+            setSmallModelOverride(smallOverride);
           }
-          if (typeof data.walkthroughModelOverride === 'string' && data.walkthroughModelOverride.trim()) {
-            setWalkthroughModelOverride(data.walkthroughModelOverride.trim());
+          const walkthroughOverride = data.walkthroughModelOverride?.trim();
+          if (walkthroughOverride) {
+            setWalkthroughModelOverride(walkthroughOverride);
           }
+          setClaudeModel(data.claudeDefaultModel?.trim() ?? '');
+          setClaudeEffort(data.claudeDefaultEffort?.trim() ?? '');
+          setClaudeMode(data.claudeDefaultMode?.trim() ?? '');
+          setClaudeAskOnCreate(data.claudeAskSessionDefaults === true);
         }
       } catch (error) {
         console.warn('Failed to load defaults settings:', error);
@@ -158,6 +169,45 @@ export const DefaultsSettings: React.FC = () => {
     };
     loadSettings();
   }, []);
+
+  React.useEffect(() => {
+    // The catalog is Claude Code's own picker, served by the server: the same
+    // options the new-session dialog and the composer list.
+    let cancelled = false;
+    void fetchClaudeModelCatalog().then((catalog) => {
+      if (!cancelled) setClaudeCatalog(catalog);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleClaudeDefaultChange = React.useCallback(
+    async (key: 'claudeDefaultModel' | 'claudeDefaultEffort' | 'claudeDefaultMode', value: string) => {
+      const next = value === CLAUDE_CLI_DEFAULT ? '' : value;
+      if (key === 'claudeDefaultModel') setClaudeModel(next);
+      if (key === 'claudeDefaultEffort') setClaudeEffort(next);
+      if (key === 'claudeDefaultMode') setClaudeMode(next);
+      try {
+        await updateDesktopSettings({ [key]: next });
+      } catch (error) {
+        console.warn('Failed to save the Claude default:', error);
+      }
+    },
+    []
+  );
+
+  const handleClaudeAskOnChange = React.useCallback(
+    async (checked: boolean) => {
+      setClaudeAskOnCreate(checked);
+      try {
+        await updateDesktopSettings({ claudeAskSessionDefaults: checked });
+      } catch (error) {
+        console.warn('Failed to save the new-session prompt setting:', error);
+      }
+    },
+    []
+  );
 
   const handleModelChange = React.useCallback(
     async (providerId: string, modelId: string) => {
@@ -172,7 +222,8 @@ export const DefaultsSettings: React.FC = () => {
 
         if (providerId && modelId) {
           const provider = providers.find((p) => p.id === providerId);
-          if (provider) {
+          // Auto is not a provider OpenCode lists; the picker only offers it while the server can honour it.
+          if (provider || isAutoModel(providerId, modelId)) {
             setProvider(providerId);
             setModel(modelId);
           }
@@ -181,14 +232,6 @@ export const DefaultsSettings: React.FC = () => {
 
       try {
         await updateDesktopSettings({ defaultModel: newValue ?? '', defaultVariant: '' });
-        const response = await runtimeFetch('/api/config/settings', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ defaultModel: newValue }),
-        });
-        if (!response.ok) {
-          console.warn('Failed to save default model to server:', response.status, response.statusText);
-        }
       } catch (error) {
         console.warn('Failed to save default model:', error);
       }
@@ -325,27 +368,12 @@ export const DefaultsSettings: React.FC = () => {
     if (!parsedModel.providerId || !parsedModel.modelId) return [];
     const provider = providers.find((p) => p.id === parsedModel.providerId);
     const model = provider?.models.find((m: Record<string, unknown>) => (m as { id?: string }).id === parsedModel.modelId) as
-      | { variants?: Record<string, unknown> }
+      | { variants?: ModelVariantSource }
       | undefined;
-    const variants = model?.variants;
-    if (!variants) return [];
-    return Object.keys(variants);
+    return listModelVariantIds(model?.variants);
   }, [parsedModel.modelId, parsedModel.providerId, providers]);
 
   const supportsVariants = availableVariants.length > 0;
-
-  React.useEffect(() => {
-    if (!supportsVariants && defaultVariant) {
-      setDefaultVariant(undefined);
-      setSettingsDefaultVariant(undefined);
-      if (!chatHasOwnModel) {
-        setCurrentVariant(undefined);
-      }
-      updateDesktopSettings({ defaultVariant: '' }).catch(() => {
-        // best effort
-      });
-    }
-  }, [chatHasOwnModel, defaultVariant, setCurrentVariant, setSettingsDefaultVariant, supportsVariants]);
 
   if (isLoading) {
     return null;
@@ -355,7 +383,7 @@ export const DefaultsSettings: React.FC = () => {
     <>
       <SettingsSection title={t('settings.openchamber.defaults.title')} divider={false}>
         <div className="space-y-0">
-          <div className="mt-0 mb-1 typography-meta text-muted-foreground">
+          <div className="mt-0 mb-4 typography-meta text-muted-foreground">
             {t('settings.openchamber.defaults.summaryPrefix')}
             {' '}
             {parsedModel.providerId ? (
@@ -374,7 +402,7 @@ export const DefaultsSettings: React.FC = () => {
             )}
           </div>
 
-          <div>
+          <div className={SETTINGS_FIELDS_STACK_CLASS}>
             <SettingsFieldRow
               settingsItem="sessions.default-model"
               label={t('settings.openchamber.defaults.field.defaultModel')}
@@ -384,6 +412,7 @@ export const DefaultsSettings: React.FC = () => {
                 modelId={parsedModel.modelId}
                 onChange={handleModelChange}
                 className={SETTINGS_CUSTOM_TRIGGER_CLASS}
+                offerAuto
               />
             </SettingsFieldRow>
 
@@ -419,6 +448,8 @@ export const DefaultsSettings: React.FC = () => {
                 className={SETTINGS_CUSTOM_TRIGGER_CLASS}
               />
             </SettingsFieldRow>
+
+            {isVSCode ? null : <PermissionDefaultModeField agentName={defaultAgent} />}
           </div>
 
           <SettingsInset className={SETTINGS_OPTION_STACK_CLASS}>
@@ -429,6 +460,7 @@ export const DefaultsSettings: React.FC = () => {
               label={t('settings.openchamber.defaults.field.showDeletionDialog')}
               ariaLabel={t('settings.openchamber.defaults.field.showDeletionDialogAria')}
             />
+            <SessionWarmingCheckbox />
           </SettingsInset>
 
           <div className="space-y-3 pt-6">
@@ -489,6 +521,57 @@ export const DefaultsSettings: React.FC = () => {
               </SettingsFieldRow>
             </SettingsInset>
           </div>
+        </div>
+      </SettingsSection>
+
+      <SettingsSection title={t('settings.openchamber.defaults.claude.title')} divider>
+        <div className="space-y-3">
+          <SettingsFieldRow
+            settingsItem="sessions.claude-default-model"
+            label={t('settings.openchamber.defaults.claude.model')}
+            info={t('settings.openchamber.defaults.claude.description')}
+          >
+            <ClaudeDefaultSelect
+              value={claudeModel}
+              options={(claudeCatalog?.models ?? []).map((entry) => ({ id: entry.id, label: entry.label }))}
+              onChange={(value) => { void handleClaudeDefaultChange('claudeDefaultModel', value); }}
+              unsetLabel={t('settings.openchamber.defaults.claude.unset')}
+            />
+          </SettingsFieldRow>
+
+          <SettingsFieldRow
+            settingsItem="sessions.claude-default-thinking"
+            label={t('settings.openchamber.defaults.claude.thinking')}
+          >
+            <ClaudeDefaultSelect
+              value={claudeEffort}
+              options={(claudeCatalog?.efforts ?? []).map((entry) => ({ id: entry.id, label: entry.label }))}
+              onChange={(value) => { void handleClaudeDefaultChange('claudeDefaultEffort', value); }}
+              unsetLabel={t('settings.openchamber.defaults.claude.unset')}
+            />
+          </SettingsFieldRow>
+
+          <SettingsFieldRow
+            settingsItem="sessions.claude-default-mode"
+            label={t('settings.openchamber.defaults.claude.mode')}
+          >
+            <ClaudeDefaultSelect
+              value={claudeMode}
+              options={(claudeCatalog?.modes ?? []).map((entry) => ({
+                id: entry.id,
+                label: CLAUDE_MODE_LABELS[entry.id] ? t(CLAUDE_MODE_LABELS[entry.id]) : entry.label,
+              }))}
+              onChange={(value) => { void handleClaudeDefaultChange('claudeDefaultMode', value); }}
+              unsetLabel={t('settings.openchamber.defaults.claude.unset')}
+            />
+          </SettingsFieldRow>
+
+          <SettingsCheckboxRow
+            settingsItem="sessions.claude-ask-on-create"
+            checked={claudeAskOnCreate}
+            onChange={(checked) => { void handleClaudeAskOnChange(checked); }}
+            label={t('settings.openchamber.defaults.claude.askOnCreate')}
+          />
         </div>
       </SettingsSection>
     </>

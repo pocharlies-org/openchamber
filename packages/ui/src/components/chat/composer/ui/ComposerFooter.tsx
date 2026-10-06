@@ -16,15 +16,22 @@ import React from 'react';
 import { SessionGoalButton, SessionGoalObjectiveCounter } from '@/components/chat/SessionGoalButton';
 import { ComposerDictation } from '@/components/dictation/ComposerDictation';
 import { Icon } from '@/components/icon/Icon';
+import type { GuestAttachItem } from '@/hooks/useGuestSurfaces';
 import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { ModelControls } from '../../ModelControls';
+import { ClaudeAgentMap } from '../../ClaudeAgentMap';
+import { ClaudeTodoPill } from '../../ClaudeTodos';
+import { ClaudeModelControls } from '../../ClaudeModelControls';
+import { useSessionEngine } from '@/hooks/useSessionEngine';
 import { ComposerActionButtons } from './ComposerActionButtons';
 import { ComposerAttachmentControls } from './ComposerAttachmentControls';
 import { FocusModeButton } from './FocusModeButton';
 import { PermissionAutoAcceptButton } from './PermissionAutoAcceptButton';
+import type { PermissionMode } from '@/stores/utils/permissionAutoAccept';
+import type { BtwSelection } from '@/stores/useBtwStore';
 import { ComposerMetricsSurface } from './ComposerMetricsSurface';
-import { ComposerCacheTimer } from './ComposerCacheTimer';
+import { ComposerStatusSurface } from './ComposerStatusSurface';
 
 const MemoModelControls = React.memo(ModelControls);
 const MemoComposerDictation = React.memo(ComposerDictation);
@@ -50,7 +57,7 @@ export interface ComposerFooterProps {
     canAbort: boolean;
     hasContent: boolean;
     isExpandedInput: boolean;
-    permissionAutoAcceptEnabled: boolean;
+    permissionMode: PermissionMode;
     isPermissionAutoAcceptInteractive: boolean;
     dictationActive: boolean;
 
@@ -60,16 +67,26 @@ export interface ComposerFooterProps {
     onOpenPrPicker: () => void;
     showLinearPicker?: boolean;
     onOpenLinearPicker?: () => void;
+    attachGuests?: readonly GuestAttachItem[];
+    onOpenGuestAttach?: (guestId: string) => void;
     onOpenAttachSheet: () => void;
     onToggleExpandedInput: () => void;
-    onTogglePermissionAutoAccept: () => void;
+    onCyclePermissionMode: () => void;
     onPrimaryAction: () => void;
     onQueueMessage: () => void;
     onAbort: () => void;
     onStartDictation: () => void;
     onDictationInsert: (text: string) => void;
     onDictationInsertAndSend: (text: string) => void;
+    onDictationStart: () => void;
     onDictationContentHeightChange: (height: number | null) => void;
+    isBtw?: boolean;
+    modelSessionId?: string | null;
+    btwSelection: BtwSelection;
+    /** Offers "Run on several models" in the model picker (desktop). */
+    onRunInParallel?: () => void;
+    /** Set while the composer is in "Run in parallel" mode: the primary action launches the run. */
+    parallelRun?: { runCount: number; launching: boolean; onLaunch: () => void } | null;
 }
 
 export function ComposerFooter(props: ComposerFooterProps) {
@@ -93,7 +110,7 @@ export function ComposerFooter(props: ComposerFooterProps) {
         canAbort,
         hasContent,
         isExpandedInput,
-        permissionAutoAcceptEnabled,
+        permissionMode,
         isPermissionAutoAcceptInteractive,
         dictationActive,
         onOpenSettings,
@@ -102,17 +119,27 @@ export function ComposerFooter(props: ComposerFooterProps) {
         onOpenPrPicker,
         showLinearPicker,
         onOpenLinearPicker,
+        attachGuests,
+        onOpenGuestAttach,
         onOpenAttachSheet,
         onToggleExpandedInput,
-        onTogglePermissionAutoAccept,
+        onCyclePermissionMode,
         onPrimaryAction,
         onQueueMessage,
         onAbort,
         onStartDictation,
         onDictationInsert,
         onDictationInsertAndSend,
+        onDictationStart,
         onDictationContentHeightChange,
+        isBtw = false,
+        modelSessionId,
+        btwSelection,
+        onRunInParallel,
+        parallelRun = null,
     } = props;
+    // Which model picker: the one of the engine that owns the session.
+    const sessionEngine = useSessionEngine(currentSessionId, directory ?? undefined);
 
     return (
         <div
@@ -140,27 +167,35 @@ export function ComposerFooter(props: ComposerFooterProps) {
                                 openPrPicker={onOpenPrPicker}
                                 showLinearPicker={showLinearPicker}
                                 openLinearPicker={onOpenLinearPicker}
-                                onOpenSettings={onOpenSettings}
+                                onOpenSettings={isBtw ? undefined : onOpenSettings}
                                 onOpenMobileSheet={onOpenAttachSheet}
+                                attachGuests={attachGuests}
+                                onOpenGuestAttach={onOpenGuestAttach}
+                                filesOnly={isBtw}
                             />
                             <PermissionAutoAcceptButton
                                 footerIconButtonClass={footerIconButtonClass}
                                 iconSizeClass={iconSizeClass}
                                 isInteractive={isPermissionAutoAcceptInteractive}
-                                permissionAutoAcceptEnabled={permissionAutoAcceptEnabled}
-                                handlePermissionAutoAcceptToggle={onTogglePermissionAutoAccept}
+                                permissionMode={permissionMode}
+                                handlePermissionModeCycle={onCyclePermissionMode}
                             />
-                            <SessionGoalButton
+                            {!isBtw ? <SessionGoalButton
                                 sessionId={currentSessionId}
                                 directory={directory}
                                 draftOpen={newSessionDraftOpen}
                                 footerIconButtonClass={footerIconButtonClass}
                                 iconSizeClass={iconSizeClass}
-                            />
-                            <SessionGoalObjectiveCounter length={messageLength} />
+                            /> : null}
+                            {!isBtw ? <SessionGoalObjectiveCounter length={messageLength} /> : null}
                         </div>
                         <div className="flex items-center min-w-0 gap-x-1 justify-end">
-                            <ComposerCacheTimer sessionId={currentSessionId} directory={directory} />
+                            {!isBtw && currentSessionId && sessionEngine.id === 'claude'
+                                ? <>
+                                    <ClaudeTodoPill sessionId={currentSessionId} directory={directory ?? undefined} />
+                                    <ClaudeAgentMap sessionId={currentSessionId} directory={directory ?? undefined} />
+                                </>
+                                : null}
                             <ComposerMetricsSurface
                                 isMobile
                                 sessionId={currentSessionId}
@@ -169,8 +204,16 @@ export function ComposerFooter(props: ComposerFooterProps) {
                                 placement="footer"
                                 className="max-w-[9rem] flex-1 justify-end"
                             />
+                            <ComposerStatusSurface
+                                isMobile
+                                sessionId={currentSessionId}
+                                directory={directory}
+                                runtimeKey={runtimeKey}
+                                placement="footer"
+                                className="flex-none justify-end"
+                            />
                             <div className="flex items-center gap-x-1 flex-shrink-0">
-                                <button
+                                {!isBtw ? <button
                                     type="button"
                                     className={footerIconButtonClass}
                                     // Keep the soft keyboard open (same guard as
@@ -189,7 +232,7 @@ export function ComposerFooter(props: ComposerFooterProps) {
                                     aria-label={t('chat.dictation.start')}
                                 >
                                     <Icon name="mic" className={cn(iconSizeClass, 'text-current')} />
-                                </button>
+                                </button> : null}
                                 <ComposerActionButtons
                                     isMobile={isMobile}
                                     footerIconButtonClass={footerIconButtonClass}
@@ -220,44 +263,66 @@ export function ComposerFooter(props: ComposerFooterProps) {
                             openPrPicker={onOpenPrPicker}
                             showLinearPicker={showLinearPicker}
                             openLinearPicker={onOpenLinearPicker}
-                            onOpenSettings={onOpenSettings}
+                            onOpenSettings={isBtw ? undefined : onOpenSettings}
+                            attachGuests={attachGuests}
+                            onOpenGuestAttach={onOpenGuestAttach}
+                            filesOnly={isBtw}
                         />
-                        <FocusModeButton
+                        {!isBtw ? <FocusModeButton
                             footerIconButtonClass={footerIconButtonClass}
                             iconSizeClass={iconSizeClass}
                             isExpandedInput={isExpandedInput}
                             onToggle={onToggleExpandedInput}
-                        />
+                        /> : null}
                         <PermissionAutoAcceptButton
                             footerIconButtonClass={footerIconButtonClass}
                             iconSizeClass={iconSizeClass}
                             isInteractive={isPermissionAutoAcceptInteractive}
-                            permissionAutoAcceptEnabled={permissionAutoAcceptEnabled}
-                            handlePermissionAutoAcceptToggle={onTogglePermissionAutoAccept}
+                            permissionMode={permissionMode}
+                            handlePermissionModeCycle={onCyclePermissionMode}
                             withTooltip
                         />
-                        <SessionGoalButton
+                        {!isBtw ? <SessionGoalButton
                             sessionId={currentSessionId}
                             directory={directory}
                             draftOpen={newSessionDraftOpen}
                             footerIconButtonClass={footerIconButtonClass}
                             iconSizeClass={iconSizeClass}
                             withTooltip
-                        />
-                        <SessionGoalObjectiveCounter length={messageLength} />
+                        /> : null}
+                        {!isBtw ? <SessionGoalObjectiveCounter length={messageLength} /> : null}
                     </div>
                     <div className={cn('flex items-center flex-1 justify-end', footerGapClass, 'md:gap-x-3')}>
+                        {/* Both surfaces size to their content: growing, they took the
+                            width the model and mode pickers need and truncated them. */}
                         <ComposerMetricsSurface
                             isMobile={false}
                             sessionId={currentSessionId}
                             directory={directory}
                             runtimeKey={runtimeKey}
                             placement="footer"
-                            className="max-w-[22rem] flex-[1_1_12rem] justify-end"
+                            className="max-w-[22rem] flex-[0_1_auto] justify-end"
                         />
-                        <ComposerCacheTimer sessionId={currentSessionId} directory={directory} />
-                        <MemoModelControls className={cn('flex-1 min-w-0 justify-end')} />
-                        <MemoComposerDictation
+                        <ComposerStatusSurface
+                            isMobile={false}
+                            sessionId={currentSessionId}
+                            directory={directory}
+                            runtimeKey={runtimeKey}
+                            placement="footer"
+                            className="flex-none justify-end"
+                        />
+                        {!isBtw && currentSessionId && sessionEngine.id === 'claude'
+                            ? <>
+                                <ClaudeTodoPill sessionId={currentSessionId} directory={directory ?? undefined} />
+                                <ClaudeAgentMap sessionId={currentSessionId} directory={directory ?? undefined} />
+                            </>
+                            : null}
+                        {parallelRun ? <div className="flex-1" />
+                            : isBtw ? <ModelControls className="flex-1 min-w-0 justify-end" sessionId={modelSessionId ?? null} selection={btwSelection} />
+                            : currentSessionId && sessionEngine.ownModelCatalog
+                                ? <ClaudeModelControls className="flex-1" sessionId={currentSessionId} directory={directory} />
+                                : <MemoModelControls className={cn('flex-1 min-w-0 justify-end')} onRunInParallel={onRunInParallel} />}
+                        {!isBtw ? <MemoComposerDictation
                             radius={chatInputRadius}
                             isMobile={isMobile}
                             footerIconButtonClass={footerIconButtonClass}
@@ -266,9 +331,29 @@ export function ComposerFooter(props: ComposerFooterProps) {
                             sendIconSizeClass={sendIconSizeClass}
                             onInsert={onDictationInsert}
                             onInsertAndSend={onDictationInsertAndSend}
+                            onStart={onDictationStart}
                             onContentHeightChange={onDictationContentHeightChange}
-                        />
-                        <ComposerActionButtons
+                        /> : null}
+                        {parallelRun ? (
+                            // Parallel mode keeps the ordinary send button: the strip above
+                            // already shows how many runs start, and submitting the form
+                            // launches them (ChatInput routes the submit to the run).
+                            <ComposerActionButtons
+                                isMobile={isMobile}
+                                footerIconButtonClass={footerIconButtonClass}
+                                sendIconSizeClass={sendIconSizeClass}
+                                stopIconSizeClass={stopIconSizeClass}
+                                canSend={canSend && parallelRun.runCount >= 2 && !parallelRun.launching}
+                                canAbort={false}
+                                hasContent={hasContent}
+                                currentSessionId={currentSessionId}
+                                newSessionDraftOpen={newSessionDraftOpen}
+                                onPrimaryAction={parallelRun.onLaunch}
+                                onQueueMessage={onQueueMessage}
+                                onAbort={onAbort}
+                                sendLabel={t('chat.parallel.runAria', { count: parallelRun.runCount })}
+                            />
+                        ) : <ComposerActionButtons
                             isMobile={isMobile}
                             footerIconButtonClass={footerIconButtonClass}
                             sendIconSizeClass={sendIconSizeClass}
@@ -281,7 +366,7 @@ export function ComposerFooter(props: ComposerFooterProps) {
                             onPrimaryAction={onPrimaryAction}
                             onQueueMessage={onQueueMessage}
                             onAbort={onAbort}
-                        />
+                        />}
                     </div>
                 </>
             )}

@@ -1,4 +1,6 @@
 import React from 'react';
+import { useSessionTurnActivity } from '@/sync/global-session-status';
+import { SessionActivityIndicator } from '@/components/session/SessionActivityIndicator';
 import {
   DndContext,
   MouseSensor,
@@ -16,7 +18,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS as DndCSS } from '@dnd-kit/utilities';
 import { ContextMenu } from '@base-ui/react/context-menu';
-import type { Session } from '@opencode-ai/sdk/v2';
+import type { Session } from '@/lib/opencode/model';
 
 import {
   DropdownMenu,
@@ -32,9 +34,11 @@ import { useI18n } from '@/lib/i18n';
 import { useSessionTabsStore } from '@/stores/useSessionTabsStore';
 import { closeSessionTabAndActivateNeighbour } from '@/lib/sessionTabs';
 import { useGlobalSessionsStore, resolveGlobalSessionDirectory } from '@/stores/useGlobalSessionsStore';
+import { isArchivedSession } from '@/stores/globalSessions';
 import { useSessionUIStore } from '@/sync/session-ui-store';
-import { useGlobalSessionStatus } from '@/sync/sync-context';
 import { useSessionUnseenCount } from '@/sync/notification-store';
+import { useIsSessionAiRenamePending } from '@/sync/use-session-ai-rename';
+import { useMultiRunMemberIds } from '@/lib/multirun/useMultiRuns';
 
 const restrictToXAxis: Modifier = ({ transform }) => ({ ...transform, y: 0 });
 
@@ -52,6 +56,7 @@ export type SessionTabMenuComponents = {
 
 export type SessionTabMenuArgs = {
   session: Session;
+  open: boolean;
   isActive: boolean;
   select: () => void;
   closeOtherTabs: () => void;
@@ -105,17 +110,19 @@ const SessionTabItem: React.FC<{
   const overlayVisible = !suppressControls && (menuOpen || menuVisible);
 
   // Session state for the dot and the hover tooltip.
-  const sessionStatus = useGlobalSessionStatus(tab.id);
-  const isStreaming = sessionStatus?.type === 'busy' || sessionStatus?.type === 'retry';
+  const isAiRenaming = useIsSessionAiRenamePending(tab.id, resolveGlobalSessionDirectory(tab.session));
+  const turnActivity = useSessionTurnActivity(tab.id);
+  const isStreaming = turnActivity !== null;
   const unseenCount = useSessionUnseenCount(tab.id);
   const showUnread = unseenCount > 0 && !isActive && !isStreaming;
   const showDot = isStreaming || showUnread;
-  const dotLabel = isStreaming
-    ? t('sessions.sidebar.session.status.active')
-    : t('sessions.sidebar.session.status.unread');
+  // Archive state rides on the session record the strip already reads, so a
+  // tab shows it without a second lookup.
+  const isArchivedTab = isArchivedSession(tab.session);
 
   const menuArgsFor = (components: SessionTabMenuComponents): SessionTabMenuArgs => ({
     session: tab.session,
+    open: menuOpen || contextMenuOpen,
     isActive,
     select: () => onSelect(tab),
     closeOtherTabs: () => closeOtherTabs(tab.id),
@@ -165,7 +172,7 @@ const SessionTabItem: React.FC<{
                     // after the click.
                     'session-tab group/session-tab relative flex h-7 w-full min-w-0 select-none items-center rounded-md px-2',
                     isActive
-                      ? 'bg-interactive-selection'
+                      ? 'bg-interactive-selection text-interactive-selection-foreground'
                       : cn(
                         'cursor-pointer text-muted-foreground hover:bg-interactive-hover hover:text-foreground',
                         overlayVisible && 'bg-interactive-hover text-foreground',
@@ -194,16 +201,20 @@ const SessionTabItem: React.FC<{
                         </div>
                       )}
                     </div>
-                    {showDot ? (
-                      <span
-                        className={cn(
-                          'ml-1.5 h-1.5 w-1.5 shrink-0 rounded-full',
-                          isStreaming ? 'bg-primary' : 'bg-[var(--status-info)]',
-                          !suppressControls && 'group-hover/session-tab:opacity-0',
-                          overlayVisible && 'opacity-0',
-                        )}
-                        aria-label={dotLabel}
+                    {isAiRenaming ? (
+                      <Icon name="loader-4" className="ml-1.5 size-3 shrink-0 animate-spin text-primary" aria-label={t('sessions.aiRename.generating')} />
+                    ) : showDot ? (
+                      <SessionActivityIndicator
+                        state={turnActivity ?? 'unread'}
+                        className={cn('ml-1.5 shrink-0', !suppressControls && 'group-hover/session-tab:opacity-0', overlayVisible && 'opacity-0')}
                       />
+                    ) : isArchivedTab ? (
+                      <span
+                        className="ml-1.5 inline-flex shrink-0 items-center text-muted-foreground/70"
+                        title={t('header.session.archived')}
+                      >
+                        <Icon name="inbox-archive" className="size-3" aria-label={t('header.session.archived')} />
+                      </span>
                     ) : null}
                   </div>
                   {!suppressControls ? (
@@ -277,8 +288,10 @@ const SessionTabItem: React.FC<{
  * current renders `children` — the header's title/rename block — inside a
  * selected pill. Closing a tab only removes it from the strip; closing the
  * active one activates its neighbour. Ids whose session has not loaded (or
- * was archived/deleted) stay in the store but do not render, so a partial
- * session list never destroys the working set.
+ * was deleted) stay in the store but do not render, so a partial session list
+ * never destroys the working set. An archived session does render: archiving
+ * does not close it, and dropping its tab left the strip showing the
+ * new-draft pill in its place.
  */
 export const SessionTabsStrip: React.FC<{
   /** Menu items for one tab's session, supplied by the header. */
@@ -298,17 +311,25 @@ export const SessionTabsStrip: React.FC<{
   const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
   const setCurrentSession = useSessionUIStore((state) => state.setCurrentSession);
   const activeSessions = useGlobalSessionsStore((state) => state.activeSessions);
+  const archivedSessions = useGlobalSessionsStore((state) => state.archivedSessions);
 
-  // Opening a session anywhere (sidebar, palette, deep link) adds its tab.
+  // Opening a session anywhere (sidebar, palette, deep link) adds its tab. The
+  // lanes of one multi-run share a tab: opening another lane reuses it.
+  const currentRunMemberIds = useMultiRunMemberIds(currentSessionId);
   React.useEffect(() => {
-    if (currentSessionId) ensureTab(currentSessionId);
-  }, [currentSessionId, ensureTab]);
+    if (currentSessionId) ensureTab(currentSessionId, currentRunMemberIds);
+  }, [currentSessionId, currentRunMemberIds, ensureTab]);
 
   const sessionsById = React.useMemo(() => {
     const map = new Map<string, Session>();
     for (const session of activeSessions) map.set(session.id, session);
+    // Archived sessions keep their tab. Archiving does not close the session:
+    // it stays open on screen, and leaving it out of the strip dropped its tab
+    // and made the strip render the new-draft pill in its place — the session
+    // looked unsaved rather than archived.
+    for (const session of archivedSessions) map.set(session.id, session);
     return map;
-  }, [activeSessions]);
+  }, [activeSessions, archivedSessions]);
 
   // Only tabs with a known live session render; unknown ids stay stored.
   const tabs = React.useMemo<SessionTab[]>(() => {

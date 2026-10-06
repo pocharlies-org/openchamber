@@ -1,53 +1,84 @@
 import React from 'react';
 import { Icon } from '@/components/icon/Icon';
+import { Button } from '@/components/ui/button';
+import { ErrorResponseDetails } from '@/components/chat/ErrorResponseDetails';
 import { useI18n } from '@/lib/i18n';
+import { showOpenCodeStatus } from '@/lib/openCodeStatus';
+import { getLastConversationMessage, type Message, type Part, type Session } from '@/lib/opencode/model';
 import { useLatestSessionError } from '@/sync/notification-store';
-import { useDirectoryStore, useSessionStatus } from '@/sync/sync-context';
+import { useDirectoryStore, useSession, useSessionStatus, useSessionStatusSnapshotReady } from '@/sync/sync-context';
+import { useSessionEngine } from '@/hooks/useSessionEngine';
+import { getClaudeLiveState } from '@/lib/claudeSessionMetadata';
+import { refetchSessionMessages } from '@/sync/session-actions';
+import { LongErrorText } from './LongErrorText';
+import { readLastMessageState, scheduleUnansweredRechecks, type LastMessageState } from './sessionErrorNoticeState';
 
 interface SessionErrorNoticeProps {
   sessionId: string;
   directory?: string;
 }
 
-// How long a user message may sit unanswered on an idle session before the
-// notice calls it a reply that never began.
-const UNANSWERED_AFTER_MS = 5_000;
-
-type LastMessageState = {
-  role: string;
-  timestamp: number;
-  hasError: boolean;
+/**
+ * What the stored history says about a session that stopped without a reply.
+ *
+ * OpenCode keeps the failure reason only on the live `session.execution.failed`
+ * event; after a reload the session record carries just `outcome`. A subagent
+ * session is the exception: its parent's `subagent` tool call records the
+ * reason ("Subagent failed (…): Model unavailable: …") and points at the child
+ * through `metadata.sessionID`, so the child can show that text as its own.
+ */
+type StoredFailure = {
+  outcome: Session['outcome'];
+  parentToolError: string | null;
 } | null;
 
-// The last message of a session, with whether it already carries an error of
-// its own: an assistant message that OpenCode marked failed renders its error
-// inline, so the session-level notice must not repeat it.
-const useLastMessageState = (sessionId: string, directory?: string): LastMessageState => {
+const isFailedOutcome = (outcome: Session['outcome']): boolean => outcome === 'failed' || outcome === 'interrupted';
+
+const findParentToolError = (
+  parent: Session | undefined,
+  messages: Record<string, Message[] | undefined>,
+  parts: Record<string, Part[] | undefined>,
+  childSessionId: string,
+): string | null => {
+  if (!parent) return null;
+  for (const message of messages[parent.id] ?? []) {
+    for (const part of parts[message.id] ?? []) {
+      if (part.type !== 'tool' || part.state.status !== 'error') continue;
+      if (part.state.metadata?.sessionID !== childSessionId) continue;
+      const text = part.state.error.trim();
+      if (text.length > 0) return text;
+    }
+  }
+  return null;
+};
+
+type DirectoryState = ReturnType<ReturnType<typeof useDirectoryStore>['getState']>;
+
+/**
+ * A snapshot of one session's slice of the directory store that keeps its
+ * identity while its content is unchanged, so `useSyncExternalStore` does not
+ * re-render on unrelated store updates. `read` and `isSame` must be stable.
+ */
+const useSessionSnapshot = <T,>(
+  sessionId: string,
+  directory: string | undefined,
+  read: (state: DirectoryState) => T | null,
+  isSame: (cached: T, next: T) => boolean,
+): T | null => {
   const store = useDirectoryStore(directory);
-  const cacheRef = React.useRef<LastMessageState>(null);
-  const getSnapshot = React.useCallback((): LastMessageState => {
+  const cacheRef = React.useRef<T | null>(null);
+  const getSnapshot = React.useCallback((): T | null => {
     if (!sessionId) return null;
-    const messages = store.getState().message[sessionId];
-    const last = messages && messages.length > 0 ? messages[messages.length - 1] : null;
-    // SAFETY: store messages are SDK `Message` records; `error` is the optional
-    // assistant-message error the SDK types carry, read here only for presence.
-    const info = last as { role?: string; time?: { completed?: number; created?: number }; error?: unknown } | null;
-    if (!info) {
+    const next = read(store.getState());
+    if (!next) {
       cacheRef.current = null;
       return null;
     }
-    const next: LastMessageState = {
-      role: typeof info.role === 'string' ? info.role : '',
-      timestamp: info.time?.completed ?? info.time?.created ?? 0,
-      hasError: Boolean(info.error),
-    };
     const cached = cacheRef.current;
-    if (cached && cached.role === next.role && cached.timestamp === next.timestamp && cached.hasError === next.hasError) {
-      return cached;
-    }
+    if (cached && isSame(cached, next)) return cached;
     cacheRef.current = next;
     return next;
-  }, [sessionId, store]);
+  }, [sessionId, store, read, isSame]);
   const subscribe = React.useCallback((notify: () => void) => {
     if (!sessionId) return () => undefined;
     return store.subscribe(notify);
@@ -55,57 +86,165 @@ const useLastMessageState = (sessionId: string, directory?: string): LastMessage
   return React.useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 };
 
+const sameStoredFailure = (cached: NonNullable<StoredFailure>, next: NonNullable<StoredFailure>) =>
+  cached.outcome === next.outcome && cached.parentToolError === next.parentToolError;
+
+const useStoredFailure = (sessionId: string, directory?: string): StoredFailure => {
+  const read = React.useCallback((state: DirectoryState): StoredFailure => {
+    const session = state.session.find((candidate) => candidate.id === sessionId);
+    if (!session || !isFailedOutcome(session.outcome)) return null;
+    const parent = session.parentID
+      ? state.session.find((candidate) => candidate.id === session.parentID)
+      : undefined;
+    return {
+      outcome: session.outcome,
+      parentToolError: findParentToolError(parent, state.message, state.part, sessionId),
+    };
+  }, [sessionId]);
+  return useSessionSnapshot(sessionId, directory, read, sameStoredFailure);
+};
+
+// The last conversation message of a session, with whether it already carries
+// an error of its own: an assistant message that OpenCode marked failed
+// renders its error inline, so the session-level notice must not repeat it.
+// v2 plumbing roles (synthetic prompts, skill/shell records, agent/model
+// switches) are transparent here — one of them arriving after an unanswered
+// prompt must not hide the "no reply" notice.
+const sameLastMessage = (cached: NonNullable<LastMessageState>, next: NonNullable<LastMessageState>) =>
+  cached.role === next.role && cached.timestamp === next.timestamp && cached.hasError === next.hasError;
+
+const useLastMessageState = (sessionId: string, directory?: string): LastMessageState => {
+  const read = React.useCallback(
+    (state: DirectoryState): LastMessageState => readLastMessageState(getLastConversationMessage(state.message[sessionId])),
+    [sessionId],
+  );
+  return useSessionSnapshot(sessionId, directory, read, sameLastMessage);
+};
+
 /**
- * Shows what OpenCode reported when it stopped a turn without producing a
- * reply. Rendered under the last message, only while that turn is the latest
+ * Shows what the session's engine (OpenCode or Claude Code, see
+ * sessionEngine.ts) reported when it stopped a turn without producing a
+ * reply. The copy names the engine that owns the session: a Claude Code
+ * session never blames OpenCode, nor offers OpenCode's status report. Rendered under the last message, only while that turn is the latest
  * one: sending again moves the last message past the error and hides it.
+ *
+ * Detail, best first: the live error event; the parent's subagent tool error
+ * for a child session; the session's own stored outcome.
  */
 export const SessionErrorNotice: React.FC<SessionErrorNoticeProps> = ({ sessionId, directory }) => {
   const { t } = useI18n();
   const latestError = useLatestSessionError(sessionId);
   const status = useSessionStatus(sessionId, directory);
+  const statusSnapshotReady = useSessionStatusSnapshotReady(directory, sessionId);
   const lastMessage = useLastMessageState(sessionId, directory);
+  const storedFailure = useStoredFailure(sessionId, directory);
+  const engine = useSessionEngine(sessionId, directory);
+  // A Claude session another process holds (terminal, VS Code, Remote
+  // Control) runs its turn THERE: this window only follows the transcript, and
+  // a message that never reached that process fails the send itself. Silence
+  // here is not a reply that never began.
+  const session = useSession(sessionId, directory);
+  const claudeHeldElsewhere = engine.id === 'claude' && getClaudeLiveState(session).liveElsewhere !== null;
+  const unansweredAfterMs = engine.unansweredAfterMs;
 
-  const isIdle = !status || status.type === 'idle';
+  // An omitted status means idle only after a successful status snapshot:
+  // after a reload the last prompt is hydrated before the runtime reports
+  // that the session is still busy.
+  const isIdle = status?.type === 'idle' || (status === undefined && statusSnapshotReady);
   const reportedError = latestError && isIdle
     && (!lastMessage || latestError.time >= lastMessage.timestamp)
     && !(lastMessage?.role === 'assistant' && lastMessage.hasError)
     ? latestError
     : null;
+  // A stored failure only explains a turn that has no reply of its own: once
+  // an assistant message follows the prompt, it carries any error itself.
+  const storedFailureApplies = !reportedError && isIdle && storedFailure !== null && lastMessage?.role === 'user';
   // A user message that the session is idle on, with nothing after it for a
   // while, is a reply that never began: the send was accepted but OpenCode
   // produced neither a message nor an error for it.
-  const unansweredSince = !reportedError && isIdle && lastMessage?.role === 'user' ? lastMessage.timestamp : null;
+  const unansweredSince = !reportedError && !storedFailureApplies && isIdle && !claudeHeldElsewhere
+    && lastMessage?.role === 'user' && lastMessage.timestamp > 0
+    ? lastMessage.timestamp
+    : null;
   const [now, setNow] = React.useState(() => Date.now());
   React.useEffect(() => {
     if (unansweredSince === null) return undefined;
-    const remaining = UNANSWERED_AFTER_MS - (Date.now() - unansweredSince);
+    const remaining = unansweredAfterMs - (Date.now() - unansweredSince);
     if (remaining <= 0) return undefined;
     const timer = window.setTimeout(() => setNow(Date.now()), remaining + 50);
     return () => window.clearTimeout(timer);
-  }, [unansweredSince]);
-  const unanswered = unansweredSince !== null && Math.max(now, Date.now()) - unansweredSince >= UNANSWERED_AFTER_MS;
+  }, [unansweredSince, unansweredAfterMs]);
+  const unansweredDue = unansweredSince !== null && Math.max(now, Date.now()) - unansweredSince >= unansweredAfterMs;
+  // Looking unanswered is only a guess: the live stream may have dropped the
+  // reply. Re-read the session first and show the notice only once a read has
+  // settled with the prompt still last. The key ties that verdict to this
+  // session and prompt, so a new send or a session switch starts unverified.
+  const unansweredKey = unansweredDue && sessionId ? `${sessionId}:${unansweredSince}` : null;
+  const [verifiedKey, setVerifiedKey] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    if (!unansweredKey || !sessionId) return undefined;
+    return scheduleUnansweredRechecks(
+      () => refetchSessionMessages(sessionId),
+      window,
+      () => setVerifiedKey(unansweredKey),
+    );
+  }, [unansweredKey, sessionId]);
+  const unanswered = unansweredKey !== null && verifiedKey === unansweredKey;
 
-  if (!reportedError && !unanswered) return null;
+  if (!reportedError && !storedFailureApplies && !unanswered) return null;
 
-  const detail = reportedError
-    ? (reportedError.error?.message ?? t('chat.sessionError.noDetails'))
-    : t('chat.sessionError.noDetails');
-  const name = reportedError?.error?.name;
+  const copy = { engine: engine.label };
+  const noDetails = engine.hasOpenCodeStatus
+    ? t('chat.sessionError.noDetails', copy)
+    : t('chat.sessionError.noDetailsBare', copy);
+  let title: string;
+  let detail: string;
+  let hasDetails = true;
+  let responseBody: string | null = null;
+  if (reportedError) {
+    title = t('chat.sessionError.title', copy);
+    hasDetails = Boolean(reportedError.error?.message);
+    const message = reportedError.error?.message ?? noDetails;
+    detail = reportedError.error?.name ? `${reportedError.error.name}: ${message}` : message;
+    responseBody = reportedError.error?.responseBody ?? null;
+  } else if (storedFailureApplies) {
+    title = storedFailure.outcome === 'interrupted' ? t('chat.sessionError.interrupted', copy) : t('chat.sessionError.title', copy);
+    hasDetails = storedFailure.parentToolError !== null;
+    detail = storedFailure.parentToolError ?? noDetails;
+  } else {
+    title = t('chat.sessionError.noReply', copy);
+    hasDetails = false;
+    detail = noDetails;
+  }
 
   return (
     <div className="chat-message-column">
       <div
         role="status"
-        className="mt-3 max-w-full break-words rounded-2xl border border-[var(--status-error-border)] bg-[var(--status-error-background)] px-4 py-3 text-base leading-relaxed"
+        className="mt-2 max-w-full rounded-lg border border-[var(--status-error-border)] bg-[var(--status-error-background)] px-3 py-2"
       >
-        <div className="flex items-start gap-3">
-          <Icon name="error-warning" className="mt-0.5 size-4 shrink-0 text-[var(--status-error)]" />
-          <div className="min-w-0 flex-1 break-words">
-            <div className="font-medium text-foreground">{reportedError ? t('chat.sessionError.title') : t('chat.sessionError.noReply')}</div>
-            <div className="mt-1 text-foreground/80">{name ? `${name}: ${detail}` : detail}</div>
-          </div>
+        <div className="flex items-center gap-2">
+          <Icon name="error-warning" className="size-3.5 shrink-0 text-[var(--status-error)]" />
+          <span className="typography-meta font-medium text-foreground">{title}</span>
         </div>
+        <LongErrorText text={detail} buttonClassName="ml-[0.875rem]">
+          {(visibleText) => (
+            <div className="mt-1 pl-[1.375rem] typography-meta text-muted-foreground break-words">{visibleText}</div>
+          )}
+        </LongErrorText>
+        {!hasDetails && engine.hasOpenCodeStatus ? (
+          <div className="pl-[1.375rem]">
+            <Button
+              variant="link"
+              size="xs"
+              onClick={() => { void showOpenCodeStatus(); }}
+              className="-ml-2 normal-case"
+            >
+              {t('chat.sessionError.showStatus')}
+            </Button>
+          </div>
+        ) : null}
+        {responseBody ? <ErrorResponseDetails body={responseBody} className="pl-[1.375rem]" /> : null}
       </div>
     </div>
   );

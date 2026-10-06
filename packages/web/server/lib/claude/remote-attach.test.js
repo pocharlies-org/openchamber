@@ -50,6 +50,38 @@ describe('remote attachments', () => {
     attach.closeAll();
   });
 
+  it('changes the live session\'s model as Claude Desktop does, once per model', async () => {
+    const setModel = vi.fn(async () => {});
+    const sdk = { query: vi.fn(() => Object.assign((async function* stream() {})(), { setModel })) };
+    const attach = createRemoteAttachments({ loadBrowserSdk: async () => sdk, readAccessToken: async () => 'tok' });
+
+    await attach.setModel('session_01ABC', 'sonnet[1m]');
+    await attach.setModel('cse_01ABC', 'sonnet[1m]');
+    await attach.setModel('session_01ABC', 'opus[1m]');
+
+    expect(sdk.query).toHaveBeenCalledTimes(1);
+    expect(setModel.mock.calls).toEqual([['sonnet[1m]'], ['opus[1m]']]);
+    attach.closeAll();
+  });
+
+  it('changes the live session\'s mode and effort through the bridge, each once per value', async () => {
+    const setPermissionMode = vi.fn(async () => {});
+    const applyFlagSettings = vi.fn(async () => {});
+    const sdk = { query: vi.fn(() => Object.assign((async function* stream() {})(), { setPermissionMode, applyFlagSettings })) };
+    const attach = createRemoteAttachments({ loadBrowserSdk: async () => sdk, readAccessToken: async () => 'tok' });
+
+    await attach.setPermissionMode('session_01ABC', 'plan');
+    await attach.setPermissionMode('cse_01ABC', 'plan');
+    await attach.setPermissionMode('session_01ABC', 'acceptEdits');
+    await attach.setEffort('session_01ABC', 'high');
+    await attach.setEffort('session_01ABC', 'high');
+
+    expect(sdk.query).toHaveBeenCalledTimes(1);
+    expect(setPermissionMode.mock.calls).toEqual([['plan'], ['acceptEdits']]);
+    expect(applyFlagSettings.mock.calls).toEqual([[{ effortLevel: 'high' }]]);
+    attach.closeAll();
+  });
+
   it('fails without claude.ai credentials', async () => {
     const { sdk } = makeBrowserSdk();
     const attach = createRemoteAttachments({ loadBrowserSdk: async () => sdk, readAccessToken: async () => '' });

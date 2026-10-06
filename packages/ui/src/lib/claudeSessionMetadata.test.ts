@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import type { Session } from '@opencode-ai/sdk/v2';
-import { getClaudeLiveState } from './claudeSessionMetadata';
+import type { Session } from '@/lib/opencode/model';
+import { claudeVSCodeUrl, getClaudeLiveState } from './claudeSessionMetadata';
 
 const session = (metadata: Record<string, object>): Session => ({
   id: 'ses_ccc1',
@@ -11,7 +11,7 @@ const session = (metadata: Record<string, object>): Session => ({
   version: '1',
   time: { created: 1, updated: 1 },
   metadata,
-} as Session);
+} as unknown as Session);
 
 describe('getClaudeLiveState', () => {
   test('reads a session open in VS Code and working', () => {
@@ -38,5 +38,18 @@ describe('getClaudeLiveState', () => {
   test('a session without live metadata is free and unlinked', () => {
     expect(getClaudeLiveState(session({}))).toEqual({ liveElsewhere: null, remoteControlUrl: null });
     expect(getClaudeLiveState(null)).toEqual({ liveElsewhere: null, remoteControlUrl: null });
+  });
+});
+
+describe('claudeVSCodeUrl', () => {
+  test('opens a Claude session in the VS Code extension', () => {
+    expect(claudeVSCodeUrl('ses_ccc61e54bee-8d8a-4458-8af3-41ef26dd615e'))
+      .toBe('vscode://anthropic.claude-code/open?session=61e54bee-8d8a-4458-8af3-41ef26dd615e');
+  });
+
+  test('has no link for other sessions', () => {
+    expect(claudeVSCodeUrl('ses_f25d78680ffeKtbtJj1k4eRl5O')).toBeNull();
+    expect(claudeVSCodeUrl('ses_cccsess-1')).toBeNull();
+    expect(claudeVSCodeUrl(null)).toBeNull();
   });
 });

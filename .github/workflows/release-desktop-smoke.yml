@@ -47,8 +47,7 @@ jobs:
     environment: release # DGX-515: firma Apple tras aprobación manual (revisores: config del repo)
     if: ${{ inputs.build_macos }}
     name: Build macOS Electron (${{ matrix.arch }})
-    # 2026-10-05 devops · fuera de pool: no existe hardware de esa plataforma en el clúster (skill ci-runners-arc, INFRA-548)
-    runs-on: macos-26
+    runs-on: blacksmith-6vcpu-macos-26
     strategy:
       fail-fast: false
       matrix:
@@ -61,7 +60,7 @@ jobs:
             platform: darwin-x86_64
     steps:
       - name: Checkout selected ref
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ inputs.repository || github.repository }}
           ref: ${{ inputs.ref || github.ref }}
@@ -80,7 +79,7 @@ jobs:
       - name: Get bundled OpenCode CLI version
         id: opencode_cli_version
         run: |
-          VERSION=$(node -p "require('./package.json').dependencies['@opencode-ai/sdk']")
+          VERSION=$(node -p "require('./packages/electron/package.json').opencodeCli.version")
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Cache bundled OpenCode CLI artifact
@@ -192,7 +191,6 @@ jobs:
     # Match the production release workflow. windows-latest currently resolves
     # to a runner with Visual Studio 18, which this Electron/node-gyp stack does
     # not detect correctly.
-    # 2026-10-05 devops · fuera de pool: no existe hardware de esa plataforma en el clúster (skill ci-runners-arc, INFRA-548)
     runs-on: windows-2022
     strategy:
       fail-fast: false
@@ -206,7 +204,7 @@ jobs:
             platform: win32-arm64
     steps:
       - name: Checkout selected ref
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ inputs.repository || github.repository }}
           ref: ${{ inputs.ref || github.ref }}
@@ -226,7 +224,7 @@ jobs:
         id: opencode_cli_version
         shell: bash
         run: |
-          VERSION=$(node -p "require('./package.json').dependencies['@opencode-ai/sdk']")
+          VERSION=$(node -p "require('./packages/electron/package.json').opencodeCli.version")
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Cache bundled OpenCode CLI artifact
@@ -288,13 +286,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: arc-k8s
+          - runner: blacksmith-4vcpu-ubuntu-2404
             arch: x64
             host_arch: x86_64
             artifact_arch: x86_64
             manifest: latest-linux.yml
-          # 2026-10-05 devops · fuera de pool: no existe pool arm64 en el clúster (skill ci-runners-arc, INFRA-548)
-          - runner: ubuntu-24.04-arm
+          - runner: blacksmith-4vcpu-ubuntu-2404-arm
             arch: arm64
             host_arch: aarch64
             artifact_arch: arm64
@@ -302,7 +299,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout selected ref
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ inputs.repository || github.repository }}
           ref: ${{ inputs.ref || github.ref }}
@@ -331,7 +328,7 @@ jobs:
         id: versions
         shell: bash
         run: |
-          echo "opencode_cli=$(node -p "require('./package.json').dependencies['@opencode-ai/sdk']")" >> "$GITHUB_OUTPUT"
+          echo "opencode_cli=$(node -p "require('./packages/electron/package.json').opencodeCli.version")" >> "$GITHUB_OUTPUT"
           echo "app=$(node -p "require('./packages/electron/package.json').version")" >> "$GITHUB_OUTPUT"
 
       - name: Cache bundled OpenCode CLI artifact

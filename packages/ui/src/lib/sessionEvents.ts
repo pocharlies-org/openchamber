@@ -1,4 +1,7 @@
-import type { Session } from '@opencode-ai/sdk/v2';
+import type { Session } from '@/lib/opencode/model';
+import { isFinalToolStatus, type Part } from '@/lib/opencode/model';
+import { isExecuteTool, isFileChangeTool, isShellTool } from '@/lib/opencode/tools';
+import { notifyGitStatusInvalidated } from '@/lib/gitStatusInvalidation';
 import type { WorktreeMetadata } from '@/types/worktree';
 
 export type SessionDeleteRequest = {
@@ -6,6 +9,9 @@ export type SessionDeleteRequest = {
   dateLabel?: string;
   mode?: 'session' | 'worktree';
   worktree?: WorktreeMetadata | null;
+  // Worktree mode only: delete the worktree and its local branch without the
+  // dialog when a fresh check finds nothing to lose; otherwise the dialog opens.
+  skipDialogIfSafe?: boolean;
 };
 
 export type SessionCreateRequest = {
@@ -14,16 +20,32 @@ export type SessionCreateRequest = {
   projectId?: string | null;
 };
 
+/**
+ * The `+` asked for a Claude session: the dialog picks its model, thinking
+ * level and mode, and hands the created session back to whoever asked (a
+ * folder, for one, has to place the session in it).
+ */
+export type NewClaudeSessionRequest = {
+  directory: string;
+  onCreated?: (session: Session | null) => void;
+};
+
 type DeleteListener = (request: SessionDeleteRequest) => void;
 type CreateListener = (request: SessionCreateRequest) => void;
+type NewClaudeSessionListener = (request: NewClaudeSessionRequest) => void;
 type DirectoryListener = () => void;
 type GitRefreshHint = { directory: string; paths?: string[] };
 type GitRefreshListener = (hint: GitRefreshHint) => void;
 
 const deleteListeners = new Set<DeleteListener>();
 const createListeners = new Set<CreateListener>();
+const newClaudeSessionListeners = new Set<NewClaudeSessionListener>();
 const directoryListeners = new Set<DirectoryListener>();
 const gitRefreshListeners = new Set<GitRefreshListener>();
+// Shell and code-mode scripts can touch the worktree too, so they count
+// alongside the file tools.
+const isGitMutatingTool = (tool: string): boolean =>
+  isFileChangeTool(tool) || isShellTool(tool) || isExecuteTool(tool);
 
 export const sessionEvents = {
   onDeleteRequest(listener: DeleteListener) {
@@ -48,6 +70,24 @@ export const sessionEvents = {
     const request = payload ?? {};
     createListeners.forEach((listener) => listener(request));
   },
+  onNewClaudeSessionRequest(listener: NewClaudeSessionListener) {
+    newClaudeSessionListeners.add(listener);
+    return () => {
+      newClaudeSessionListeners.delete(listener);
+    };
+  },
+  /**
+   * Ask for the new-Claude-session dialog. Answers `false` when nothing is
+   * mounted to show it (a surface without `SessionDialogs`), so the caller can
+   * still create the session instead of dropping the click.
+   */
+  requestNewClaudeSession(payload: NewClaudeSessionRequest): boolean {
+    if (!payload.directory || newClaudeSessionListeners.size === 0) {
+      return false;
+    }
+    newClaudeSessionListeners.forEach((listener) => listener(payload));
+    return true;
+  },
   onDirectoryRequest(listener: DirectoryListener) {
     directoryListeners.add(listener);
     return () => {
@@ -67,6 +107,20 @@ export const sessionEvents = {
     if (!hint.directory.trim()) {
       return;
     }
+    notifyGitStatusInvalidated(hint.directory);
     gitRefreshListeners.forEach((listener) => listener(hint));
+  },
+  requestGitRefreshForToolTransition(directory: string, previousPart: Part | undefined, nextPart: Part) {
+    // A failed patch or shell command may still have written files.
+    if (nextPart.type !== 'tool' || !isFinalToolStatus(nextPart.state.status)) {
+      return;
+    }
+    if (previousPart?.type === 'tool' && isFinalToolStatus(previousPart.state.status)) {
+      return;
+    }
+    if (!isGitMutatingTool(nextPart.tool)) {
+      return;
+    }
+    sessionEvents.requestGitRefresh({ directory });
   },
 };
