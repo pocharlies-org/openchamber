@@ -248,7 +248,7 @@ const buildStartupSplashHtml = () => {
         --splash-stroke: ${splashFgLight};
         --splash-face-fill: rgba(0, 0, 0, 0.15);
         --splash-cell-fill: rgba(0, 0, 0, 0.35);
-        --splash-logo-fill: var(--splash-stroke);
+        --splash-accent: #ee4f0c;
       }
       body {
         margin: 0;
@@ -263,6 +263,7 @@ const buildStartupSplashHtml = () => {
         :root {
           --splash-background: ${splashBgDark};
           --splash-stroke: ${splashFgDark};
+          --splash-accent: #ff5a1f;
           --splash-face-fill: rgba(255, 255, 255, 0.15);
           --splash-cell-fill: rgba(255, 255, 255, 0.35);
         }
@@ -325,10 +326,7 @@ const buildStartupSplashHtml = () => {
         <path d="M70.784 74 L81.176 68 L81.176 80 L70.784 86 Z" fill="var(--splash-cell-fill)" opacity="0.4"/>
         <path d="M81.176 68 L91.568 62 L91.568 74 L81.176 80 Z" fill="var(--splash-cell-fill)" opacity="0.2"/>
         <path d="M50 2 L8.432 26 L50 50 L91.568 26 Z" fill="none" stroke="var(--splash-stroke)" stroke-width="2" stroke-linejoin="round"/>
-        <g transform="matrix(0.866, 0.5, -0.866, 0.5, 50, 26) scale(0.75)">
-          <path fill-rule="evenodd" clip-rule="evenodd" d="M-16 -20 L16 -20 L16 20 L-16 20 Z M-8 -12 L-8 12 L8 12 L8 -12 Z" fill="var(--splash-logo-fill)"/>
-          <path d="M-8 -4 L8 -4 L8 12 L-8 12 Z" fill="var(--splash-logo-fill)" fill-opacity="0.4"/>
-        </g>
+        <path d="M50 14 L70.78 26 L50 38 L29.22 26 Z" fill="var(--splash-accent)"/>
       </svg>
     </div>
   </body>

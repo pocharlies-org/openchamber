@@ -181,7 +181,7 @@ const sidebarBaseRgb = hexToRgb(theme.colors.surface.muted);
     vars.push(`  --primary-base: ${primary.base};`);
     vars.push(`  --primary-hover: ${primary.hover || this.darken(primary.base, 10)};`);
     vars.push(`  --primary-active: ${primary.active || this.darken(primary.base, 20)};`);
-    vars.push(`  --primary-foreground: ${primary.foreground || '#ffffff'};`);
+    vars.push(`  --primary-foreground: ${primary.foreground || 'var(--on-accent)'};`);
     vars.push(`  --primary-muted: ${primary.muted || this.opacity(primary.base, 0.5)};`);
     return vars;
   }
