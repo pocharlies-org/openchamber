@@ -1,6 +1,6 @@
 name: Fork — checks de PR
 
-# Las PRs contra la rama acumulativa del fork no tenian ningun check: los
+# Las PRs contra main (la linea propia del fork) no tenian ningun check: los
 # workflows heredados de upstream disparan por comentario o por
 # pull_request_target con condiciones de openchamber/openchamber, y la puerta
 # completa (openchamber-build-pocharlies/build-web.yml) corre DESPUES de
@@ -13,7 +13,7 @@ name: Fork — checks de PR
 
 on:
   pull_request:
-    branches: [build/v2.0.1-metrics]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -35,36 +35,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Instalar Node verificado
-        # La imagen de arc-k8s no trae node ni bun. Mismo metodo y checksum que
-        # openchamber-build-pocharlies/build-web.yml.
-        run: |
-          set -euo pipefail
-          version=22.23.2
-          expected=b294a556e639d64338823920e5866c21c02741742d2e1529ee1a225c1ec9252a
-          archive="$RUNNER_TEMP/node-${version}.tar.gz"
-          curl --retry 3 --retry-all-errors -fsSL \
-            "https://nodejs.org/dist/v${version}/node-v${version}-linux-x64.tar.gz" -o "$archive"
-          echo "${expected}  ${archive}" | sha256sum --check --strict
-          tar xzf "$archive" -C "$RUNNER_TEMP"
-          echo "$RUNNER_TEMP/node-v${version}-linux-x64/bin" >> "$GITHUB_PATH"
-
-      - name: Instalar Bun verificado
-        # Version del packageManager; sin checksum conocido no se instala.
-        run: |
-          set -euo pipefail
-          version="$(python3 -c 'import json;pm=json.load(open("package.json")).get("packageManager","");print(pm.split("@",1)[1] if pm.startswith("bun@") else "")')"
-          case "$version" in
-            1.4.2) expected=36368faef7527875d5ffa52e53cd48021741f2a83eb6208a8dd64068d422a913 ;;
-            *) echo "::error::packageManager pide bun '${version:-?}' y no hay checksum verificado en este workflow"; exit 1 ;;
-          esac
-          archive="$RUNNER_TEMP/bun.zip"
-          curl --retry 3 --retry-all-errors -fsSL \
-            "https://github.com/oven-sh/bun/releases/download/bun-v${version}/bun-linux-x64.zip" -o "$archive"
-          echo "${expected}  ${archive}" | sha256sum --check --strict
-          python3 -m zipfile -e "$archive" "$RUNNER_TEMP/bun/"
-          chmod +x "$RUNNER_TEMP/bun/bun-linux-x64/bun"
-          echo "$RUNNER_TEMP/bun/bun-linux-x64" >> "$GITHUB_PATH"
+      - uses: ./.github/actions/setup-node-bun
 
       - name: Dependencias
         run: bun install --frozen-lockfile
@@ -80,6 +51,6 @@ jobs:
 
       - name: Tests de web afectados por la PR
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha || 'origin/build/v2.0.1-metrics' }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || 'origin/main' }}
         working-directory: packages/web
         run: bun x vitest run --changed "$BASE_SHA" --passWithNoTests --retry=2 --testTimeout=60000 --hookTimeout=60000

@@ -1,0 +1,83 @@
+name: Upstream — sync
+
+# Pone la pila propia de `main` sobre el ultimo tag release de
+# openchamber/openchamber. Toda la logica esta en scripts/upstream-sync.mjs
+# (con test); aqui solo se orquesta. Decisiones y limites: docs/upstream-sync.md.
+#
+# Nunca `pull_request`: corre con permisos de escritura. Las entradas llegan
+# por `env`, nunca interpoladas en `run`. Con conflicto el run termina en
+# failure (el paso de sync sale con 1) y abre un issue con los ficheros.
+
+on:
+  schedule:
+    - cron: '17 5 * * 1'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Construir la rama y el informe sin empujar ni abrir PR/issue'
+        type: boolean
+        default: true
+      target:
+        description: 'Rama con la pila propia'
+        type: string
+        default: main
+      upstream_ref:
+        description: 'Tag a sincronizar (vacio = el ultimo vX.Y.Z de upstream)'
+        type: string
+        default: ''
+
+concurrency:
+  group: upstream-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: sync
+    # Regla de la org (skill ci-runners-arc).
+    runs-on: arc-k8s
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    env:
+      SYNC_TARGET: ${{ inputs.target || 'main' }}
+      SYNC_UPSTREAM_REF: ${{ inputs.upstream_ref }}
+      SYNC_REPORT_FILE: ${{ runner.temp }}/upstream-sync-report.md
+      GH_TOKEN: ${{ github.token }}
+      # El cron no tiene inputs: ahi dry_run es false.
+      DRY_RUN: ${{ inputs.dry_run && 'true' || 'false' }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ inputs.target || 'main' }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-node-bun
+        with:
+          bun: 'false'
+
+      - name: Sync
+        id: sync
+        run: node scripts/upstream-sync.mjs
+
+      - name: Informe en el resumen del run
+        if: always() && steps.sync.outputs.status != ''
+        run: cat "$SYNC_REPORT_FILE" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Abrir PR
+        if: steps.sync.outputs.pushable == 'true' && env.DRY_RUN != 'true'
+        env:
+          SYNC_BRANCH: ${{ steps.sync.outputs.branch }}
+          SYNC_TAG: ${{ steps.sync.outputs.tag }}
+        run: node scripts/upstream-sync.mjs publish-pr
+
+      # Conflicto, o tag que toca .github/workflows (GITHUB_TOKEN no lo empuja):
+      # el issue lleva el informe y nadie queda sin enterarse.
+      - name: Abrir issue
+        if: always() && (steps.sync.outputs.status == 'conflict' || (steps.sync.outputs.status == 'clean' && steps.sync.outputs.pushable != 'true')) && env.DRY_RUN != 'true'
+        env:
+          SYNC_TAG: ${{ steps.sync.outputs.tag }}
+          SYNC_STATUS: ${{ steps.sync.outputs.status }}
+        run: node scripts/upstream-sync.mjs publish-issue
