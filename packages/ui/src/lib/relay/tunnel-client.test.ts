@@ -479,12 +479,23 @@ describe('createRelayTunnelClient', () => {
     }
   });
 
+  // The "no ping while data flows" tests below assert an absence, so their ping
+  // interval must dwarf the scheduling jitter of a loaded CI runner: data arrives
+  // every ~10ms, and an interval of 40ms let one stalled event-loop turn read as
+  // silence. With 200ms a stall would have to last twenty ticks, while the
+  // observation windows still span two or more intervals, so a client that pings
+  // despite traffic is still caught.
+  const FLOWING_PING_INTERVAL_MS = 200;
+
   test('continuing inbound stream data stays healthy without idle pings', async () => {
     const frames: TunnelFrame[] = [];
-    const { client, connectionCount } = await setupClient({ recordFrame: frame => frames.push(frame) }, { batchWindowMs: 5 });
+    const { client, connectionCount } = await setupClient(
+      { recordFrame: frame => frames.push(frame) },
+      { batchWindowMs: 5, pingIntervalMs: FLOWING_PING_INTERVAL_MS },
+    );
     track(client);
     const response = await client.fetch('/never-ends');
-    await wait(250);
+    await wait(FLOWING_PING_INTERVAL_MS * 2 + 50);
     expect(connectionCount()).toBe(1);
     expect(client.getStatus().state).toBe('connected');
     expect(frames.some(frame => frame.frameType === TunnelFrameType.Ping)).toBe(false);
@@ -644,7 +655,7 @@ describe('createRelayTunnelClient', () => {
           if (frame.frameType === TunnelFrameType.Ping) pings.push(Date.now());
         },
       },
-      { pingIntervalMs: 40, pingTimeoutMs: 5_000, batchWindowMs: 20 },
+      { pingIntervalMs: FLOWING_PING_INTERVAL_MS, pingTimeoutMs: 5_000, batchWindowMs: 20 },
     );
     track(client);
     const socket = client.openWebSocket('/api/event/ws');
@@ -653,15 +664,18 @@ describe('createRelayTunnelClient', () => {
     });
 
     // Keep traffic flowing faster than the ping interval for a few intervals.
-    const busyUntil = Date.now() + 200;
+    const busyUntil = Date.now() + FLOWING_PING_INTERVAL_MS * 3;
     while (Date.now() < busyUntil) {
       socket.send('keepbusy');
       await wait(10);
     }
     expect(pings.length).toBe(0);
 
-    // Now go idle: a ping must appear once we exceed the interval.
-    await wait(150);
+    // Now go idle: a ping must appear once we exceed the interval. The keepalive
+    // timer ticks once per interval, so the first ping can take up to two of
+    // them: poll to a generous deadline instead of guessing a fixed wait.
+    const deadline = Date.now() + FLOWING_PING_INTERVAL_MS * 10;
+    while (pings.length === 0 && Date.now() < deadline) await wait(10);
     expect(pings.length).toBeGreaterThan(0);
   });
 
