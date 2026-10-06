@@ -88,26 +88,31 @@ export function SidebarHeader(props: Props): React.ReactNode {
   // VS Code has no mode switch and always renders the projects view.
   const timelineView = showProjectDisplayControls && sidebarViewMode === 'timeline';
 
+  // One input for both layouts (VS Code's always-visible one and the toggled one).
+  const sessionSearchInput = (
+    <SessionSearchInput
+      inputRef={sessionSearchInputRef}
+      value={sessionSearchQuery}
+      onSearch={setSessionSearchQuery}
+      onClose={() => setIsSessionSearchOpen(false)}
+      placeholder={t('sessions.sidebar.header.search.placeholder')}
+      clearLabel={t('sessions.sidebar.header.search.clear')}
+      leadingHint={hasSessionSearchQuery
+        ? (searchMatchCount === 1
+          ? t('sessions.sidebar.header.search.matchCountSingle', { count: searchMatchCount })
+          : t('sessions.sidebar.header.search.matchCountPlural', { count: searchMatchCount }))
+        : undefined}
+      trailingHint={t('sessions.sidebar.header.search.escapeHint')}
+    />
+  );
+
   if (hideDirectoryControls) {
     // VS Code: the sidebar is always a single workspace, so project/directory
     // controls stay hidden, but session search is still useful. Show a compact,
     // always-visible search input at the top of the sessions list.
     return (
       <div className="select-none flex-shrink-0 px-2.5 py-1.5">
-        <SessionSearchInput
-          inputRef={sessionSearchInputRef}
-          value={sessionSearchQuery}
-          onSearch={setSessionSearchQuery}
-          onClose={() => setIsSessionSearchOpen(false)}
-          placeholder={t('sessions.sidebar.header.search.placeholder')}
-          clearLabel={t('sessions.sidebar.header.search.clear')}
-          leadingHint={hasSessionSearchQuery
-            ? (searchMatchCount === 1
-              ? t('sessions.sidebar.header.search.matchCountSingle', { count: searchMatchCount })
-              : t('sessions.sidebar.header.search.matchCountPlural', { count: searchMatchCount }))
-            : undefined}
-          trailingHint={t('sessions.sidebar.header.search.escapeHint')}
-        />
+        {sessionSearchInput}
       </div>
     );
   }
@@ -403,20 +408,7 @@ export function SidebarHeader(props: Props): React.ReactNode {
 
         {isSessionSearchOpen ? (
           <div className="pb-1">
-            <SessionSearchInput
-              inputRef={sessionSearchInputRef}
-              value={sessionSearchQuery}
-              onSearch={setSessionSearchQuery}
-              onClose={() => setIsSessionSearchOpen(false)}
-              placeholder={t('sessions.sidebar.header.search.placeholder')}
-              clearLabel={t('sessions.sidebar.header.search.clear')}
-              leadingHint={hasSessionSearchQuery
-                ? (searchMatchCount === 1
-                  ? t('sessions.sidebar.header.search.matchCountSingle', { count: searchMatchCount })
-                  : t('sessions.sidebar.header.search.matchCountPlural', { count: searchMatchCount }))
-                : undefined}
-              trailingHint={t('sessions.sidebar.header.search.escapeHint')}
-            />
+            {sessionSearchInput}
           </div>
         ) : null}
       </div>
