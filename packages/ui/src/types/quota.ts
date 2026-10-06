@@ -1,5 +1,6 @@
 export type QuotaProviderId =
   | 'openai'
+  | 'codex'
   | 'cursor'
   | 'claude'
   | 'cline-pass'
