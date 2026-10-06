@@ -43,7 +43,6 @@ jobs:
     env:
       SYNC_TARGET: ${{ inputs.target || 'main' }}
       SYNC_UPSTREAM_REF: ${{ inputs.upstream_ref }}
-      SYNC_REPORT_FILE: ${{ runner.temp }}/upstream-sync-report.md
       GH_TOKEN: ${{ github.token }}
       # El cron no tiene inputs: ahi dry_run es false.
       DRY_RUN: ${{ inputs.dry_run && 'true' || 'false' }}
@@ -60,15 +59,18 @@ jobs:
 
       - name: Sync
         id: sync
+        env:
+          SYNC_REPORT_FILE: ${{ runner.temp }}/upstream-sync-report.md
         run: node scripts/upstream-sync.mjs
 
       - name: Informe en el resumen del run
         if: always() && steps.sync.outputs.status != ''
-        run: cat "$SYNC_REPORT_FILE" >> "$GITHUB_STEP_SUMMARY"
+        run: cat "$RUNNER_TEMP/upstream-sync-report.md" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Abrir PR
         if: steps.sync.outputs.pushable == 'true' && env.DRY_RUN != 'true'
         env:
+          SYNC_REPORT_FILE: ${{ runner.temp }}/upstream-sync-report.md
           SYNC_BRANCH: ${{ steps.sync.outputs.branch }}
           SYNC_TAG: ${{ steps.sync.outputs.tag }}
         run: node scripts/upstream-sync.mjs publish-pr
@@ -79,5 +81,6 @@ jobs:
         if: always() && (steps.sync.outputs.status == 'conflict' || (steps.sync.outputs.status == 'clean' && steps.sync.outputs.pushable != 'true')) && env.DRY_RUN != 'true'
         env:
           SYNC_TAG: ${{ steps.sync.outputs.tag }}
+          SYNC_REPORT_FILE: ${{ runner.temp }}/upstream-sync-report.md
           SYNC_STATUS: ${{ steps.sync.outputs.status }}
         run: node scripts/upstream-sync.mjs publish-issue
