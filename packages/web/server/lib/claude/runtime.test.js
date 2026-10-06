@@ -79,6 +79,43 @@ const createRuntime = ({ sdk, fs, ...rest } = {}) => {
   return { runtime, sdk: sdkObject };
 };
 
+// A CLI that stays up across prompts: answers each one and closes the turn.
+const interactiveQuery = (extraHandle = () => ({})) => vi.fn(({ prompt }) => {
+  const queued = [];
+  const waiting = [];
+  let ended = false;
+  const push = (value) => {
+    const next = waiting.shift();
+    if (next) next({ value, done: false });
+    else queued.push(value);
+  };
+  const end = () => {
+    ended = true;
+    for (const next of waiting.splice(0)) next({ value: undefined, done: true });
+  };
+  (async () => {
+    for await (const message of prompt) {
+      push({ ...message, isReplay: true });
+      push({ type: 'result', is_error: false });
+    }
+    end();
+  })();
+  return {
+    [Symbol.asyncIterator]: () => ({
+      next: () => {
+        if (queued.length > 0) return Promise.resolve({ value: queued.shift(), done: false });
+        if (ended) return Promise.resolve({ value: undefined, done: true });
+        return new Promise((resolve) => waiting.push(resolve));
+      },
+    }),
+    interrupt: vi.fn(async () => {}),
+    close: vi.fn(end),
+    setModel: vi.fn(async () => {}),
+    setPermissionMode: vi.fn(async () => {}),
+    ...extraHandle(),
+  };
+});
+
 describe('claude backend availability', () => {
   it('is available when the SDK exposes the session API', async () => {
     const { runtime } = createRuntime();
@@ -1012,45 +1049,13 @@ describe('claude backend live turn rendering', () => {
 });
 
 describe('claude backend live processes', () => {
-  // A CLI that stays up across prompts: answers each one and closes the turn.
-  const interactiveQuery = () => vi.fn(({ prompt }) => {
-    const queued = [];
-    const waiting = [];
-    let ended = false;
-    const push = (value) => {
-      const next = waiting.shift();
-      if (next) next({ value, done: false });
-      else queued.push(value);
-    };
-    const end = () => {
-      ended = true;
-      for (const next of waiting.splice(0)) next({ value: undefined, done: true });
-    };
-    (async () => {
-      for await (const message of prompt) {
-        push({ ...message, isReplay: true });
-        push({ type: 'result', is_error: false });
-      }
-      end();
-    })();
-    return {
-      [Symbol.asyncIterator]: () => ({
-        next: () => {
-          if (queued.length > 0) return Promise.resolve({ value: queued.shift(), done: false });
-          if (ended) return Promise.resolve({ value: undefined, done: true });
-          return new Promise((resolve) => waiting.push(resolve));
-        },
-      }),
-      interrupt: vi.fn(async () => {}),
-      close: vi.fn(end),
-      setModel: vi.fn(async () => {}),
-      setPermissionMode: vi.fn(async () => {}),
-      enableRemoteControl: vi.fn(async () => ({ session_url: 'https://claude.ai/code/session_x', bridge_session_id: 'cse_x' })),
-    };
+  const remoteControlHandle = () => ({
+    enableRemoteControl: vi.fn(async () => ({ session_url: 'https://claude.ai/code/session_x', bridge_session_id: 'cse_x' })),
   });
+  const interactiveRemoteQuery = () => interactiveQuery(remoteControlHandle);
 
   it('reuses the session process for the next turn', async () => {
-    const sdk = makeSdk({ query: interactiveQuery() });
+    const sdk = makeSdk({ query: interactiveRemoteQuery() });
     const { runtime } = createRuntime({ sdk });
 
     await runtime.promptAsync({ sessionID: 'sess-1', parts: [{ type: 'text', text: 'one' }] });
@@ -1062,7 +1067,7 @@ describe('claude backend live processes', () => {
   });
 
   it('launches the CLI as `cli` so VS Code lists the session', async () => {
-    const sdk = makeSdk({ query: interactiveQuery() });
+    const sdk = makeSdk({ query: interactiveRemoteQuery() });
     const { runtime } = createRuntime({ sdk });
 
     await runtime.promptAsync({ sessionID: 'sess-1', parts: [{ type: 'text', text: 'hi' }] });
@@ -1072,7 +1077,7 @@ describe('claude backend live processes', () => {
   });
 
   it('starts a new process when the effort changes', async () => {
-    const sdk = makeSdk({ query: interactiveQuery() });
+    const sdk = makeSdk({ query: interactiveRemoteQuery() });
     const { runtime } = createRuntime({ sdk });
 
     await runtime.promptAsync({ sessionID: 'sess-1', parts: [{ type: 'text', text: 'one' }], variant: 'low' });
@@ -1085,7 +1090,7 @@ describe('claude backend live processes', () => {
 
   it('links the process to Remote Control with a first-party base URL and advertises the link', async () => {
     const sdk = makeSdk({
-      query: interactiveQuery(),
+      query: interactiveRemoteQuery(),
       listSessions: vi.fn(async () => [sessionInfo()]),
     });
     const { runtime } = createRuntime({
@@ -1111,7 +1116,7 @@ describe('claude backend live processes', () => {
     // The placeholder name used to be persisted by the CLI as the transcript's
     // custom title, masking the summary the CLI writes after the first turn.
     const sdk = makeSdk({
-      query: interactiveQuery(),
+      query: interactiveRemoteQuery(),
       listSessions: vi.fn(async () => []),
     });
     const { runtime } = createRuntime({ sdk, remoteControl: { enabled: true } });
@@ -1124,7 +1129,7 @@ describe('claude backend live processes', () => {
   });
 
   it('closes the longest-idle process to make room, never a busy one', async () => {
-    const sdk = makeSdk({ query: interactiveQuery() });
+    const sdk = makeSdk({ query: interactiveRemoteQuery() });
     const { runtime } = createRuntime({ sdk, maxConcurrentRuns: 1 });
 
     await runtime.promptAsync({ sessionID: 'sess-1', parts: [{ type: 'text', text: 'one' }] });
@@ -1138,42 +1143,7 @@ describe('claude backend live processes', () => {
 });
 
 describe('claude backend releaseSession', () => {
-  // "Open in VS Code" frees the transcript before the link: the extension
-  // refuses to open a session a live process holds (single writer).
-  const interactiveQuery = () => vi.fn(({ prompt }) => {
-    const queued = [];
-    const waiting = [];
-    let ended = false;
-    const push = (value) => {
-      const next = waiting.shift();
-      if (next) next({ value, done: false });
-      else queued.push(value);
-    };
-    const end = () => {
-      ended = true;
-      for (const next of waiting.splice(0)) next({ value: undefined, done: true });
-    };
-    (async () => {
-      for await (const message of prompt) {
-        push({ ...message, isReplay: true });
-        push({ type: 'result', is_error: false });
-      }
-      end();
-    })();
-    return {
-      [Symbol.asyncIterator]: () => ({
-        next: () => {
-          if (queued.length > 0) return Promise.resolve({ value: queued.shift(), done: false });
-          if (ended) return Promise.resolve({ value: undefined, done: true });
-          return new Promise((resolve) => waiting.push(resolve));
-        },
-      }),
-      interrupt: vi.fn(async () => {}),
-      close: vi.fn(end),
-      setModel: vi.fn(async () => {}),
-      setPermissionMode: vi.fn(async () => {}),
-    };
-  });
+  // The live-process CLI stub is `interactiveQuery`, at the top of the file.
 
   it('closes the process it hosts, leaving the transcript with no writer', async () => {
     const sdk = makeSdk({ query: interactiveQuery() });

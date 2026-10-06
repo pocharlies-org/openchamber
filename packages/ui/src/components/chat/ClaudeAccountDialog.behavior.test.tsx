@@ -1,20 +1,6 @@
 import React, { act } from 'react';
 import { describe, expect, mock, test } from 'bun:test';
-import { Window } from 'happy-dom';
-
-// React detects input-event support when its DOM renderer is first imported.
-// Give that probe a document, then restore the caller's globals immediately.
-const rendererWindow = new Window();
-const rendererGlobals = ['window', 'document'] as const;
-const previousRendererGlobals = rendererGlobals.map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)] as const);
-Object.defineProperty(globalThis, 'window', { value: rendererWindow, configurable: true, writable: true });
-Object.defineProperty(globalThis, 'document', { value: rendererWindow.document, configurable: true, writable: true });
-const { createRoot } = await import('react-dom/client');
-for (const [name, descriptor] of previousRendererGlobals) {
-    if (descriptor) Object.defineProperty(globalThis, name, descriptor);
-    else Reflect.deleteProperty(globalThis, name);
-}
-rendererWindow.close();
+import { buttonByText, createRoot, installDom, mockDialogKit, wait } from '@/test-utils/happyDomHarness';
 
 import type { ClaudeAccount, ClaudeLoginFlow, ClaudeLoginMode, ClaudeLoginStatus } from '@/lib/claudeAccount';
 
@@ -50,37 +36,12 @@ let pollFlow: ClaudeLoginFlow = flowWith('waiting-code');
 const calls: string[] = [];
 const toasts: { kind: 'success' | 'error'; message: string }[] = [];
 
-const passthrough = ({ children }: React.PropsWithChildren) => <div>{children}</div>;
-
-const actualDialog = await import('@/components/ui/dialog');
 const actualI18n = await import('@/lib/i18n');
 
-mock.module('@/components/ui/dialog', () => ({
-    ...actualDialog,
-    Dialog: ({ children, open }: React.PropsWithChildren<{ open: boolean }>) => (open ? <>{children}</> : null),
-    DialogContent: passthrough,
-    DialogHeader: passthrough,
-    DialogTitle: passthrough,
-    DialogDescription: passthrough,
-    DialogFooter: passthrough,
-}));
-
-mock.module('@/components/ui/button', () => ({
-    Button: ({ children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement>) => <button {...props}>{children}</button>,
-}));
+await mockDialogKit();
 
 mock.module('@/components/ui/input', () => ({
     Input: (props: React.InputHTMLAttributes<HTMLInputElement>) => <input {...props} />,
-}));
-
-mock.module('@/components/ui/select', () => ({
-    Select: ({ value, onValueChange, children }: React.PropsWithChildren<{ value: string; onValueChange: (value: string) => void }>) => (
-        <select value={value} onChange={(event) => onValueChange(event.target.value)}>{children}</select>
-    ),
-    SelectTrigger: ({ children }: React.PropsWithChildren) => <>{children}</>,
-    SelectValue: () => null,
-    SelectContent: ({ children }: React.PropsWithChildren) => <>{children}</>,
-    SelectItem: ({ children, value }: React.PropsWithChildren<{ value: string }>) => <option value={value}>{children}</option>,
 }));
 
 mock.module('@/components/ui', () => ({
@@ -134,56 +95,6 @@ mock.module('@/lib/claudeAccount', () => ({
 }));
 
 const { ClaudeAccountDialog } = await import('./ClaudeAccountDialog');
-
-const DOM_GLOBAL_NAMES = [
-    'window', 'document', 'navigator', 'Node', 'Element', 'HTMLElement', 'HTMLInputElement',
-    'KeyboardEvent', 'Event', 'localStorage', 'requestAnimationFrame', 'cancelAnimationFrame', 'IS_REACT_ACT_ENVIRONMENT',
-] as const;
-
-const installDom = () => {
-    const happyWindow = new Window({ url: 'http://localhost' });
-    const previous = DOM_GLOBAL_NAMES.map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)] as const);
-    const values: Record<string, unknown> = {
-        window: happyWindow,
-        document: happyWindow.document,
-        navigator: happyWindow.navigator,
-        Node: happyWindow.Node,
-        Element: happyWindow.Element,
-        HTMLElement: happyWindow.HTMLElement,
-        HTMLInputElement: happyWindow.HTMLInputElement,
-        KeyboardEvent: happyWindow.KeyboardEvent,
-        Event: happyWindow.Event,
-        localStorage: happyWindow.localStorage,
-        requestAnimationFrame: happyWindow.requestAnimationFrame.bind(happyWindow),
-        cancelAnimationFrame: happyWindow.cancelAnimationFrame.bind(happyWindow),
-        IS_REACT_ACT_ENVIRONMENT: true,
-    };
-    for (const name of DOM_GLOBAL_NAMES) {
-        Object.defineProperty(globalThis, name, { value: values[name], configurable: true, writable: true });
-    }
-    const container = document.createElement('div');
-    document.body.appendChild(container);
-    return {
-        container,
-        restore: () => {
-            happyWindow.close();
-            for (const [name, descriptor] of previous) {
-                if (descriptor) Object.defineProperty(globalThis, name, descriptor);
-                else Reflect.deleteProperty(globalThis, name);
-            }
-        },
-    };
-};
-
-const buttonByText = (container: HTMLElement, text: string) => {
-    const found = [...container.querySelectorAll('button')].find((button) => button.textContent === text);
-    if (!found) throw new Error(`Missing button: ${text}`);
-    return found;
-};
-
-const wait = async (ms = 25) => {
-    await act(async () => { await new Promise((resolve) => { setTimeout(resolve, ms); }); });
-};
 
 const reset = () => {
     accountState = { loggedIn: true, account: ACCOUNT, reason: 'logged-in', flow: null };

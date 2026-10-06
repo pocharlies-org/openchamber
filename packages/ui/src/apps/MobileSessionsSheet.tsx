@@ -13,8 +13,6 @@ import {
   RiFolderAddLine,
 } from '@remixicon/react';
 import type { Session } from '@/lib/opencode/model';
-import { SESSION_SOURCE_FILTERS, SESSION_SOURCE_LABEL_KEYS } from '@/lib/sessionSourceFilter';
-import { useMobileSessionSourceFilter } from './useMobileSessionSourceFilter';
 import {
   DndContext,
   type DragEndEvent,
@@ -33,6 +31,8 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 
 import { DirectoryExplorerDialog } from '@/components/session/DirectoryExplorerDialog';
+import { SESSION_SOURCE_FILTERS, SESSION_SOURCE_LABEL_KEYS } from '@/lib/sessionSourceFilter';
+import { useMobileSessionSourceFilter } from './useMobileSessionSourceFilter';
 import { Icon } from '@/components/icon/Icon';
 import { NewWorktreeDialog } from '@/components/session/NewWorktreeDialog';
 import { Button } from '@/components/ui/button';

@@ -286,7 +286,7 @@ describe('checked-in SDK examples', () => {
   });
 
   test('board loads projects even when notes fail and preserves scope on failed project snapshots', async () => {
-    const app = await load('tasks-demo', 'page');
+    const app = await load('tasks-demo', 'main');
     app.ready({ ...context, surface: 'page' });
     const storage = app.request('storage');
     if (!('id' in storage)) throw new Error('Missing storage request');

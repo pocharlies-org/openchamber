@@ -775,6 +775,41 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
         : 'pt-0';
     const userMessageRadius = 'var(--radius-xl)';
 
+    const userBodyProps = {
+        messageId: message.info.id,
+        parts: displayParts,
+        isUser,
+        isMessageCompleted,
+        messageFinish,
+        messageCreatedAt: messageCreatedAt ?? undefined,
+        isMobile,
+        alwaysShowActions: alwaysShowMessageActions,
+        hasTouchInput,
+        copiedCode,
+        onCopyCode: handleCopyCode,
+        expandedTools,
+        onToggleTool: handleToggleTool,
+        onShowPopup: handleShowPopup,
+        streamPhase,
+        allowAnimation,
+        shouldShowHeader: false,
+        hasTextContent,
+        onCopyMessage: handleCopyMessage,
+        onCopyLink: handleCopyLink,
+        copiedMessage,
+        showReasoningTraces,
+        agentMention,
+        onRevert: canRevert ? handleRevert : undefined,
+        onFork: isUser && canForkAtMessage ? handleFork : undefined,
+        contextPinned: isPinnedIntoContext,
+        contextPinPending: pinPending,
+        onToggleContextPin: canPinIntoContext && messageCreatedAt ? handleToggleContextPin : undefined,
+        errorMessage: assistantErrorText,
+        errorResponseBody: assistantErrorResponseBody,
+        stickyUserHeaderEnabled: stickyUserHeader,
+        extraActions: messageExtraActions,
+    };
+
     return (
         <>
             <div
@@ -816,76 +851,14 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                                             data-user-message-bubble=""
                                         >
                                             <MessageBody
-                                                messageId={message.info.id}
-                                                parts={displayParts}
-                                                isUser={isUser}
-                                                isMessageCompleted={isMessageCompleted}
-                                                messageFinish={messageFinish}
-                                                messageCreatedAt={messageCreatedAt ?? undefined}
-                                                 isMobile={isMobile}
-                                                 alwaysShowActions={alwaysShowMessageActions}
-                                                 hasTouchInput={hasTouchInput}
-                                                copiedCode={copiedCode}
-                                                onCopyCode={handleCopyCode}
-                                                expandedTools={expandedTools}
-                                                onToggleTool={handleToggleTool}
-                                                onShowPopup={handleShowPopup}
-                                                streamPhase={streamPhase}
-                                                allowAnimation={allowAnimation}
-                                                shouldShowHeader={false}
-                                                hasTextContent={hasTextContent}
-                                                onCopyMessage={handleCopyMessage}
-                                                onCopyLink={handleCopyLink}
-                                                copiedMessage={copiedMessage}
-                                                showReasoningTraces={showReasoningTraces}
-                                                agentMention={agentMention}
-                                                onRevert={canRevert ? handleRevert : undefined}
-                                                onFork={isUser && canForkAtMessage ? handleFork : undefined}
-                                                contextPinned={isPinnedIntoContext}
-                                                contextPinPending={pinPending}
-                                                onToggleContextPin={canPinIntoContext && messageCreatedAt ? handleToggleContextPin : undefined}
-                                                errorMessage={assistantErrorText}
-                                                errorResponseBody={assistantErrorResponseBody}
+                                                {...userBodyProps}
                                                 userActionsMode={useExternalUserActionsRow ? 'external-content' : 'inline'}
-                                                stickyUserHeaderEnabled={stickyUserHeader}
-                                                extraActions={messageExtraActions}
                                             />
                                         </div>
                                         {useExternalUserActionsRow ? (
                                             <MessageBody
-                                                messageId={message.info.id}
-                                                parts={displayParts}
-                                                isUser={isUser}
-                                                isMessageCompleted={isMessageCompleted}
-                                                messageFinish={messageFinish}
-                                                messageCreatedAt={messageCreatedAt ?? undefined}
-                                                 isMobile={isMobile}
-                                                 alwaysShowActions={alwaysShowMessageActions}
-                                                 hasTouchInput={hasTouchInput}
-                                                copiedCode={copiedCode}
-                                                onCopyCode={handleCopyCode}
-                                                expandedTools={expandedTools}
-                                                onToggleTool={handleToggleTool}
-                                                onShowPopup={handleShowPopup}
-                                                streamPhase={streamPhase}
-                                                allowAnimation={allowAnimation}
-                                                shouldShowHeader={false}
-                                                hasTextContent={hasTextContent}
-                                                onCopyMessage={handleCopyMessage}
-                                                onCopyLink={handleCopyLink}
-                                                copiedMessage={copiedMessage}
-                                                showReasoningTraces={showReasoningTraces}
-                                                agentMention={agentMention}
-                                                onRevert={canRevert ? handleRevert : undefined}
-                                                onFork={isUser && canForkAtMessage ? handleFork : undefined}
-                                                contextPinned={isPinnedIntoContext}
-                                                contextPinPending={pinPending}
-                                                onToggleContextPin={canPinIntoContext && messageCreatedAt ? handleToggleContextPin : undefined}
-                                                errorMessage={assistantErrorText}
-                                                errorResponseBody={assistantErrorResponseBody}
+                                                {...userBodyProps}
                                                 userActionsMode="external-actions"
-                                                stickyUserHeaderEnabled={stickyUserHeader}
-                                                extraActions={messageExtraActions}
                                             />
                                         ) : null}
                                     </div>

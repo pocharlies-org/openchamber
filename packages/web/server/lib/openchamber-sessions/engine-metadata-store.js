@@ -38,35 +38,36 @@ export const createEngineSessionMetadata = ({
   let loadPromise = null;
   let writeChain = Promise.resolve();
 
-  const load = () => {
-    if (!loadPromise) {
-      loadPromise = (async () => {
-        let raw;
-        try {
-          raw = await fsPromises.readFile(filePath, 'utf8');
-        } catch (error) {
-          if (error?.code === 'ENOENT') return;
-          throw new Error(`engine session metadata is unavailable: ${error?.message ?? error}`);
-        }
-        let parsed;
-        try {
-          parsed = JSON.parse(raw);
-        } catch (error) {
-          // Unreadable bytes are kept aside for the user, never overwritten.
-          const backup = `${filePath}.corrupt-${Date.now()}`;
-          await fsPromises.rename(filePath, backup).catch(() => undefined);
-          console.warn(`[openchamber-sessions] engine session metadata was unreadable and was moved to ${backup}: ${error?.message ?? error}`);
-          return;
-        }
-        if (!isPlainObject(parsed)) return;
-        for (const [id, metadata] of Object.entries(parsed)) {
-          if (typeof id === 'string' && id && isPlainObject(metadata)) records.set(id, metadata);
-        }
-      })().catch((error) => {
-        loadPromise = null;
-        throw error;
-      });
+  const readStored = async () => {
+    let raw;
+    try {
+      raw = await fsPromises.readFile(filePath, 'utf8');
+    } catch (error) {
+      if (error?.code === 'ENOENT') return;
+      throw new Error(`engine session metadata is unavailable: ${error?.message ?? error}`);
     }
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (error) {
+      // Unreadable bytes are kept aside for the user, never overwritten.
+      const backup = `${filePath}.corrupt-${Date.now()}`;
+      await fsPromises.rename(filePath, backup).catch(() => undefined);
+      console.warn(`[openchamber-sessions] engine session metadata was unreadable and was moved to ${backup}: ${error?.message ?? error}`);
+      return;
+    }
+    if (!isPlainObject(parsed)) return;
+    for (const [id, metadata] of Object.entries(parsed)) {
+      if (typeof id === 'string' && id && isPlainObject(metadata)) records.set(id, metadata);
+    }
+  };
+
+  // One read per process; a failed read is not remembered, so the next call retries.
+  const load = () => {
+    loadPromise ??= readStored().catch((error) => {
+      loadPromise = null;
+      throw error;
+    });
     return loadPromise;
   };
 

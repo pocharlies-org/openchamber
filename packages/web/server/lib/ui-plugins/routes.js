@@ -1,3 +1,12 @@
+// Footer panels run everywhere the composer does; VS Code has no host footer.
+const FOOTER_SUPPORT = Object.freeze({
+  web: 'supported',
+  desktop: 'supported',
+  vscode: 'unsupported',
+  hostedMobile: 'supported',
+  capacitorMobile: 'supported',
+});
+
 const STREAM_METRICS_MANIFEST = Object.freeze({
   schemaVersion: 1,
   id: '@pocharlies/openchamber-stream-metrics',
@@ -14,13 +23,7 @@ const STREAM_METRICS_MANIFEST = Object.freeze({
       placement: 'footer',
       mobile: 'compact',
       updateIntervalMs: 250,
-      support: {
-        web: 'supported',
-        desktop: 'supported',
-        vscode: 'unsupported',
-        hostedMobile: 'supported',
-        capacitorMobile: 'supported',
-      },
+      support: FOOTER_SUPPORT,
     }],
   },
 });
@@ -39,13 +42,7 @@ const CACHE_TIMER_MANIFEST = Object.freeze({
     composerStatus: [{
       id: 'openchamber-builtin-cache-timer',
       placement: 'footer',
-      support: {
-        web: 'supported',
-        desktop: 'supported',
-        vscode: 'unsupported',
-        hostedMobile: 'supported',
-        capacitorMobile: 'supported',
-      },
+      support: FOOTER_SUPPORT,
     }],
   },
 });

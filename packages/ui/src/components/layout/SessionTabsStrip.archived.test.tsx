@@ -153,26 +153,19 @@ mock.module('@/sync/session-ui-store', () => ({
   useSessionUIStore: <T,>(selector: (state: typeof uiState) => T): T => selector(uiState),
 }));
 
+import { installWindowGlobals } from '@/test-utils/happyWindowGlobals';
+
 const { SessionTabsStrip } = await import('./SessionTabsStrip');
 
 describe('SessionTabsStrip and archived sessions', () => {
   let windowInstance: Window;
   let root: Root;
   let host: HTMLDivElement;
+  let restoreGlobals: () => void;
 
   beforeEach(() => {
     windowInstance = new Window({ url: 'http://localhost/' });
-    Object.assign(globalThis, {
-      window: windowInstance,
-      document: windowInstance.document,
-      navigator: windowInstance.navigator,
-      Node: windowInstance.Node,
-      Element: windowInstance.Element,
-      HTMLElement: windowInstance.HTMLElement,
-      Event: windowInstance.Event,
-      MouseEvent: windowInstance.MouseEvent,
-      IS_REACT_ACT_ENVIRONMENT: true,
-    });
+    restoreGlobals = installWindowGlobals(windowInstance, { MouseEvent: windowInstance.MouseEvent });
     host = document.createElement('div');
     document.body.appendChild(host);
     root = createRoot(host);
@@ -182,6 +175,7 @@ describe('SessionTabsStrip and archived sessions', () => {
 
   afterEach(async () => {
     await act(async () => root.unmount());
+    restoreGlobals();
   });
 
   const renderStrip = async () => {

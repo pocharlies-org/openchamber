@@ -1,6 +1,15 @@
 export type LocalizedText = { default: string; [locale: string]: string };
 
 export type UIPluginSupportStatus = 'supported' | 'unsupported';
+
+/** One status per runtime, as every contribution declares it. */
+export type UIPluginSupport = {
+  web: UIPluginSupportStatus;
+  desktop: UIPluginSupportStatus;
+  vscode: UIPluginSupportStatus;
+  hostedMobile: UIPluginSupportStatus;
+  capacitorMobile: UIPluginSupportStatus;
+};
 export type UIPluginRuntime = 'web' | 'desktop' | 'vscode' | 'hostedMobile' | 'capacitorMobile';
 
 export type ComposerMetricsContribution = {
@@ -8,13 +17,7 @@ export type ComposerMetricsContribution = {
   placement: 'footer';
   mobile: 'compact';
   updateIntervalMs: number;
-  support: {
-    web: UIPluginSupportStatus;
-    desktop: UIPluginSupportStatus;
-    vscode: UIPluginSupportStatus;
-    hostedMobile: UIPluginSupportStatus;
-    capacitorMobile: UIPluginSupportStatus;
-  };
+  support: UIPluginSupport;
 };
 
 /**
@@ -25,13 +28,7 @@ export type ComposerMetricsContribution = {
 export type ComposerStatusContribution = {
   id: string;
   placement: 'footer';
-  support: {
-    web: UIPluginSupportStatus;
-    desktop: UIPluginSupportStatus;
-    vscode: UIPluginSupportStatus;
-    hostedMobile: UIPluginSupportStatus;
-    capacitorMobile: UIPluginSupportStatus;
-  };
+  support: UIPluginSupport;
 };
 
 export type OpenChamberUIPluginManifestV1 = {

@@ -52,34 +52,56 @@ const findParentToolError = (
   return null;
 };
 
-const useStoredFailure = (sessionId: string, directory?: string): StoredFailure => {
+type DirectoryState = ReturnType<ReturnType<typeof useDirectoryStore>['getState']>;
+
+/**
+ * A snapshot of one session's slice of the directory store that keeps its
+ * identity while its content is unchanged, so `useSyncExternalStore` does not
+ * re-render on unrelated store updates. `read` and `isSame` must be stable.
+ */
+const useSessionSnapshot = <T,>(
+  sessionId: string,
+  directory: string | undefined,
+  read: (state: DirectoryState) => T | null,
+  isSame: (cached: T, next: T) => boolean,
+): T | null => {
   const store = useDirectoryStore(directory);
-  const cacheRef = React.useRef<StoredFailure>(null);
-  const getSnapshot = React.useCallback((): StoredFailure => {
+  const cacheRef = React.useRef<T | null>(null);
+  const getSnapshot = React.useCallback((): T | null => {
     if (!sessionId) return null;
-    const state = store.getState();
-    const session = state.session.find((candidate) => candidate.id === sessionId);
-    if (!session || !isFailedOutcome(session.outcome)) {
+    const next = read(store.getState());
+    if (!next) {
       cacheRef.current = null;
       return null;
     }
-    const parent = session.parentID
-      ? state.session.find((candidate) => candidate.id === session.parentID)
-      : undefined;
-    const next: StoredFailure = {
-      outcome: session.outcome,
-      parentToolError: findParentToolError(parent, state.message, state.part, sessionId),
-    };
     const cached = cacheRef.current;
-    if (cached && cached.outcome === next.outcome && cached.parentToolError === next.parentToolError) return cached;
+    if (cached && isSame(cached, next)) return cached;
     cacheRef.current = next;
     return next;
-  }, [sessionId, store]);
+  }, [sessionId, store, read, isSame]);
   const subscribe = React.useCallback((notify: () => void) => {
     if (!sessionId) return () => undefined;
     return store.subscribe(notify);
   }, [sessionId, store]);
   return React.useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+};
+
+const sameStoredFailure = (cached: NonNullable<StoredFailure>, next: NonNullable<StoredFailure>) =>
+  cached.outcome === next.outcome && cached.parentToolError === next.parentToolError;
+
+const useStoredFailure = (sessionId: string, directory?: string): StoredFailure => {
+  const read = React.useCallback((state: DirectoryState): StoredFailure => {
+    const session = state.session.find((candidate) => candidate.id === sessionId);
+    if (!session || !isFailedOutcome(session.outcome)) return null;
+    const parent = session.parentID
+      ? state.session.find((candidate) => candidate.id === session.parentID)
+      : undefined;
+    return {
+      outcome: session.outcome,
+      parentToolError: findParentToolError(parent, state.message, state.part, sessionId),
+    };
+  }, [sessionId]);
+  return useSessionSnapshot(sessionId, directory, read, sameStoredFailure);
 };
 
 // The last conversation message of a session, with whether it already carries
@@ -88,28 +110,15 @@ const useStoredFailure = (sessionId: string, directory?: string): StoredFailure 
 // v2 plumbing roles (synthetic prompts, skill/shell records, agent/model
 // switches) are transparent here — one of them arriving after an unanswered
 // prompt must not hide the "no reply" notice.
+const sameLastMessage = (cached: NonNullable<LastMessageState>, next: NonNullable<LastMessageState>) =>
+  cached.role === next.role && cached.timestamp === next.timestamp && cached.hasError === next.hasError;
+
 const useLastMessageState = (sessionId: string, directory?: string): LastMessageState => {
-  const store = useDirectoryStore(directory);
-  const cacheRef = React.useRef<LastMessageState>(null);
-  const getSnapshot = React.useCallback((): LastMessageState => {
-    if (!sessionId) return null;
-    const next = readLastMessageState(getLastConversationMessage(store.getState().message[sessionId]));
-    if (!next) {
-      cacheRef.current = null;
-      return null;
-    }
-    const cached = cacheRef.current;
-    if (cached && cached.role === next.role && cached.timestamp === next.timestamp && cached.hasError === next.hasError) {
-      return cached;
-    }
-    cacheRef.current = next;
-    return next;
-  }, [sessionId, store]);
-  const subscribe = React.useCallback((notify: () => void) => {
-    if (!sessionId) return () => undefined;
-    return store.subscribe(notify);
-  }, [sessionId, store]);
-  return React.useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+  const read = React.useCallback(
+    (state: DirectoryState): LastMessageState => readLastMessageState(getLastConversationMessage(state.message[sessionId])),
+    [sessionId],
+  );
+  return useSessionSnapshot(sessionId, directory, read, sameLastMessage);
 };
 
 /**

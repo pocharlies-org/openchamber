@@ -67,7 +67,7 @@ describe('checked-in SDK examples', () => {
     const temporary = await mkdtemp(path.join(tmpdir(), 'oc-example-bundles-'));
     try {
     for (const entry of ['hello-kit/panel/main', 'hello-kit/background/main', 'github-token/panel/main', 'config-editor/panel/main', 'service-echo/panel/main',
-      'service-echo/service/main', 'browser-provider-stub/service/main', 'browser-provider-stub/panel/main', 'tools-only/mcp', 'tasks-demo/panel/main', 'tasks-demo/panel/attach', 'tasks-demo/panel/page',
+      'service-echo/service/main', 'browser-provider-stub/service/main', 'browser-provider-stub/panel/main', 'tools-only/mcp', 'tasks-demo/panel/main', 'tasks-demo/panel/attach',
       'git-graph-status/status/main', 'git-graph-status/service/main', 'checklist-editor/editor/main']) {
       const node = entry.includes('/service/') || entry === 'tools-only/mcp';
       const output = path.join(temporary, 'bundle.js');

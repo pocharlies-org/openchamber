@@ -6,21 +6,11 @@ import { I18nProvider } from '@/lib/i18n';
 import { replaceGlobalSessionStatusById } from '@/sync/global-session-status';
 import { useNotificationStore } from '@/sync/notification-store';
 import { SessionSidebarFolderItem } from './SessionSidebarFolderItem';
+import { installWindowGlobals } from '@/test-utils/happyWindowGlobals';
 
 test('a collapsed virtual folder shows live and unread descendants without mounting them', async () => {
   const dom = new Window({ url: 'http://localhost' });
-  const originals = new Map<string, PropertyDescriptor | undefined>();
-  for (const [name, value] of Object.entries({
-    window: dom, document: dom.document, navigator: dom.navigator,
-    Node: dom.Node, Element: dom.Element, HTMLElement: dom.HTMLElement,
-    MutationObserver: dom.MutationObserver, ResizeObserver: dom.ResizeObserver,
-    getComputedStyle: dom.getComputedStyle.bind(dom),
-    requestAnimationFrame: dom.requestAnimationFrame.bind(dom),
-    cancelAnimationFrame: dom.cancelAnimationFrame.bind(dom), IS_REACT_ACT_ENVIRONMENT: true,
-  })) {
-    originals.set(name, Object.getOwnPropertyDescriptor(globalThis, name));
-    Object.defineProperty(globalThis, name, { configurable: true, writable: true, value });
-  }
+  const restoreGlobals = installWindowGlobals(dom);
   const { createRoot } = await import('react-dom/client');
   const container = document.createElement('div');
   document.body.append(container);
@@ -64,27 +54,13 @@ test('a collapsed virtual folder shows live and unread descendants without mount
     useNotificationStore.setState(originalNotifications);
     container.remove();
     await dom.happyDOM.abort();
-    for (const [name, descriptor] of originals) {
-      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
-      else Reflect.deleteProperty(globalThis, name);
-    }
+    restoreGlobals();
   }
 });
 
 test('the folder "+" offers the tool choice only when a Claude target is wired', async () => {
   const dom = new Window({ url: 'http://localhost' });
-  const originals = new Map<string, PropertyDescriptor | undefined>();
-  for (const [name, value] of Object.entries({
-    window: dom, document: dom.document, navigator: dom.navigator,
-    Node: dom.Node, Element: dom.Element, HTMLElement: dom.HTMLElement,
-    MutationObserver: dom.MutationObserver, ResizeObserver: dom.ResizeObserver,
-    getComputedStyle: dom.getComputedStyle.bind(dom),
-    requestAnimationFrame: dom.requestAnimationFrame.bind(dom),
-    cancelAnimationFrame: dom.cancelAnimationFrame.bind(dom), IS_REACT_ACT_ENVIRONMENT: true,
-  })) {
-    originals.set(name, Object.getOwnPropertyDescriptor(globalThis, name));
-    Object.defineProperty(globalThis, name, { configurable: true, writable: true, value });
-  }
+  const restoreGlobals = installWindowGlobals(dom);
   const { createRoot } = await import('react-dom/client');
   const container = document.createElement('div');
   document.body.append(container);
@@ -121,9 +97,6 @@ test('the folder "+" offers the tool choice only when a Claude target is wired',
     await act(async () => root.unmount());
     container.remove();
     await dom.happyDOM.abort();
-    for (const [name, descriptor] of originals) {
-      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
-      else Reflect.deleteProperty(globalThis, name);
-    }
+    restoreGlobals();
   }
 });

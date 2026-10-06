@@ -49,6 +49,23 @@ describe('POST /api/session fall-through to the OpenCode proxy', () => {
 
 const NO_OVERLAY = { readFile: async () => { throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' }); } };
 
+/** An SDK whose `query` records the options it was opened with and answers each prompt, replayed, then a result. */
+const recordingQueriesSdk = (queries) => ({
+  listSessions: async () => [],
+  getSessionMessages: async () => [],
+  getSessionInfo: async () => null,
+  renameSession: async () => {},
+  query: ({ prompt, options }) => {
+    queries.push(options);
+    return (async function* stream() {
+      for await (const message of prompt) {
+        yield { ...message, isReplay: true };
+        yield { type: 'result', is_error: false };
+      }
+    })();
+  },
+});
+
 const surfaceApp = ({ sdk = null, ...options } = {}) => {
   const app = express();
   const surface = createClaudeSurface({
@@ -752,21 +769,7 @@ describe('Claude Code asking the user: permissions, questions, plan approval', (
 
   it('switches the mode from the mode menu, ignores OpenCode\'s agent, and refuses an unknown mode', async () => {
     const queries = [];
-    const sdk = {
-      listSessions: async () => [],
-      getSessionMessages: async () => [],
-      getSessionInfo: async () => null,
-      renameSession: async () => {},
-      query: ({ prompt, options }) => {
-        queries.push(options);
-        return (async function* stream() {
-          for await (const message of prompt) {
-            yield { ...message, isReplay: true };
-            yield { type: 'result', is_error: false };
-          }
-        })();
-      },
-    };
+    const sdk = recordingQueriesSdk(queries);
     const { app } = surfaceApp({ sdk });
     expect((await request(app).post('/api/session/ses_cccsess-1/agent').send({ agent: 'plan' })).status).toBe(204);
     expect((await request(app).post('/api/session/ses_cccsess-1/claude/mode').send({ mode: 'nope' })).status).toBe(400);
@@ -845,22 +848,6 @@ describe('POST /api/session with a picked start', () => {
     throw new Error('timed out');
   };
 
-  const recordingSdk = (queries) => ({
-    listSessions: async () => [],
-    getSessionMessages: async () => [],
-    getSessionInfo: async () => null,
-    renameSession: async () => {},
-    query: ({ prompt, options }) => {
-      queries.push(options);
-      return (async function* stream() {
-        for await (const message of prompt) {
-          yield { ...message, isReplay: true };
-          yield { type: 'result', is_error: false };
-        }
-      })();
-    },
-  });
-
   const create = async (app, claude) => {
     const response = await request(app).post('/api/session').send({
       metadata: claude ? { backend: 'claude', claude } : { backend: 'claude' },
@@ -873,7 +860,7 @@ describe('POST /api/session with a picked start', () => {
   it('runs the first turn on what the dialog picked for the session', async () => {
     const queries = [];
     const { app } = surfaceApp({
-      sdk: recordingSdk(queries),
+      sdk: recordingQueriesSdk(queries),
       // OpenChamber's defaults say otherwise; the pick for this session wins.
       readAppSettings: async () => ({ claudeDefaultModel: 'haiku', claudeDefaultEffort: 'max', claudeDefaultMode: 'auto' }),
     });
@@ -887,7 +874,7 @@ describe('POST /api/session with a picked start', () => {
   it('runs the first turn on the OpenChamber defaults when nothing was picked', async () => {
     const queries = [];
     const { app } = surfaceApp({
-      sdk: recordingSdk(queries),
+      sdk: recordingQueriesSdk(queries),
       readAppSettings: async () => ({ claudeDefaultModel: 'haiku', claudeDefaultEffort: 'max', claudeDefaultMode: 'auto' }),
     });
 
@@ -899,7 +886,7 @@ describe('POST /api/session with a picked start', () => {
 
   it('drops a picked mode the host does not offer instead of starting on it', async () => {
     const queries = [];
-    const { app } = surfaceApp({ sdk: recordingSdk(queries) });
+    const { app } = surfaceApp({ sdk: recordingQueriesSdk(queries) });
 
     const sessionId = await create(app, { model: 'sonnet', mode: 'bypassPermissions' });
     await request(app).post(`/api/session/${sessionId}/prompt`).send({ id: 'msg_s3', text: 'go' });

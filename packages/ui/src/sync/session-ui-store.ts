@@ -18,7 +18,7 @@ import type { Metadata, ModelRef, Part, Session, TextPart } from "@/lib/opencode
 import type { AttachedFile, SessionContextUsage, SessionWorktreeAttachment } from "@/stores/types/sessionTypes"
 import type { PermissionMode } from "@/stores/utils/permissionAutoAccept"
 import type { WorktreeMetadata } from "@/types/worktree"
-import { opencodeClient, type SkillMentions } from "@/lib/opencode/client"
+import { opencodeClient, type SkillMentions, type SyntheticContextInput } from "@/lib/opencode/client"
 import { buildSkillMentionInstruction } from "@/lib/skillMentionInstruction"
 import { runtimeFetch } from "@/lib/runtime-fetch"
 import { useConfigStore } from "@/stores/useConfigStore"
@@ -224,6 +224,19 @@ export async function routeMessage(params: {
   }
   const contextFiles = (params.additionalParts ?? []).flatMap((part) => part.files ?? [])
   const sendFiles = [...(params.files ?? []), ...contextFiles]
+  const sendCommandWithContext = (cmdName: string, tail: string[], commandContext: SyntheticContextInput[]) =>
+    opencodeClient.sendCommand({
+      runtimeKey: params.runtimeKey,
+      id: params.sessionId,
+      model: selection.model,
+      agent: selection.agent,
+      command: cmdName,
+      arguments: tail.join(" "),
+      files: sendFiles,
+      context: commandContext.length > 0 ? commandContext : undefined,
+      delivery: params.delivery,
+      directory: requestDirectory,
+    })
   // The engine that owns the session decides how a message travels
   // (lib/sessionEngine.ts): OpenCode resolves commands and skills itself;
   // Claude Code gets every `/name` as its own command and has no shell.
@@ -247,18 +260,7 @@ export async function routeMessage(params: {
       const commandContext = (params.additionalParts ?? [])
         .filter((part) => part.systemContext !== "session-knowledge" && part.text.trim().length > 0)
         .map((part) => ({ text: part.text, metadata: part.metadata }))
-      await opencodeClient.sendCommand({
-        runtimeKey: params.runtimeKey,
-        id: params.sessionId,
-        model: selection.model,
-        agent: selection.agent,
-        command: cmdName,
-        arguments: tail.join(" "),
-        files: sendFiles,
-        context: commandContext.length > 0 ? commandContext : undefined,
-        delivery: params.delivery,
-        directory: requestDirectory,
-      })
+      await sendCommandWithContext(cmdName, tail, commandContext)
       return 'engine-command'
     }
   }
@@ -325,18 +327,7 @@ export async function routeMessage(params: {
       // through the stream instead.
       params.appendSubmissions?.()
       const commandContext = [...contextItems, ...skillInstructionContext()]
-      await opencodeClient.sendCommand({
-        runtimeKey: params.runtimeKey,
-        id: params.sessionId,
-        model: selection.model,
-        agent: selection.agent,
-        command: cmdName,
-        arguments: tail.join(" "),
-        files: sendFiles,
-        context: commandContext.length > 0 ? commandContext : undefined,
-        delivery: params.delivery,
-        directory: requestDirectory,
-      })
+      await sendCommandWithContext(cmdName, tail, commandContext)
       return 'command'
     }
 
