@@ -33,8 +33,27 @@ const lines = (text) => (text ? text.split('\n') : []);
 
 const commitLine = (cwd, sha) => git(cwd, ['log', '-1', '--format=%h %s', sha]);
 
-/** Newest `vX.Y.Z` tag first; prereleases are not sync targets. */
-const releaseTags = (cwd, args) => lines(git(cwd, ['tag', '--sort=-v:refname', '-l', 'v[0-9]*', ...args])).filter((t) => RELEASE_TAG.test(t));
+// Everything fetched from upstream lives in its own namespace, so what counts as
+// "upstream" never depends on the fork's branches or on tags the fork made itself.
+const UPSTREAM_TAGS = 'refs/upstream/tags';
+const UPSTREAM_HEAD = 'refs/upstream/head';
+
+/** Newest `vX.Y.Z` upstream tag first; prereleases are not sync targets. */
+const releaseTags = (cwd, args = []) =>
+  lines(git(cwd, ['for-each-ref', '--sort=-v:refname', '--format=%(refname:strip=3)', ...args, UPSTREAM_TAGS])).filter((t) => RELEASE_TAG.test(t));
+
+/**
+ * The fork's own commits: reachable from the target, from nothing upstream (any
+ * tag, or its default branch: a merge -s ours can pull in unreleased upstream
+ * work), and not carried by an earlier sync. After a sync PR is merged with a
+ * merge commit the target holds both the old own commits and their cherry-picks;
+ * the first parent of that merge is the old line, so it is excluded.
+ */
+const ownCommits = (cwd, targetRef) => {
+  const [previousLine] = git(cwd, ['log', '--merges', '--first-parent', '-1', '--grep=sync/upstream-', '--format=%P', targetRef]).split(' ');
+  const carried = previousLine ? [`^${previousLine}`] : [];
+  return lines(git(cwd, ['rev-list', '--reverse', '--no-merges', targetRef, ...carried, '--not', UPSTREAM_HEAD, `--glob=${UPSTREAM_TAGS}/*`]));
+};
 
 const renderReport = ({ status, tag, baseTag, target, branch, applied, conflict, remaining, touchesWorkflows }) => {
   const out = [`# Sync de upstream a ${tag}`, '', `Rama propia: \`${target}\` · tag actual: \`${baseTag}\` · tag nuevo: \`${tag}\``, ''];
@@ -58,21 +77,21 @@ export const runSync = ({ repoDir, target = 'main', upstreamUrl, upstreamRef = '
     throw new Error(`invalid target or upstream ref: ${target} ${upstreamRef}`);
   }
   const targetRef = `origin/${target}`;
-  git(repoDir, ['fetch', '--no-tags', upstreamUrl, '+refs/tags/*:refs/tags/*']);
+  git(repoDir, ['fetch', '--no-tags', upstreamUrl, `+refs/tags/*:${UPSTREAM_TAGS}/*`, `+HEAD:${UPSTREAM_HEAD}`]);
 
+  const allTags = releaseTags(repoDir);
   const baseTag = releaseTags(repoDir, ['--merged', targetRef])[0];
-  const tag = upstreamRef || releaseTags(repoDir, [])[0];
-  if (!baseTag || !tag) throw new Error('no upstream release tag found');
+  const tag = upstreamRef || allTags[0];
+  if (!baseTag || !tag || !allTags.includes(tag)) throw new Error(`no upstream release tag found (base ${baseTag}, wanted ${tag})`);
   const branch = `sync/upstream-${tag}`;
   const result = { tag, baseTag, branch, applied: [], touchesWorkflows: false };
 
-  const isNewer = baseTag !== tag && git(repoDir, ['tag', '--sort=-v:refname', '-l', baseTag, tag]).split('\n')[0] === tag;
-  if (!isNewer) {
+  if (allTags.indexOf(tag) >= allTags.indexOf(baseTag)) {
     return { ...result, status: 'up-to-date', report: `# Sync de upstream\n\n\`${target}\` ya contiene \`${baseTag}\`; nada que sincronizar.\n` };
   }
 
-  const own = lines(git(repoDir, ['rev-list', '--reverse', '--no-merges', `${baseTag}..${targetRef}`]));
-  git(repoDir, ['checkout', '-q', '-B', branch, tag]);
+  const own = ownCommits(repoDir, targetRef);
+  git(repoDir, ['checkout', '-q', '-B', branch, `${UPSTREAM_TAGS}/${tag}`]);
   for (const [index, sha] of own.entries()) {
     try {
       git(repoDir, [...IDENTITY, 'cherry-pick', '--allow-empty', '--keep-redundant-commits', '-x', sha]);

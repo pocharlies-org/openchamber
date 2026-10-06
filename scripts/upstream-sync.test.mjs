@@ -22,7 +22,7 @@ const commit = (cwd, file, content, message) => {
 };
 
 /** upstream: v1.0.0 -> v1.1.0 (rewrites a.txt line, touches a workflow when asked). fork: clone with own commits. */
-const makeFixture = (name, { ownEdits, upstreamWorkflow = false }) => {
+const makeFixture = (name, { ownEdits, upstreamWorkflow = false, pullUnreleased = false }) => {
   const upstream = path.join(root, `${name}-upstream`);
   const fork = path.join(root, `${name}-fork`);
   mkdirSync(upstream);
@@ -32,10 +32,21 @@ const makeFixture = (name, { ownEdits, upstreamWorkflow = false }) => {
   commit(upstream, 'a.txt', 'one\nTWO upstream\nthree\n', 'upstream: edit two');
   if (upstreamWorkflow) commit(upstream, '.github/workflows/ci.yml', 'name: ci\n', 'upstream: workflow');
   git(upstream, 'tag', 'v1.1.0');
-  git(upstream, 'checkout', '-q', 'v1.0.0');
+  let unreleased;
+  if (pullUnreleased) {
+    // main moves past v1.1.0; the next tag comes from a hotfix branch that does not contain that work
+    commit(upstream, 'unreleased.txt', 'x\n', 'upstream: unreleased');
+    unreleased = git(upstream, 'rev-parse', 'HEAD');
+    git(upstream, 'checkout', '-q', '-b', 'hotfix', 'v1.1.0');
+    commit(upstream, 'hotfix.txt', 'h\n', 'upstream: hotfix');
+    git(upstream, 'tag', 'v1.1.1');
+    git(upstream, 'checkout', '-q', 'main');
+  }
   git(root, 'clone', '-q', upstream, fork);
   git(fork, 'checkout', '-q', '-B', 'main', 'v1.0.0');
   for (const [file, content, message] of ownEdits) commit(fork, file, content, message);
+  // merge -s ours: the fork takes upstream's unreleased history without its content
+  if (pullUnreleased) git(fork, 'merge', '-q', '-s', 'ours', unreleased, '-m', 'merge: upstream unreleased (ours)');
   git(fork, 'update-ref', 'refs/remotes/origin/main', 'main'); // the workflow checkout has origin/<target>
   git(fork, 'tag', '-d', 'v1.1.0'); // the fork has not seen the new tag yet
   return { upstream, fork };
@@ -54,8 +65,42 @@ describe('upstream-sync', () => {
     assert.equal(result.tag, 'v1.1.0');
     assert.equal(result.applied.length, 2);
     assert.equal(result.touchesWorkflows, false);
-    git(fork, 'merge-base', '--is-ancestor', 'v1.1.0', result.branch);
+    git(fork, 'merge-base', '--is-ancestor', 'refs/upstream/tags/v1.1.0', result.branch);
     assert.match(result.report, /own: add b/);
+  });
+
+  it('does not treat upstream commits pulled in with merge -s ours as own', () => {
+    const { upstream, fork } = makeFixture('ours', { ownEdits: clean, pullUnreleased: true });
+    const result = runSync({ repoDir: fork, upstreamUrl: upstream });
+    assert.equal(result.status, 'clean');
+    assert.equal(result.tag, 'v1.1.1');
+    assert.deepEqual(result.applied.map((c) => c.slice(8)), ['own: add b', 'own: add c']);
+  });
+
+  it('ignores a fork-made tag that looks like a release', () => {
+    const { upstream, fork } = makeFixture('forktag', { ownEdits: clean });
+    git(fork, 'tag', 'v9.9.9', 'main');
+    const result = runSync({ repoDir: fork, upstreamUrl: upstream });
+    assert.equal(result.tag, 'v1.1.0');
+    assert.equal(result.baseTag, 'v1.0.0');
+  });
+
+  it('a second sync after the first PR was merged carries each own commit once', () => {
+    const { upstream, fork } = makeFixture('second', { ownEdits: clean });
+    const first = runSync({ repoDir: fork, upstreamUrl: upstream });
+    assert.equal(first.status, 'clean');
+    // the sync PR lands as a merge commit, as docs/upstream-sync.md requires
+    git(fork, 'checkout', '-q', 'main');
+    git(fork, 'merge', '-q', '--no-ff', first.branch, '-m', `Merge pull request #1 from fork/${first.branch}`);
+    git(fork, 'update-ref', 'refs/remotes/origin/main', 'main');
+    commit(upstream, 'a.txt', 'one\nTWO upstream\nthree\nfour\n', 'upstream: edit four');
+    git(upstream, 'tag', 'v1.2.0');
+
+    const second = runSync({ repoDir: fork, upstreamUrl: upstream });
+    assert.equal(second.status, 'clean');
+    assert.equal(second.tag, 'v1.2.0');
+    assert.deepEqual(second.applied.map((c) => c.slice(8)), ['own: add b', 'own: add c']);
+    assert.equal(git(fork, 'rev-list', '--count', 'refs/upstream/tags/v1.2.0..' + second.branch), '2');
   });
 
   it('flags a tag that changes workflows so the run does not push', () => {
