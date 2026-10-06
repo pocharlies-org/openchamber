@@ -67,6 +67,7 @@ describe('upstream-sync', () => {
     assert.equal(result.touchesWorkflows, false);
     git(fork, 'merge-base', '--is-ancestor', 'refs/upstream/tags/v1.1.0', result.branch);
     assert.match(result.report, /own: add b/);
+    assert.match(result.report, /merge commit o rebase, nunca squash/);
   });
 
   it('does not treat upstream commits pulled in with merge -s ours as own', () => {

@@ -48,8 +48,10 @@ jobs:
       # donde upstream registra cada diccionario con un import y un spread
       # idénticos; nuestro registro de claude-parity es una línea más en ese
       # bloque espejo y no se puede refactorizar sin rediseñar el registro.
-      # Rutas concretas, sin patrones. Retirar esta lista en la primera PR
-      # tras fusionar la pila: desde entonces ya están en el tronco.
+      # Rutas concretas, sin patrones. Retirada: DGX-631 (primera PR tras
+      # fusionar la pila: desde entonces ya están en el tronco). La única
+      # edición permitida de esta lista es retirarla: solo se retira, no se
+      # añaden rutas.
       ignorar: >-
         packages/electron/early-startup.mjs,
         packages/electron/main.mjs,

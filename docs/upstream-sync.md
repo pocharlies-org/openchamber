@@ -26,6 +26,12 @@ conflict still fails the run), `target` (branch carrying the stack) and
 `upstream_ref`. Never `pull_request`: the job has write permissions.
 Re-running for a tag whose branch is already on `origin` does nothing.
 
+## Merging a sync PR
+
+Merge commit or rebase, never squash. The next run tells what was already carried by the
+`(cherry picked from commit …)` lines in the commits; a squash folds them into one message
+and the old commits would be carried again. The PR description says so.
+
 ## Decision: report-only when the tag touches workflows (2026-10-06)
 
 `GITHUB_TOKEN` cannot push commits that change `.github/workflows/`. When the diff

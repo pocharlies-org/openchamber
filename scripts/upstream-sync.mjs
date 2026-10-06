@@ -69,6 +69,7 @@ const renderReport = ({ status, tag, baseTag, target, branch, applied, conflict,
     if (remaining.length) out.push('Commits propios sin aplicar (tras el conflicto):', ...remaining.map((c) => `- ${c}`), '');
   }
   out.push(`## Commits propios aplicados (${applied.length})`, '', ...(applied.length ? applied.map((c) => `- ${c}`) : ['- ninguno']), '');
+  if (status === 'clean') out.push('## Cómo fusionar', '', 'Fusionar con merge commit o rebase, nunca squash: el siguiente sync reconoce lo ya llevado por los `(cherry picked from commit …)` de estos commits, y un squash los pierde.', '');
   if (status === 'clean' && touchesWorkflows) {
     out.push('## Sin push automático', '', `El diff de \`${baseTag}..${tag}\` toca \`.github/workflows\` y \`GITHUB_TOKEN\` no puede empujarlo. La rama \`${branch}\` se ha construido sin conflictos pero no se ha publicado: ver docs/upstream-sync.md.`, '');
   }
