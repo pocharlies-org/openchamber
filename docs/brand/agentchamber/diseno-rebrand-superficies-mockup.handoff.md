@@ -6,7 +6,7 @@ Este handoff sustituye al del 2026-10-03. El canvas sigue siendo de baja fidelid
 
 ## Dónde está
 
-- **Canvas**: `docs/brand/agentchamber/diseno-rebrand-superficies-mockup.dc.html`, en la rama `designer/DGX-514-assets` (PR en borrador contra `main`). Hay una copia adjunta a DGX-513 con el mismo nombre. Se abre en el editor de Claude Design o en cualquier navegador. Para ver el otro tema, cambia `data-theme` del `<x-dc>` raíz.
+- **Canvas**: `docs/brand/agentchamber/diseno-rebrand-superficies-mockup.dc.html`, en la rama `designer/DGX-514-assets` (PR en borrador #116 contra `main`: https://github.com/pocharlies-org/openchamber/pull/116). Hay una copia adjunta a DGX-513 con el mismo nombre. Se abre en el editor de Claude Design o en cualquier navegador. Para ver el otro tema, cambia `data-theme` del `<x-dc>` raíz.
 - **Assets**: en sus **rutas finales**, en la misma rama. No hay carpeta intermedia de la que copiar. Para llevarlos a tu rama:
   `git fetch origin && git checkout origin/designer/DGX-514-assets -- packages/electron/resources/icons packages/web/public packages/mobile docs/brand`
 - **Regenerarlos** (si hay que tocar el icono): `bun install`, luego `node docs/brand/agentchamber/build-icons.mjs` desde la raíz. Usa `sharp`, que ya es dependencia de la raíz. Hay una sola geometría para todos los ficheros. `Assets.car` (macOS 26) sale aparte, en un Mac: `bun run --cwd packages/electron generate:macos-icon`. El de la rama ya está compilado con `actool` de Xcode (2026-10-06).
