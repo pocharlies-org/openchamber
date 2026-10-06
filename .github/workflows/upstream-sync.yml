@@ -22,9 +22,11 @@ on:
         type: string
         default: main
       upstream_ref:
-        description: 'Tag a sincronizar (vacio = el ultimo vX.Y.Z de upstream)'
+        description: 'Tag a sincronizar (vX.Y.Z)'
         type: string
-        default: ''
+        # Fijado hasta decidir el producto (chat lateral propio frente al de
+        # upstream): con v2.1.1 el sync entra en conflicto real. docs/upstream-sync.md.
+        default: v2.1.0
 
 concurrency:
   group: upstream-sync
@@ -42,7 +44,8 @@ jobs:
       pull-requests: write
     env:
       SYNC_TARGET: ${{ inputs.target || 'main' }}
-      SYNC_UPSTREAM_REF: ${{ inputs.upstream_ref }}
+      # El cron no tiene inputs: ahi manda el mismo tag fijado que el default de arriba.
+      SYNC_UPSTREAM_REF: ${{ inputs.upstream_ref || 'v2.1.0' }}
       GH_TOKEN: ${{ github.token }}
       # El cron no tiene inputs: ahi dry_run es false.
       DRY_RUN: ${{ inputs.dry_run && 'true' || 'false' }}
@@ -76,8 +79,9 @@ jobs:
         run: node scripts/upstream-sync.mjs publish-pr
 
       # Conflicto, o tag que toca .github/workflows (GITHUB_TOKEN no lo empuja):
-      # el issue lleva el informe y nadie queda sin enterarse.
-      - name: Abrir issue
+      # el informe sale como issue y, con issues desactivados o si falla, como
+      # PR; el resumen del run lo lleva siempre. No depende de una funcion del repo.
+      - name: Publicar el informe
         if: always() && (steps.sync.outputs.status == 'conflict' || (steps.sync.outputs.status == 'clean' && steps.sync.outputs.pushable != 'true')) && env.DRY_RUN != 'true'
         env:
           SYNC_TAG: ${{ steps.sync.outputs.tag }}

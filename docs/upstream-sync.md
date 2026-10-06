@@ -7,7 +7,7 @@ each new tag; the logic lives in `scripts/upstream-sync.mjs` and is tested in
 
 ## What a run does
 
-1. Fetches upstream tags and finds the newest `vX.Y.Z` tag (or `upstream_ref`).
+1. Fetches upstream tags and syncs to `upstream_ref` (pinned, see below; without one it would take the newest `vX.Y.Z`).
 2. Takes the own commits: reachable from `origin/<target>`, from no upstream tag and not
    from upstream's default branch (so work pulled in with `merge -s ours` is never "own"),
    and not already carried by an earlier sync: `cherry-pick -x` leaves
@@ -17,8 +17,36 @@ each new tag; the logic lives in `scripts/upstream-sync.mjs` and is tested in
    `refs/upstream/*`, so fork-made tags never count as releases.
 3. Builds `sync/upstream-<tag>` at the new tag and cherry-picks them in order.
 4. Clean: pushes the branch and opens a PR against `main` listing every applied commit.
-5. Conflict: aborts, deletes the local branch, **the run ends in `failure`**, and an
-   issue lists the conflicting files, the commits applied before it and the ones left.
+5. Conflict: aborts, deletes the local branch, **the run ends in `failure`**, and the
+   report lists the conflicting files, the commits applied before it and the ones left.
+
+## Where the report goes
+
+The report never depends on a repository feature being on. It always goes to the run
+summary (`$GITHUB_STEP_SUMMARY`) and, outside a dry run, to the first of these that works:
+
+1. an **issue** (`Sync de upstream <tag>: conflicto` / `push manual`; a second run comments
+   on the open one);
+2. a **pull request**, when issues are disabled or the call fails: a comment on the open
+   `sync/upstream-<tag>` PR, else on the open `sync/upstream-<tag>-report` PR, else a new
+   draft PR from `sync/upstream-<tag>-report` (the target plus one empty commit, since a
+   conflicted sync leaves no branch of its own).
+
+If neither works the step fails and the summary still has the report. A conflict fails the
+run in any case, so a missing report is never a green run. This repository has issues
+disabled today (found by qa on the first dry run), so path 2 is the live one until the CTO
+asks for them in the repository settings. Opening the sync PR needs "Allow GitHub Actions
+to create pull requests"; if that setting is off, the branch is pushed, the step fails with
+the reason, and the summary has the report.
+
+## Pinned tag
+
+`upstream_ref` defaults to **v2.1.0** in `workflow_dispatch` and in the cron, so the sync
+reports "up to date" until the product call is made: syncing to v2.1.1 conflicts for real
+(14 files, first own commit `declarative side conversations`) because the fork's own side
+chat and upstream's `/btw` overlap. Moving the pin is a one-line change in two places of
+`upstream-sync.yml` once that is decided. To see the conflict report on demand:
+`workflow_dispatch` with `upstream_ref: v2.1.1`.
 
 Triggers: Monday 05:17 UTC (`schedule`) and `workflow_dispatch`. Dispatch inputs:
 `dry_run` (default true: report in the run summary, no push, no PR, no issue; a
@@ -36,7 +64,7 @@ and the old commits would be carried again. The PR description says so.
 
 `GITHUB_TOKEN` cannot push commits that change `.github/workflows/`. When the diff
 of the new branch against `main` touches that folder, the run **builds the branch,
-does not push it, and opens an issue** with the report. Someone pushes the branch
+does not push it, and publishes the report** (see above). Someone pushes the branch
 by hand (`git fetch`, then push `sync/upstream-<tag>` as the same name) after reading it.
 
 Why not a GitHub App token now: it needs a secret in `environment: upstream-sync`
