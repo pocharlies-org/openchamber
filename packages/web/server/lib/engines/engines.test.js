@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import express from 'express';
 import request from 'supertest';
 import { describe, expect, it } from 'vitest';
@@ -18,6 +19,27 @@ describe('engine declarations', () => {
     const claude = ENGINES.claude.capabilities;
     expect(claude).toMatchObject({ prompt: true, fork: true, forkAtMessage: true, compact: true, metadata: true, shell: false, revert: false, move: false, goals: false });
     expect(claude).toMatchObject({ models: 'catalog', agents: 'modes', commands: 'prompt' });
+  });
+});
+
+describe('parity', () => {
+  const rows = readFileSync(new URL('../../../../../docs/agent-parity.md', import.meta.url), 'utf8')
+    .split('\n')
+    .filter((line) => line.startsWith('| `'))
+    .map((line) => line.split('|').slice(1, -1).map((cell) => cell.trim()));
+  const byFeature = new Map(rows.map(([feature, , , status, reason]) => [feature.replaceAll('`', ''), { status, reason }]));
+
+  it('every Claude capability that is false has a GAP row with a reason or a linked issue', () => {
+    for (const [feature, value] of Object.entries(ENGINES.claude.capabilities)) {
+      const row = byFeature.get(feature);
+      expect(row, feature).toBeDefined();
+      expect(row.status, feature).toBe(value === false ? 'GAP' : 'OK');
+      if (value === false) expect(row.reason, feature).toMatch(/^Motivo: \S|https:\/\/\S+/);
+    }
+  });
+
+  it('declares only the engines that have an implementation', () => {
+    expect(Object.keys(ENGINES)).toEqual(['opencode', 'claude']);
   });
 });
 
