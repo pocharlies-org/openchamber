@@ -1,16 +1,1 @@
-<svg width="180" height="180" viewBox="0 0 180 180" xmlns="http://www.w3.org/2000/svg">
-  <!-- OpenChamber logo - simplified, no background (for iOS) -->
-  <g transform="translate(90, 90) scale(1.4)">
-    <!-- Left face - simplified, no grid cells -->
-    <path d="M0 0 L-41.568 -24 L-41.568 24 L0 48 Z" fill="white" fill-opacity="0.2" stroke="white" stroke-width="3" stroke-linejoin="round"/>
-    <!-- Right face - simplified, no grid cells -->
-    <path d="M0 0 L41.568 -24 L41.568 24 L0 48 Z" fill="white" fill-opacity="0.35" stroke="white" stroke-width="3" stroke-linejoin="round"/>
-    <!-- Top face - open -->
-    <path d="M0 -48 L-41.568 -24 L0 0 L41.568 -24 Z" fill="none" stroke="white" stroke-width="3" stroke-linejoin="round"/>
-    <!-- OpenCode logo on top face -->
-    <g transform="matrix(0.866, 0.5, -0.866, 0.5, 0, -24) scale(0.75)">
-      <path fill-rule="evenodd" clip-rule="evenodd" d="M-16 -20 L16 -20 L16 20 L-16 20 Z M-8 -12 L-8 12 L8 12 L8 -12 Z" fill="white"/>
-      <path d="M-8 -4 L8 -4 L8 12 L-8 12 Z" fill="white" fill-opacity="0.4"/>
-    </g>
-  </g>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="180" height="180" viewBox="0 0 180 180"><defs><linearGradient id="bgr" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#26262c"/><stop offset="1" stop-color="#101012"/></linearGradient></defs><rect width="180" height="180" fill="url(#bgr)"/><path d="M90 90 L44.79 63.9 L44.79 116.1 L90 142.2 Z" fill="#ffffff" fill-opacity="0.16" stroke="#ffffff" stroke-width="3.6" stroke-linejoin="round"/><path d="M90 90 L135.21 63.9 L135.21 116.1 L90 142.2 Z" fill="#ffffff" fill-opacity="0.32" stroke="#ffffff" stroke-width="3.6" stroke-linejoin="round"/><defs><radialGradient id="g" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#ff5a1f" stop-opacity="0.55"/><stop offset="1" stop-color="#ff5a1f" stop-opacity="0"/></radialGradient><clipPath id="gc"><path d="M90 37.8 L44.79 63.9 L90 90 L135.21 63.9 Z"/></clipPath></defs><ellipse clip-path="url(#gc)" cx="90" cy="63.9" rx="45.21" ry="26.1" fill="url(#g)"/><path d="M90 37.8 L44.79 63.9 L90 90 L135.21 63.9 Z" fill="none" stroke="#ffffff" stroke-width="3.6" stroke-linejoin="round"/><path d="M90 50.85 L67.4 63.9 L90 76.95 L112.6 63.9 Z" fill="#ff5a1f"/></svg>

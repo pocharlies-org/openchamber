@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mockup · Rebrand AgentChamber · superficies, icono y primer arranque (rev. UX)</title>
+</head>
+<body>
+<x-dc data-theme="dark">
+<helmet data-dc-atomics>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{font-family:'Archivo',system-ui,-apple-system,sans-serif}
+/* ---- Tokens de la plantilla (dgx-infra k8s/apps/chat/tools/design_tokens_template.dc.html), sin tocar ---- */
+[data-theme="dark"]{--bg:#101012;--surface:#1b1b1f;--surface-2:#26262c;--text:#f2f2f2;--muted:#9a9aa2;--border:rgba(255,255,255,0.10);--accent:#ff5a1f;--accent-2:#e0440c}
+[data-theme="light"]{--bg:#f4f3ef;--surface:#ffffff;--surface-2:#eceae4;--text:#17171a;--muted:#6b6b70;--border:rgba(0,0,0,0.10);--accent:#ee4f0c;--accent-2:#cf440a}
+/* ---- Tokens extra: --on-accent ADOPTADO (UX lo midió: 6,09:1 oscuro / 4,91:1 claro; el blanco da 3,12:1).
+        Va a la plantilla por PR en dgx-infra; aquí se declara una vez hasta que se fusione. --danger sigue como propuesta. ---- */
+[data-theme="dark"]{--on-accent:var(--bg)}
+[data-theme="light"]{--on-accent:var(--text)}
+x-dc{--danger:#e5484d}
+
+/* ---- Lienzo: una fila por superficie ---- */
+.cv{display:block;min-height:100vh;background:var(--bg);color:var(--text);padding:40px 44px 80px;font:400 13px/1.5 'Archivo',sans-serif}
+.cv h1{font:700 24px/1.2 'Archivo',sans-serif;margin:0 0 4px}
+.cv h1 span{color:var(--accent)}
+.lead{color:var(--muted);max-width:96ch;margin:0 0 32px}
+.row{display:grid;grid-template-columns:240px 1fr;gap:24px;padding:28px 0;border-top:1px solid var(--border)}
+.side h2{font:700 15px/1.3 'Archivo',sans-serif;margin:0 0 6px}
+.side .k{font:600 11px/1 ui-monospace,Menlo,monospace;color:var(--accent);letter-spacing:.04em;text-transform:uppercase;margin-bottom:8px}
+.side p{color:var(--muted);margin:0 0 8px;font-size:12px}
+.side .fix{color:var(--text);border-left:3px solid var(--accent);padding-left:8px}
+.frame{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start}
+.col{display:flex;flex-direction:column;gap:10px}
+.cap{font:600 11px/1.3 ui-monospace,Menlo,monospace;color:var(--muted)}
+.t{font:700 14px/1.3 'Archivo',sans-serif}
+.m{color:var(--muted);font-size:12px}
+.flow{color:var(--muted);font:700 20px/1 'Archivo',sans-serif;align-self:center}
+.theme{background:var(--bg);color:var(--text);padding:12px;border-radius:10px}
+
+/* ---- Icono real: los ficheros entregados, embebidos tal cual (no es un hueco) ---- */
+.ic{display:inline-block;flex:none;background-position:center;background-repeat:no-repeat;background-size:contain}
+/* render rasterizado verificado, píxel a píxel: 1:1 y ampliado sin suavizar */
+.px{display:inline-block;flex:none;background-size:100% 100%;image-rendering:pixelated}
+.ph{display:inline-block;flex:none;background:var(--surface-2);border:1px solid var(--border);border-radius:22%}
+
+/* ---- Ventanas y chrome de SO, en cajas ---- */
+.win{background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;color:var(--text)}
+.tb{height:28px;display:flex;align-items:center;gap:6px;padding:0 10px;background:var(--surface-2);border-bottom:1px solid var(--border);font:600 11px/1 'Archivo',sans-serif;color:var(--muted)}
+.tb i{width:10px;height:10px;border-radius:50%;background:var(--border);flex:none}
+.tb b{margin:0 auto;font-weight:600}
+.body{padding:16px}
+.bar{height:8px;border-radius:4px;background:var(--surface-2);overflow:hidden}
+.bar span{display:block;height:100%;background:var(--accent)}
+.field{min-height:36px;border:1px solid var(--border);border-radius:8px;background:var(--bg);padding:9px 12px;color:var(--muted);font-size:12px}
+.phone{width:390px;flex:none;border:1px solid var(--border);border-radius:28px;overflow:hidden;background:var(--bg)}
+.sb{height:24px;display:flex;justify-content:space-between;align-items:center;padding:0 22px;font:600 11px/1 'Archivo',sans-serif;color:var(--text)}
+.hit{display:inline-grid;place-items:center;width:44px;height:44px;flex:none;border-radius:10px;color:var(--text);font:600 16px/1 'Archivo',sans-serif}
+.lbl{font-size:10px;line-height:1.2;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.taskbar{display:flex;align-items:center;justify-content:center;gap:4px;height:48px;padding:0 10px;background:var(--surface-2);border-top:1px solid var(--border)}
+.slot{position:relative;display:grid;place-items:center;width:40px;height:40px;border-radius:6px}
+.slot.on{background:var(--surface)}
+.slot .run{position:absolute;bottom:2px;left:50%;transform:translateX(-50%);height:3px;border-radius:2px;width:6px;background:var(--muted)}
+.slot .run.focus{width:16px;background:var(--accent)}
+.tip{display:inline-block;padding:4px 8px;border-radius:6px;background:var(--surface);border:1px solid var(--border);font-size:12px}
+
+/* ---- Botones y estados ---- */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:36px;padding:0 14px;border-radius:9px;border:1px solid var(--border);background:var(--surface-2);color:var(--text);font:600 13px/1 'Archivo',sans-serif;white-space:nowrap}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.btn.pri.is-hover{background:var(--accent-2);border-color:var(--accent-2)}
+.btn.is-hover{background:var(--bg)}
+.is-focus{outline:2px solid var(--accent);outline-offset:2px}
+.is-disabled{opacity:.45}
+/* táctil: iOS y web por debajo de 640 px (hallazgo UX) */
+.btn.touch{min-height:44px;font-size:15px;padding:0 18px}
+.btn.block{width:100%}
+.btn.ios{min-height:44px;border-radius:22px}
+.err{border:1px solid var(--danger);border-left-width:4px;border-radius:8px;padding:10px 12px;background:var(--surface)}
+.err .t{display:flex;gap:8px;align-items:center}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--danger);flex:none}
+.ok{color:var(--text);font-weight:600}
+
+/* ---- Anotaciones ---- */
+.pin{display:inline-grid;place-items:center;width:18px;height:18px;border-radius:50%;background:var(--accent);color:var(--on-accent);font:700 10px/1 'Archivo',sans-serif;flex:none;vertical-align:middle}
+.notes{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--muted);max-width:360px}
+.notes li{display:flex;gap:8px;align-items:flex-start}
+.notes code,.side code,.m code{font:600 11px ui-monospace,Menlo,monospace;color:var(--text)}
+.tag{display:inline-block;font:700 10px/1 ui-monospace,Menlo,monospace;padding:3px 6px;border-radius:4px;background:var(--surface-2);color:var(--text);border:1px solid var(--border)}
+.tag.res{border-color:var(--accent);color:var(--accent)}
+
+/* ---- Ficheros del icono (data URI): svg maestros y rasters verificados ---- */
+.ic-tile{background-image:url(data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDI0IiBoZWlnaHQ9IjEwMjQiIHZpZXdCb3g9IjAgMCAxMDI0IDEwMjQiPjxkZWZzPjxsaW5lYXJHcmFkaWVudCBpZD0iYmdyIiB4MT0iMCIgeTE9IjAiIHgyPSIwIiB5Mj0iMSI+PHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjMjYyNjJjIi8+PHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjMTAxMDEyIi8+PC9saW5lYXJHcmFkaWVudD48ZmlsdGVyIGlkPSJzaCIgeD0iLTIwJSIgeT0iLTIwJSIgd2lkdGg9IjE0MCUiIGhlaWdodD0iMTQwJSI+PGZlRHJvcFNoYWRvdyBkeD0iMCIgZHk9IjEyIiBzdGREZXZpYXRpb249IjE0IiBmbG9vZC1jb2xvcj0iIzAwMCIgZmxvb2Qtb3BhY2l0eT0iMC40NSIvPjwvZmlsdGVyPjwvZGVmcz48cmVjdCB4PSIxMDAiIHk9IjEwMCIgd2lkdGg9IjgyNCIgaGVpZ2h0PSI4MjQiIHJ4PSIxODUiIGZpbGw9InVybCgjYmdyKSIgZmlsdGVyPSJ1cmwoI3NoKSIvPjxwYXRoIGQ9Ik01MTIgNTEyIEwyNzMuODQgMzc0LjUgTDI3My44NCA2NDkuNSBMNTEyIDc4NyBaIiBmaWxsPSIjZmZmZmZmIiBmaWxsLW9wYWNpdHk9IjAuMTYiIHN0cm9rZT0iI2ZmZmZmZiIgc3Ryb2tlLXdpZHRoPSIxOCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPjxwYXRoIGQ9Ik01MTIgNTEyIEw3NTAuMTYgMzc0LjUgTDc1MC4xNiA2NDkuNSBMNTEyIDc4NyBaIiBmaWxsPSIjZmZmZmZmIiBmaWxsLW9wYWNpdHk9IjAuMzIiIHN0cm9rZT0iI2ZmZmZmZiIgc3Ryb2tlLXdpZHRoPSIxOCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPjxkZWZzPjxyYWRpYWxHcmFkaWVudCBpZD0iZyIgY3g9IjAuNSIgY3k9IjAuNSIgcj0iMC41Ij48c3RvcCBvZmZzZXQ9IjAiIHN0b3AtY29sb3I9IiNmZjVhMWYiIHN0b3Atb3BhY2l0eT0iMC41NSIvPjxzdG9wIG9mZnNldD0iMSIgc3RvcC1jb2xvcj0iI2ZmNWExZiIgc3RvcC1vcGFjaXR5PSIwIi8+PC9yYWRpYWxHcmFkaWVudD48Y2xpcFBhdGggaWQ9ImdjIj48cGF0aCBkPSJNNTEyIDIzNyBMMjczLjg0IDM3NC41IEw1MTIgNTEyIEw3NTAuMTYgMzc0LjUgWiIvPjwvY2xpcFBhdGg+PC9kZWZzPjxlbGxpcHNlIGNsaXAtcGF0aD0idXJsKCNnYykiIGN4PSI1MTIiIGN5PSIzNzQuNSIgcng9IjIzOC4xNiIgcnk9IjEzNy41IiBmaWxsPSJ1cmwoI2cpIi8+PHBhdGggZD0iTTUxMiAyMzcgTDI3My44NCAzNzQuNSBMNTEyIDUxMiBMNzUwLjE2IDM3NC41IFoiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2ZmZmZmZiIgc3Ryb2tlLXdpZHRoPSIxOCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPjxwYXRoIGQ9Ik01MTIgMzA1Ljc1IEwzOTIuOTIgMzc0LjUgTDUxMiA0NDMuMjUgTDYzMS4wOCAzNzQuNSBaIiBmaWxsPSIjZmY1YTFmIi8+PC9zdmc+Cg==)}
+.ic-ios{background-image:url(data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDI0IiBoZWlnaHQ9IjEwMjQiIHZpZXdCb3g9IjAgMCAxMDI0IDEwMjQiPjxkZWZzPjxsaW5lYXJHcmFkaWVudCBpZD0iYmdyIiB4MT0iMCIgeTE9IjAiIHgyPSIwIiB5Mj0iMSI+PHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjMjYyNjJjIi8+PHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjMTAxMDEyIi8+PC9saW5lYXJHcmFkaWVudD48L2RlZnM+PHJlY3Qgd2lkdGg9IjEwMjQiIGhlaWdodD0iMTAyNCIgZmlsbD0idXJsKCNiZ3IpIi8+PHBhdGggZD0iTTUxMiA1MTIgTDI1NC44MyAzNjMuNTIgTDI1NC44MyA2NjAuNDggTDUxMiA4MDguOTYgWiIgZmlsbD0iI2ZmZmZmZiIgZmlsbC1vcGFjaXR5PSIwLjE2IiBzdHJva2U9IiNmZmZmZmYiIHN0cm9rZS13aWR0aD0iMTguNDMiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz48cGF0aCBkPSJNNTEyIDUxMiBMNzY5LjE3IDM2My41MiBMNzY5LjE3IDY2MC40OCBMNTEyIDgwOC45NiBaIiBmaWxsPSIjZmZmZmZmIiBmaWxsLW9wYWNpdHk9IjAuMzIiIHN0cm9rZT0iI2ZmZmZmZiIgc3Ryb2tlLXdpZHRoPSIxOC40MyIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPjxkZWZzPjxyYWRpYWxHcmFkaWVudCBpZD0iZyIgY3g9IjAuNSIgY3k9IjAuNSIgcj0iMC41Ij48c3RvcCBvZmZzZXQ9IjAiIHN0b3AtY29sb3I9IiNmZjVhMWYiIHN0b3Atb3BhY2l0eT0iMC41NSIvPjxzdG9wIG9mZnNldD0iMSIgc3RvcC1jb2xvcj0iI2ZmNWExZiIgc3RvcC1vcGFjaXR5PSIwIi8+PC9yYWRpYWxHcmFkaWVudD48Y2xpcFBhdGggaWQ9ImdjIj48cGF0aCBkPSJNNTEyIDIxNS4wNCBMMjU0LjgzIDM2My41MiBMNTEyIDUxMiBMNzY5LjE3IDM2My41MiBaIi8+PC9jbGlwUGF0aD48L2RlZnM+PGVsbGlwc2UgY2xpcC1wYXRoPSJ1cmwoI2djKSIgY3g9IjUxMiIgY3k9IjM2My41MiIgcng9IjI1Ny4xNyIgcnk9IjE0OC40OCIgZmlsbD0idXJsKCNnKSIvPjxwYXRoIGQ9Ik01MTIgMjE1LjA0IEwyNTQuODMgMzYzLjUyIEw1MTIgNTEyIEw3NjkuMTcgMzYzLjUyIFoiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2ZmZmZmZiIgc3Ryb2tlLXdpZHRoPSIxOC40MyIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPjxwYXRoIGQ9Ik01MTIgMjg5LjI4IEwzODMuNDEgMzYzLjUyIEw1MTIgNDM3Ljc2IEw2NDAuNTkgMzYzLjUyIFoiIGZpbGw9IiNmZjVhMWYiLz48L3N2Zz4K)}
+.ic-win{background-image:url(data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDI0IiBoZWlnaHQ9IjEwMjQiIHZpZXdCb3g9IjAgMCAxMDI0IDEwMjQiPjxwYXRoIGQ9Ik01MTIgMjUuNTQgTDkzMy4yOCAyNjguNzcgTDkzMy4yOCA3NTUuMjMgTDUxMiA5OTguNDYgTDkwLjcyIDc1NS4yMyBMOTAuNzIgMjY4Ljc3IFoiIGZpbGw9IiMwMDAwMDAiLz48cGF0aCBkPSJNNTEyIDUxMiBMMTEyLjk0IDI4MS42IEwxMTIuOTQgNzQyLjQgTDUxMiA5NzIuOCBaIiBmaWxsPSIjM2EzYTQxIiBzdHJva2U9IiNmZmZmZmYiIHN0cm9rZS13aWR0aD0iMTYuMDQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz48cGF0aCBkPSJNNTEyIDUxMiBMOTExLjA2IDI4MS42IEw5MTEuMDYgNzQyLjQgTDUxMiA5NzIuOCBaIiBmaWxsPSIjNTU1NTVkIiBzdHJva2U9IiNmZmZmZmYiIHN0cm9rZS13aWR0aD0iMTYuMDQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz48cGF0aCBkPSJNNTEyIDUxLjIgTDExMi45NCAyODEuNiBMNTEyIDUxMiBMOTExLjA2IDI4MS42IFoiIGZpbGw9IiMyNjI2MmMiIHN0cm9rZT0iI2ZmZmZmZiIgc3Ryb2tlLXdpZHRoPSIxNi4wNCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPjxwYXRoIGQ9Ik01MTIgMTY2LjQgTDMxMi40NyAyODEuNiBMNTEyIDM5Ni44IEw3MTEuNTMgMjgxLjYgWiIgZmlsbD0iI2ZmNWExZiIvPjwvc3ZnPgo=)}
+.ic-mark-d{background-image:url(data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI1MTIiIGhlaWdodD0iNTEyIiB2aWV3Qm94PSIwIDAgNTEyIDUxMiI+PHBhdGggZD0iTTI1NiAyNTYgTDU2LjQ3IDE0MC44IEw1Ni40NyAzNzEuMiBMMjU2IDQ4Ni40IFoiIGZpbGw9IiNmZmZmZmYiIGZpbGwtb3BhY2l0eT0iMC4xNiIgc3Ryb2tlPSIjZmZmZmZmIiBzdHJva2Utd2lkdGg9IjkuNDciIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz48cGF0aCBkPSJNMjU2IDI1NiBMNDU1LjUzIDE0MC44IEw0NTUuNTMgMzcxLjIgTDI1NiA0ODYuNCBaIiBmaWxsPSIjZmZmZmZmIiBmaWxsLW9wYWNpdHk9IjAuMzIiIHN0cm9rZT0iI2ZmZmZmZiIgc3Ryb2tlLXdpZHRoPSI5LjQ3IiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+PHBhdGggZD0iTTI1NiAyNS42IEw1Ni40NyAxNDAuOCBMMjU2IDI1NiBMNDU1LjUzIDE0MC44IFoiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2ZmZmZmZiIgc3Ryb2tlLXdpZHRoPSI5LjQ3IiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+PHBhdGggZD0iTTI1NiA4My4yIEwxNTYuMjMgMTQwLjggTDI1NiAxOTguNCBMMzU1Ljc3IDE0MC44IFoiIGZpbGw9IiNmZjVhMWYiLz48L3N2Zz4K)}
+.ic-mark-l{background-image:url(data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI1MTIiIGhlaWdodD0iNTEyIiB2aWV3Qm94PSIwIDAgNTEyIDUxMiI+PHBhdGggZD0iTTI1NiAyNTYgTDU2LjQ3IDE0MC44IEw1Ni40NyAzNzEuMiBMMjU2IDQ4Ni40IFoiIGZpbGw9IiMxNzE3MWEiIGZpbGwtb3BhY2l0eT0iMC4xNiIgc3Ryb2tlPSIjMTcxNzFhIiBzdHJva2Utd2lkdGg9IjkuNDciIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz48cGF0aCBkPSJNMjU2IDI1NiBMNDU1LjUzIDE0MC44IEw0NTUuNTMgMzcxLjIgTDI1NiA0ODYuNCBaIiBmaWxsPSIjMTcxNzFhIiBmaWxsLW9wYWNpdHk9IjAuMzIiIHN0cm9rZT0iIzE3MTcxYSIgc3Ryb2tlLXdpZHRoPSI5LjQ3IiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+PHBhdGggZD0iTTI1NiAyNS42IEw1Ni40NyAxNDAuOCBMMjU2IDI1NiBMNDU1LjUzIDE0MC44IFoiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzE3MTcxYSIgc3Ryb2tlLXdpZHRoPSI5LjQ3IiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+PHBhdGggZD0iTTI1NiA4My4yIEwxNTYuMjMgMTQwLjggTDI1NiAxOTguNCBMMzU1Ljc3IDE0MC44IFoiIGZpbGw9IiNlZTRmMGMiLz48L3N2Zz4K)}
+.px-fav-light-16{background-image:url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAACBUlEQVR42qVTP2gTYRx977szuZ5pWpAL5DooKtqqg5NFl4pQUjcVLUVBXAuCdFMcQgbpIFJRkA6CLi7FRYUqSIuDtFrs4KAxCtUh5GiMEU2bpu3d93MwV1TiOfhbPvh47/F+fx4QUY6TzjhOOhOFYatP13V3+z7GANnehC2YJkZKpVIhUqCjY2tnPL5+kcQ5QMbme+sLSkPvn7O3kMwBeKiUXPY8rxJyVPg6TtdZy1rPk3Cv71o5ke+t9dkMJiwjuJ8/WBu6t7c+KIJGEPBNKpW+AMDYcJBKpR+THBBB9t2h79MQPAVg/eG2AaK/eyZ5hERORJ6Uy97RpgN5rzU+kZLtmU3euVXcdBKCyZApwPTEojnYPZMcJ5EVkc+AfNhogYSQMqm1nAJk6Wax7VHPy/bNi2vqzJc1NbTnReJb9qP9AJBO35dRErM/dQHzV49aS1VrGTFNdUCEl/rmE3ebba6Q+jaAgmH8PnvVao2+r+eCIDgOwBNBFdA5ERRaYc3II6F8JZEQ+TtG4T9LAYCIqgA8TKqd/yKI0AW4D1AVhMewvFx7btvtS4aBUaXUDlK/FWFDKQ4AiAF4BcAGmCGRAXC1XPauARAjFK7Xa69tu22cVNsAdUUpWiS6AMRIxAGeBjC1uho7Vq0Wn4VrjArTDRL9zXFOGYacbxUmRMfZHXYcdzgK8wPNNsSVRpibeQAAAABJRU5ErkJggg==)}
+.px-fav-light-24{background-image:url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAADT0lEQVR42r1VW2hcVRRd69w7U81kbiNJ7sxcilZMzTRVoRZhSrVFFEHBgFArUooKImhoE1EUC1ZT6I/9iR8FxYJPEBpRqvRDBD9jHiARa9spUfxI85gQbc2MpjO5e/lRP0qbx6RWz+c5Z691zl577wWsYoVhmAnDMLOaGK+eS7lcrqGhIdgPuGOA606l0okgaBwpl8u1f0vATCZ6wozHSXQC+hxAkWSXGfc0NqYnK5W5U8sCLPPqu+OYfSTuk/C9mXrG7q1MAED7d0EzEPcB3CppGHDdpdK5wcVw3JUbURQ1h2H0thmHAXVI6vlg/fz9xW1/PGCyk7HZ6VOF87sH7px/2IxPkbyZ1EAmE33U2tqaXYZgSyIMc91xrJ9JPS/hyI0Xk21nChd+L+SqRYJvALiBRILAvqZUday49fxNm9Pz7YAOStpFJsYymdybbW1ta65KURjmpkmGEs6YsfNsYfYiPP8zAPesoNMI4oWdtw82r3FOX5LISyqVSpOZK1NUAwASeefsRH44aDJpP6AlRRQ0JuFwfjhocs5OkMj/c7SwSIo4Z6YRSSdJbiD90U1Dwatd48EOSD2QLlwGXRHUe6C4trBxML2H9EdJbJA0LlkRwNyiIpMox7HtNbMXAEwCfPDbcUxsHFp7S1Voh3QU0tGq4bb8QPBn/2+YIPkooLIZ3gHUB/CvyzH9xb5uptNm8W7Pc4+TeBbAi3cNBU9L7jnPi8tm/NE5tkqIAftawjdcouD95dSLY+uX7Hgy6b8mcYdz6pccSAjQD5J9CnBhOQx/pVYnXbVWs95k0kVm+BAAJb0FYJbkimPG1Tu0qlWbADAvqQpgtt44h/94/b8EJJPXATOxFMGvALb5vjsEcN01ALcAfIbkJgC/XEVQKuU6JfUAuMP3+b7neXtJP7VylTFJ4iGALwG8FVBvEKQeW9IPoihqXljAARJdksqAPo5jfQHAfN99JckD8LoEAtziHB8BkAbwiVntlZmZmam6DKelJdrsHPpIbJd01gxHPA+HLhG49wB1klwvaQRw+5YyHNZhmbskHSa5DpCAS90l6RzJl6enJ44B0DWbfqUy91MQpN81Yw3gdhKScNDz8OTU1OToda3pbDbbkc1mO1YT8zfxtnYWMl2aRgAAAABJRU5ErkJggg==)}
+.px-fav-light-32{background-image:url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAETklEQVR42u2XXYhVVRTH//99znU+UrzN6P0UxgobS2TCMFAJMcJqwCzoyaR6ikzJhDRC0TRILMRPwoeiaEp6KKlBkNGiDMQ0ycjEBnLkgo3NvY7j6L16555z9r+Hc8VrjjofDhW0Hw9n7f9v7b3W2msB/9WVSKSbY7HU8VgsdTyRSDcPdR8O1iCVSjX6PjaReKLyu4Q9rotlnZ2d7SMCMHZsQ7S6urQawBKAEUDnJbMOAEi7GmAUkAdge7E4al1vb+b87QIw48enFxqjdwDEAVgAn0r+8iOzsxcAYObBCTWlkl1DYjEAR9I5AOuy2TPbAQRDBkgkErMlbgb4QPmY90t4NZfr/Pnc/DHzBLuFYgSwK+9svdSSTCQmS2YTgMfK/5+QtCyXO9M2KIB0Oj3B9/U2gIUAKOm0ZFbmcn+09MyvbbLiZpKzr7XSISuzdFzrxUPxeGqehC0k7gpBtBsIlmaz2Y6bAiSTyVprsULCCpI1Ei6RejcScTb8OuNCTVCyayAsJuH0By6F1+NJyx852dBz9mzPIpJvARgjqQRwRxD0reru7r54HUBDQ0O0WPSyACIABGCn55nXu585ne35846XBbxJMjqgiJXyIjbW9RXW1x+eMC4SsRsALCjredXVkVgmEwapuWLjeV6sLI7w2DHLGJMAABleBuEPNGME+AAvA4AxJiFhVoWzkbIWrgGw1vaVzW2YWpjoOP6R+JfJtqYj0c+dUU6jgK3SjaNagpXQ4gmTpx+L7Yj/lNzlOP6PJCZWXFGFVgVARVjkJLsIQGcIwjmlks1O+m70+vqv8stkMBVC2/Xi2m9oH6xvzT/XdDi6pFAoniXZHHqui1LwHqDe63K8P0+CQL/5fvAsabcD6iPhGIMX4/Fk75SD0Rl1rfnHAT4p6BSE05B9vq61MGfSgWhjLJbqAbQKgCvBt1Z7JK0F2NFvkbnZXXqevvB922wtd4cFiKMB+0E8njp53w+1pwqjClPyVfl7m47WH0jEk0cdB5+RiIZhoGNSsIrUNzfTcAcQU9Zaf6PkfGKM1pJoBHg34Pwy/fv0PgBFIJgHkGHy4EwQ6CNj0E3eutC6A45sBV1BgJdc1zwk4Y3QU829SomCMdopod2YgT9GZrCvoe/bw0EQPE3yw4rPe0m7RkL7YPczQ33HPc//+Orp2L1D3WfIALdr/Q/w7wOQMMYYZ8oISDWQrLkhQFVVVReADhK1xmCb65qVEscNV1biWNIsILEEQDWg38ta1wJkMpmiMZoKaK2kIsBHXZctjmNeMMZUDbrdJh0SDxvDFQCmSfIkbPX90rRMJlMcZEuGnLV4Xwr2lZuVsIy6zrflOvDa3+TvB/AUyborLRlpX+nq6jo1zKZUJyRuszY40R+AxBTJ+STuGVZTOoC2/GvJ30G6u8oAqwEzl8RMAOa2teW3GEzy4fMMALoMsGakBpMRHc2GO5wWYrFUYTjD6T++/gIBfTH/EfMMHAAAAABJRU5ErkJggg==)}
+.px-fav-dark-16{background-image:url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAB8ElEQVR42pVSPWhTYRQ99/sixJ/3nsGtowgZjDoILg7VgkSdVKTqIuJg6CAlg1D/CEVQRKFCF1MEMziJiw7+FYs46iAIQapQCoISDH3f972hqe33jksq0Yan3vHecw7n3nOBjDLGlI0x5SyM9Gtaa4siMgFga7c1R7IaRdFspkAcx5uVUmMAzojIRFDdO4eVH2ky+W4LyXEAT0TkchiG7VWOAgCSylp7Win1UUQGwsbYsaBSGsSie4jlzqOgUjq5/vbZYRHpkGxaa0dJ6l8OnHPPABwEUAsq22cAmYZI/jevZAfggaTeHAIwTvJ5FEWHVHf8ieQ8yVpSb95fOnzuOMCnPfSZlcFTw0m9eZdkLU3T7yLyudfBHe/9Ou/9q1wud1VEdgF4E14qT2F5ybtbr08AOCIiX0k2RGQHgPkwDEdzvS611gskq0qpPQAuJjdeNkiKiCySvEdyTQqqX4ze+7fe+6MkvwFY6CYw2w+rsp6EZAwgycJkCvxLrQq0lVL7tNbb/kYQkQEAJQBtAMgBQBAE1+M4/qK1vqm1fg9gynsf/7HOBqXUEICdJK+FYTi55pVbrdamfD5/QUTOp2n6GMBuEdlI8oNSaj+AB977K4VCwWTatNYWnXMvjDGpMSZ1zk1ba4v/fSDn3IgxZiQL8xMhOu03OkpdOQAAAABJRU5ErkJggg==)}
+.px-fav-dark-24{background-image:url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAADHElEQVR42r1VW2hcVRRda99Ja+vMnUrVSDE+iNgQI1KlRRCVWhEUDRQ0QSqIItqqrQVLQUFjCv1pFSvaorRQrIJoBVHpl/ojWNQiErCN2hgEnUTFMDl7bnx15ix/bqCShzONuOD+nH332qy9zz4LaAG1Wq29Vqu1t5JjzfxUqVSWuvuApFFJo+4+UKlUljaTy/mCkphlWZ+kXZI6ALyZh/pJ/kBye7FYfIuk0Cqq1erVIYSP3V3u/oW7X6/+jk71d3ROTk6ucfejeeyzEMK1TbcohLDc3V8ws89JdkvaWnqub23poSvXwfgVjMPlTVdtKG1be6ukeyVdBOCoux/KsuyCOQtIagshPEbyO0mbSO5tTExclm7sqeLkiW9ADIA8C2QbiC3Ifh1JN/acc2r4k5UAdkjqizGOhBCekbR4xgxCCD+TPJ/k1zHG3vTRVX+i3ngbxOp5eykcQyG501/6crGZvSepC8AvaZq2/0MByVO5ki6SR7J9Q8tAPQnhxDzkI6B2Z/uGlpE8kpNDUn02BcMAapKWkOwhKUkfpeMn78bg+g0gBwGWc+IpAM/i/udfDKtvOmhmt+dcP5KckoQ0TbtmDFlSJmkzyYcBjJO8ubbi8rHaK8cvRkxWAjgA4ABknVP7j//ma9aNmdkdADJJL0vaE2P8fdY9CCEMSxqXtGP6rFAo3BVjfIDkIgBVAA/GGDOSh0ieJ6kB4EMAH5zGeQ/JJdMKCvPNr16vHyb5LsknJN1I8rCZQZIADJF84/R+z4bCvy2cpL8ajcYgyRUkX81V75I00czCFprdbEljkv4AkACY+E8fu4Xg/y2Q35aFom2uAt+TvC5Jkp2SLjwD4nNJ3kfyCgCjMwqkadoraSuAniRJDprZZklnNzH8RQBuAfA4gEslDZZKpfVzGk4IYTnJpyU9QjKT9FqM8R0A0czez2/RU3nuNQBuA1Ai+bqZbS8Wiz815WjVanWVme0heQOAbyXtBbATQCJpv5n1ArgEwDFJW8rl8qcLsczd+Vw0nUOyQnLbGVvmbKbv7vX8a9r0W4K7d7t7dys5fwMuBKz+ryuMXAAAAABJRU5ErkJggg==)}
+.px-fav-dark-32{background-image:url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAEJElEQVR42u2XXYhVVRTHf/9zZqyRmTv3Dn4RDmMFSYkkBkFJiRBWA/YBKYyK9RRZkgyUEYqmQWIhaUqpKIXW6Is9CaYW1kMP9mJpakGNH2nlmDN37zOjM3nPXj14lHEatTsqFrThPJyz91m//1lrnbX3gv/qcM41OucOZFfjQO1oAODRkt4FHu8ztd3Mmmtra3+8IQI6OjrycRwvNLM5kiqBopktAZC0EMib2TlJq9M0XVIoFIrXxdVmFjnnZjnnfvfem3Mu9d5vTJJkuE0dWWVTR1YVi8U67/1K51zJe2/e+9POublmFl8T3Hs/0Tm3NzNqzrkvOzs7xwFYU/0Ua2potaaGX6ypfpaBvPd3e+8/67X+YLFYfLTsEHR1dY1M0/QtM5spSWZ2HJify+U2MWPUvWArQBP7+GoPIZqrLUf2OOemSFoJ3J5NbgshzM3n861XFHDixInB1dXV84B5kqqAM2b2Ti6XW8a0+ioq4kWIl4D+XWsE4BMsepXNrR3e+9mS3gRqzOxPSWt6enoWDB06NPmbADPLJ0nSBlSamUlqieP4tcHND7eRtL0IegMp/w+j14mxnI7KpWe2fjckTdNlZjZdkoBzNTU1wyQVAaJe8R4GVGZZLWACMOK8TJ1FKpWRuSVkZ7O7EcCEzCZAZca61APt7e0NFRUVR0IIQVJ0Yb2Z7c7lcs8wrZ4yQ9CdJElLVi8ucAIQlUqlUXV1dUcv8cBFRdIpM5sN/JrdT/Let/n1B5bScqSZlLFgO/qhf4W4T5uPzvJrv53jvf8DaMzgiZm9D7i+b0WX+fd/SNN0hpmtNrMeSbGk55MkcX7dvgfUcuwxLDyBcRjjOBaepeXYpM6134/23ndIWiCpAiiFELab2WKgtT9WdKVQhhC2Dho0qDGEsM3MAlAtaYP3/ufOdQcPU0rHUErvch/s/zrxfq+ZbckqopnZfmCBpC+uxKi4Wj51d3cHYDnwsaTFwGjgjhDCvmTDwV1At8ym9Irzb8BHwGkzu2q+VpRRkk+mafpCHMf3A6/r/C85OcsTzKwLaAHK2oyicstzmqbfpGn6NPBhr2c7gUXlwgckoBd040UjUbRzoHYibvL4X8C/UkCNpDHXGySpAai6rIBCoXASaJU0WNKqKIrmx3E85DqwayVNN7M5wK3ATxnrUgGSupMkGZvV7W5JjwCbJD0n6ZYBfHEMPATMA8YD54D3enp6xkvqLvdIdgpYH0LYBVysr3Ec786q5Ct94PcATwF1F45kaZq+XCgUDpd1LPfeTzSzFZLGZaBDZrbKzA71J0DSbcCTwJ291jfn8/kdA+4LzCzy3s8E3pY03MyCpM+BNcCn2a65UNJk4EFJEdBuZktyudxqSemNakw6geps+ixQNZDG5Ka3ZtfUnHrvu7z3XdfSnN708RdpE2H7kvtN6AAAAABJRU5ErkJggg==)}
+.px-ico-16{background-image:url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAACTklEQVR42qWTX0hTcRzFz37MoCCvosxHC8OHGiQUG6UNhYEJaWAZaC1BLqGVaPW08EGEyUaG7FWyPy/6cF+mYib4dGfGDE17EZPppi7dlQ2Wwuhi9/TUMP/kQ+f5+/ly+H7PAQ7qFIBOSZLSHk83PZ5uSpL0E4AfQDb+IROAOiFEVJZlxuNxqmqQqjrJeDxOWZYphIgBeABA7IcvA5i02+0MhUJcXl7h09Z29jiK2eMoptzYxMXFb5ybm6PD4SCAzwBK/8Beq9VqKIrCVCpFn+8FH125wOits2RDIdlQyO+3z9Bddp4+Xw9TqR9UFIVWq9UA4DUBUDVNu5aXl4e2tmcwpj+gtyiNE6a/LeoEnoRPQtiuw+9/iUQiAYvFEgQAdWZmhktLYeq6TlUN8q6znGNV5zIOPt4o4r2KMo6MjFLXda6vxzg7+4UAVAEAJNHf/xYuVxPy8/PxenQc67XP0RLNQXMkG5/KH+PV2ARKSi7C7e7EwIACkgAA816ba2sxyPJDVFY60dragtramwAAIQT6+t4gGJwCABQUWDKMOOyf4+MTqKmpw+7uL2xuamhubs/A+yWOCoVhGEgmkwiHV2AYxpHhEfhPCQDY3t6B01mB3NycYwFJykZpqR07O9uZBVONjfeZTCYwOPgO9fV3kJVlPgCazWZUV1eht9eLjY0YXC4XAWQOcwnApM1mYyg0zWh0lR0dnVxYWOTw8Ht2dXkZiUQ5P/91b5SvHlWmiCzL1DSNuq4znU5za2vr2DIdWuehoSEGAoG9dT69f/g3gnMsLgau1cIAAAAASUVORK5CYII=)}
+.px-ico-24{background-image:url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAADzklEQVR42t2WX0zbVRTHP+06ulJ8WU1wCRFddPInSjq68SfLEmHLyDJUjAXKny4xcQkB2wUSqzOdi1FGN2A0OB9QF0ECe1gyyOakMSEO4xIyQoSJdS4TM9ukGKvNgGK7/n7Hl4FbAlinvniS+3by+d5zzz33eyG5KAdm8/PzJT8/X4AAYAc0/MMwA2MZGRkyMDAgiqKIoigyMDAgGRkZAowDhQ8CNgFeg8GQcLlcMj8/L1NT01JVVSsVFVa5enVCotGotLW1SVpamgr0AY8kA94IOIFIeXm5zM7OSigUErf7mGRnPSPNhVnSXJglWU89LQ5HswQCAQkEAmK320Wj0SwAxwD9WvA9wIzZbJaxsTFZWlqSnp4PxWwukApztkw8t1WkJlOkJlOmn98qVduzJS/PIidPdsrCwoKMj49LQUGBADcA671gPTBiMpnE6/VKIpGQ0dEvpKRknxTk5Epv6ZOSsD22Al9eak2mDO17QopzcmX37lI5f35YFEWRvr4+SU9PF2AE0GuAzUA4Fouh0+loaXFx6dIIeUaVM9sWSduw/pkuKPDy90amFrXs319GR4eHRCKBXq8HMK0IxONxFEVBo9HQ3f0+vb39ZG/8nTcfXSLPqK4K/zaqpfWnTUzFDBw8WEdTUwMioNNtICUlBcCkXU4WEY4ceQuf73McjkZGR0d4fO8LVH9nxDW7iV/u/HnlIwkN797S85I/lYd2lOLzXcTpbGJ6eoZTp95DRFZytffuSFVVPJ5OKiqqCQSCtLa+zSf9vfgfzqXsGyNnQimcCaWw55qRL43b+OCjHk6f9hKLxXE4XqO93Yuq3l+tbrXSI5EITU3NWCzbcblaGB4+x4ULn3L8+AkSCQXnG43U1lZz+/Y8J050MTn59Zo90q3XwImJSazWWurqbNjttZSWPguARqPh7NlzDA1d/MvB0iYzff39gxw48CKqqhIO/8ahQ68mBU9aACAejxOJ3ObmzR+Ix+8k/eZo+Y/jfyQQCARpaDiE2Zz3wLCcnCxqaqwEg8H7BBYB386dO/D5PsPrbcfjeYctW7Ykbx6mzTQ2vsLRo69z5cpXFBUVAfiARS0QA8rC4fBep9M5Y7FYEFEYHPyYw4ebSE1NXROs16dgtVbQ1eUhNXUTxcXF1NfX35ibm6sEyu6y1zOcH2Vu7mfxeDpk164SuXUrIKOjl6Wy0i6dnd0SCs1JMBhM2nBWtUy32y3RaFSmpq5JOPyr+P3Xxe+/LtFoVNxutxgMBuWuZaY/qOlfXjZ9ERFVVf8V01/122Kz2cRms/2tb8sfhUvgkW63WnQAAAAASUVORK5CYII=)}
+.px-ico-32{background-image:url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAFnUlEQVR42u2Xf0yUdRzHX3fx3HEiDrHNNSutjkeR0450xtj65TCGgaHu/BGGaZA5p0K0vAEm5KKW4oLMkiMItD9srUk2Rx6SMLM2tbEGWOdlsNBBcXkep8Edd5/+gLMsMlH78Uef7bvnr+d5vZ/v5/3d9/OG6yszcASQ4fUFcD//QEUDZcCgxWKRzs5O6ezsFIvFIkAAqAUm/h1gBdgInDebzdLU1CQiIg0NjdLQ0CgiIk1NTWI2mwXoA4oA/c2CJwGtEyZMkLKyMhkcHJRvvz0j2dlrRVVNoqomycx8Wk6d+loCgYDU1tbKxIkTBXAAlhsBxwAHFEWRjRs3itt9Qdxut2zbtkPi4uJFVU2y/L5YWX5frKiqSWJj75XNm4vE5XJJX1+fFBUViV6vF8AOxI0GHAW8CvQnJSVJW1ubBAIB2b//I0lIeEBU1SQPmKbL/mSjBJ+YLPLEZGmcf488YpouqmqS2bMTpaZmr/j9fjl9+nTIHz5gN3Dr1cBaIBPoVlVVDhz4WEREjh37QtLSFomqmmTmtDjZ9mCMXFw2RWQYHlo/L5siFXNVMU+LE1U1SXJyqhw5MuSVw4cPi8lkEsA17KVbQlDN8HM68F5UVJTZarWSk5NDT08PpaVl1NcfAmBu1CCFdw4wSRe86vb1+LTsOKujzqUgQGJiAgUFVqZMmUxVVRUFBQX09va2ABlAe0hAltFotLW1taEoCuXlb1JZWY3P5+N2fZDX7upn1tjAqAx00nsLL3wXTteAFp1OR1bWKjZsWIff7ycuLg6n05kNVGpDLxgMBnQ6HQDp6QtISJgDwNkBLbU9CucGNNcM/8Gvoc4Vxjnf0OcTEuaQnr5g6DwrCgaD4Yq+AxAIDP2hzVZFZGQkNttb1NRUYowxUn9eYX57BDvP6Rm4Sgf8ArU9OlJax7LvRx133DmZ8vId2GxvMX78eD788CM0Gs1l1hUCQvXlly2kpS3m3Xf3EB8fT13dB2zduoXwcdG8cU5HcutY6lzKH+CfusNIaY3g5e/1aCMief75XA4e3M/cuQ/T0HCErKx1tLR8NaLzRyybrZr589M5evRzFi9eiN1+kMzMFfwQGOrtk9+M4etLWs70a8lyjOFZp4Gz/jDS0xdw6NBBVq9eicPhJDt7PRUVVX+6a2FX62V/fz/5+S9iNBopLi4gP/8FMjKWsnXrqxw9+hmLTo0Zap9omDNnNoWF+UydGkNv709s2fIyDofzL/0Sdi2mcjqdZGSsIjk5iZyc9bzzzts0NTXz0kslDA4OkpeXQ1raY1y69DM2WzV2+6fXbNiw0RytTz5pwG5vJDd3A6mpKdTXH0AENBqw2xupqtpDMBgc1XHVjvaCCAaDlJa+zsKFSwkGBa+3j7Vrc6msrBk1/LoEhMrtdnPxopczZzrweDzXfeNp+ZfrfwH/PQF6vf5vg4UuuxEFdHV10d3dTUlJMStWLEdRlJs30SphPP54Knl5G+ju7qarq+sPAo55PJ6W2NhYdu7cyerVK9m3r5aUlEdvGD5rVjzbt5ewdOki9u7dw4wZM/B4PC3Asd8KaAdmud3ulVartWfmzBmcOHGCwkIr5eWlGI13jxo8adJtWK3PsWlTLu3tbcTHx7NmzZqfent7c4DZw8wrPBAcDhZGh8NRnJqaOjBv3jwMBj3V1RVs3mwlKirqL8ERERGsWrWC7dtLGDcukiVLlpCUlORvbW0tB+4ZDjbXNF7FAO//Opa75cKFC7JrV4U89NA8SUx8RFwulxw/flIslidl2bKnZPfuKnG73eL1em9oLB8xmERHR18OJh0dnZKXZ70soLj4Feno6BwpmKTezGj2DPDjUDRrFhGRQCAgPp9PRESam5tD0ew8sOlmRrM/Dader1c8Hs8/Ek5/X7FAfXh4uISHh8twVDdfz4d+AUQ+srh8Raz4AAAAAElFTkSuQmCC)}
+.px-mac-16{background-image:url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAACS0lEQVR42q2TQUhUcRDGf28tKTawt2saWm0PRbMuHjLILC+FB8EiiJb1Epai64ZoIN7LS0chlaxDINhB79atSxgd6pDFCnbyKG/1mcuuu+//dVh3VaxTDcxh4Pu++YaZgX8Ma3/R2HipFWiRAsf+CLZMBvicTC5/PCRQV3dxyrLoL9YVFRX09z8CYHr6FZubmyUhienV1e8DAGUFcmMrMAWirCxALBZlcnKC0MkKzp09Q3ywn3Q6zfLyMsYYQJdDocr3qdT6GgCO0zDoOA1KJIaUTK7IdV29ftKnH3ccrd49rzcjD+W6rpLJFSUSQ3KcBjlOw2DJUiRSP9zc3CJJ8n1fLwa6lYlGpFghM9GIXgx0y/d9SVJzc4sikfphgCMAxviAAcDzPOKTs/xc+sDa8ziSOD0yQfz6Tba3twkGg4DZ5ZQEzO5skEgM0dZ2jZ6eBzgL3wDI5/PMzy/w5ctXxsefHsAHCkMYjBFFsbm5t3R2drG19Yt0Os3jx0MsLr5DKmJUcnwEwPf3FCVhjMhksmxsbFBefpSdndw+YqGJ7+9zYAxksxlyuRz379/jxIkgkgFU3DzB4HE6Om6Ry+XIZjPs9isISPkdz/OIRmM0NV1gbm6W27e7sCwLsGhvv8H4+DNqa2uIRmN4noeU3ymt0bZPtYbDVQqHq1RdXaPR0TG5ritjjIwxSqVSGh0dU3V1jYo42666euCUQ6HKKdg7Zdu2mZl5CUBvbx+pVGr/W0y57nr80DPZtn1Vsq5I+sszWZlAgE+u6y7xv+I3WEg4TQ9dbLcAAAAASUVORK5CYII=)}
+.px-mac-32{background-image:url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAE90lEQVR42u2XbUyTVxTHf7e1roRgB3YEP+jAwSgOPywY41BcFGUsM2BQBsOYyUIWDc5kJo5RQIIgGsEl4HCLUbPUFxYUtcYwAywylzmCsBjDwGVGZJljoUjltUV5evdBhFLoy/ziF09yk97b8/K/5/zPfe6Fl/KCRbhbDw9/K0WlEhlAJEi/53RvA/5wOOTZu3d/vwBIrwAWL47RqdW2GhAJ3tyr1WoAFEXxAYysVxS/D+/daxtwXlW5AhJitEZKEqSUeBqJiQk0NtbR2FhHYmIC3vSlJEGI0RrXTaudJ2FhkZuEELme9hEVZaCi4jBZWZ/Q1/cQRVHIyEhnxYrldHR0YrH0eTJ/IzBQf9tq7et0l4EMdzvQ6XQUFORy6dI5DAYDhw4dJi0pmdQNSeTlFRIREY7ZfJ6ysoPMnx/kKRtb3JZAShnpaqBWq9m2bStNTfVs3bqFy5evsH5dIr2131K3ZIjG6GG0TWdYH/8eJtMZkpI+4Nq1enbtykaj0cwAABjckjAsLOIeiLBn85UrY9m710hERATNzS2UlJSi+auDvaFPeDtgOqHbhwXF3XOwBkeQn29k9epV3L/fTXn5V9TVXXXeZndX15+hswIIDQ2fBHDuXDXLlsUwMDBIbm4+zY0/UBSmsEHvcNu7ErjSp6KwS82Kde9z4EAJOt08WlvbSE39aCLLdHd3TwFwLcHk0Gg0AOh08zAac1gYtRSzRfC3Xbhl2L9jgiarYFHUUozGHHS6eQAzSuEsc5wnDodETPi3WPro7e3Fan1EZOSbmM0XaGlpJXX7Djb6PeSzhQ78J3rIpsB3PSpMg69yqLKSuLhVADx48A9+floslr7JwC7xXTOAE0qJzWZn+/ad7NnzJVbrI5YvX8YvN5tZlF3Kut80mC0Cs0Wwpk3Nk027+flmC3FxqxgZGeHo0W8oKirGbh8DpG8ZcP7z6c+nQFpb20hJSSU9PY3MzI/JyEgnOTmJwsJ92O02GmpLCAgIQFEUGhp+pKbmPLNtbDaZ40ojVz1nw+rq77l48RIFBUZiY9+hvPzgpM6tW7c5duw4jx8/np2gk36kJwCKU2M8U3RM07DbR8nLyyc09HVOnDiOEILCwiJ6eno89IZ08uNjCbylrqvrPmNjY6hUKg/B/2cGpgebnbWenbvV8I0DU8SbCix9QOBNxzmTrqpuzwEArfYVNBqNW2J5y5BGo2Hu3LnTQHo5B6Z6tbPzDiEhIZw+bWLNmnedyOQ8Zto9GzExMZSU7EOv19PR0eH2HHALYP/+UjZvTmNoaIji4n0cOVJJeHi46yVjht2CBSHs3v052dk7GB4eJivrU0pLDzrpODy1oWPU+ft0/fpPrF0bT2bmNnJyvuDkyePU1zdQVVVFf3//NLL6+/uzcWMy8fFrsdvtlJWVU1FROaN8QsgRtzXT64Nr9fpgOdswGJZIk+mUHB8fl4ODg7Ky8ogcHR2VNptNVldXy+HhYakoijSZTkmDYYl050evD651ex8ICnptkxCc98To6OhoSktLiI2NnbZ+48avGI15tLe3e+uIzf39llp3t2IRGKi/KgReb8TJyUlUVX0NQHb2Tszmyz60K/VWa1+iM4NnfNwDAwN1UqpqfAGh1Wonjme7T8GlHE8bGBh45NPDRKcLShFCZkiJQQihfZ5niZTSLgR3pBRnBwb6Z32YvJQXLv8BMbwNMum+Z04AAAAASUVORK5CYII=)}
+.px-ios-29{background-image:url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAB0AAAAdCAYAAABWk2cPAAAEnklEQVR42tWWW2xUVRSGv33O3DszdAIMbTSd1tKJN4KFioWoIQFtUryBjUCIQGLEB3jyWRMTX9EnVKSxGgkIpIWIQQoSA9pQaCFFSi0jl0LFQIHQdmbqnHM6Z28fOh3sMKWtJiTsZGU/7fWvtfa//rVENPq04gEfh1IPHPMhAhUChBAopfgvMWugmKwppdA0AQqGkkOgQNNGwKfiRxuJdmID0HWdRDyOYZnMrZyLYZnE43F0XQdgsr5EWVl0wgI5HA4MwyCZTLKgupoVry1DmSmE28ve/QdoO3ECv9+Px+MhnU5P/D2lpRXjguq6jm3bDPQPUFJWxttrVvKI380PjXvo7uziiTlP8WrdW/yVNNm+Yze9PT0Uhgqz7+4DOvseUKVA0zSSySQFBX5W1C1n4ZzHOfXTj5z59SjPh13UPOrj0LW/ablp8cwLi6l6qZbWzvPsbdrHUDKJ31+AlAoh8oBGIuU5oAIhYHh4mMrKSpbVLGXgygVOHvyex7QhVpcHqQrYICQojdMJnZ2XElyWPp6rfZ3C0goONB+ho6MDp9OZYfdYCE2pkcxGDRSmaREOh9m6dQuJW33sbqhn2EhRVx6iKmSDUqTTApRifsimrryQtGnwXf2XDPZdZ9u2LwjPDGOaVob1YzH0YDD0UW6mlmURiZSgFNxOpFj77gZS8QH2tHVzNSUoC7oJuRV/Wg4++8Pi2wtxnny2mvc+/JiUcHLj+nXOdXXR13cTh8NJrhY4clPPpX5TYyPnYzFeqX2D+YuXsn/ndjYcj7GgOED7jQGmlczmnQ/W45pVws+tJ7kYi/Fm3QqUkjn9O4EiZftJQChUyO2+G2zZ8jmVVfNZvvF9rpz7jaamfSxft4a5i16k7Uwnvx/dg9fjwR8IZMk4Kij3ZHo/UKUgnU7j8/koLJxG55kOus6eZcnSJXxa/xUdnefYsasR2x7G7/cjhMAwzbxCkUOk8ZTj7kMpZQa8ALfbzaHmQ/Reu8aJ48dxODS8Xi9S2iglx0jmeDaO4I+WV2SjBoVt2whBNiufz4dlWdlMRi6RMTV+efMRSUqJpglM08SyLHRdZ3hYZh1LKbMV+LdDXdewLAvLMtE0gZT5iZS3vKNqVFFRQVFRMbdu3UYpEEIbE/ldwo1Mmv7+OxQVzSISiZBMDmUnUJ7y3ksit9tNT88V6uvrWbt2DZcv93DwYDOGYRAMBrNNLoTIBuj1eqmpeZlAIMDmzZ9w9WovLpc7ky2TYa/E5XJy7NgvtLW1s2rVSjZt2khraystLS24XG40TcMwDAzDoKqqimi0gsOHj7Br125M0yAQCCClnfnfHPkJh4vzThmlFLquI6Xkzp1+yspKWb9+HcXFRTQ3N1NbW8vFi5eYN6+S7u7zNDR8TW9vL6FQCE3TMqQT+afMzJlFk5inOoZhkkgkqK6uZvXqlSxatJBTp07T0PAN7e3tBAIBPB436bQ98TydMWOWmtxeJNB1ncHBQZxOJ9FolFgshm3bBINBbNtmsvuWmD49PKXVStM0QJFKGXi9HkAgpZzaNpivT+93RsgBHo9nymD/e+9Vyn6we+9DueH/AxASFtl4EVmGAAAAAElFTkSuQmCC)}
+.px-ios-38{background-image:url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACYAAAAmCAYAAACoPemuAAAGB0lEQVR42uWYXWwU1xXHf3dmdm28zIy9u6yrCOFskgKhCEWoap02rWoSfzSKaSmBksa0UBkodSGUFLXirQ99SsJDCKk/CBKpEkgwFGo1EEoSNYniJqqr9MMp20IaDIoN7PeuF8POzO3Dem3j2otZP3SlXOloNDNX5/7v/977P+dcsXDhUkkJNk3KksSFBiUKrEQJ+wwspaIoADiOUwpLKRFCQVUVEokEAKZpYtsOUjqA+P8wpmkamUyGVCpF0zebADh18hS6rlNRUYFlWUX7FsHgwttGpqoqtmUTiUZYtHgx27a1UeUpByCWGWHvs/sInT2Lz+tD1VRs2759YHfe+fmCwITILYeUEkVREEIQjUYxTZPWzZtY8ZUv8eZvj3Cs+ygA33l0NStWreHN3g/Y37GfRCKO1+tFSonjODf5mxWwPDhVVUkmk9iWzao1q1m/bg2XPnyf7gNdXInGWXaHF4C/fRol4K1k9Q83seC+L/ObwznQqqpiGAa2bTMTJRA1NffckjHLskilUtTeX0vbj7egZRIc63iOj0NnqQl4eXCeQrM3iwB6oi7OXHW4cCXKXYsWs2rzT7A9lex7voM/9fai6zqapt2asZqau2VhUDYej4fW1o18cdlSel58gb+8dZpqU+f+6nJWerMEPRLyKqHAJ8OCE1EXvVdGuBxPsbyunubvt9L39366ug4wPDyMpqkFwYkFC+4uCD2bzfKHM6fIZtKsa6zHI7MEgzXU6TdoW5AFIbCyoIwqgyNBcwFSsm/AxVspN//5ZIC0VDl08jRlukH9Q024XK7CupiTi6nNti1M02BocIg/f/gP9ncfo+6RZiJDg/zx8gjPXCjjfFqgaTlgigBNg/NpwTMXynj78giRoUG+3vQwB44eZ2BwiHgshmHoOI5NobELhqT8v0wmQ2dnF19YupSWDVuob/423e3P8vuP+vlrzMuDAY1v+S0EcCKs8cZVm4tXLxNcdC8bfrkdf3AhJ0+d5vy5c6xf/zhS5nwXGnta5ReCMQeqqlBVVck/P+rnFz/fTUNTE5t+tYdz77/Dkf3ttPdHePcOHwD9g7lTufFnu1lW18B7H/Tx0u/2IoTANE0URRkFlZ98Ucqfo1VKsG2LiooKFCF4/bXXePedt/nuunXs7niR1199maOvHkFKyapH19LcspGPPx3iuec7GE6n0Q0Dx3GwbWuUpYlWRHYxTnfuads2jhCYlSa2bdP563ZO3xVkw8YfsOxrKxBCYPgDvHTkGBcHBjAMg7m6PqZdUio3+Z3I3BSb//ZbPsT4/D4i4TC7du4icW2EcsPk6aeeJhqJUFVVOatsYwaMTWZvvFmWhdvtRjcMLl28hHQc5s714Ha7poiP40s3E8ZmtMdufp8M3sFxbNxuFy6XG8dxCpw2MclvEacyf2LyMxNCmXJ2E/vkGcjb5H5CKDhO4X5je+xmp5MHyAESQhCLxQExBnBqm9pXPqNIJBKoas7fxDGmsmmVP5/mJJNJysvLaWn5HsPDw6RSyVHn0y3J+DchQFUV0uk0165dY+XKZhQl964oYgrpGDdl+tnncifbttiyZSvl5WXs2fMUtbW1hMNhrl+/jqqqE2b9v8nkjRs3iMXiLF9+Hzt37iAcDtPauhnbdsb253TjF9z8juOgaRrxeJzt23/KAw98lR07ttPQUM/BgwcJhf6F3+9HVdUx1vLKHovFCAaDNDc/QiwW48knd9Hb24tpVuJyTUx7ZHHlm+NINE2jujpAX18fjz32OGvXruGJJ7YRCv2bQ4cOEY1GEUIgBMTjCQzDoKWlBb/fR2dnF93dR3G5XAQCgZxIz0DbxLx5nys6td669Uc0NjZw+PArBALzmD9/PuFwhLq6b3D8+Ana2ztIJpPFpda3AjZtMWJbhMMRlixZQlvbVhobG3C7y+jp6WHv3n2EQiF8Pt9o3yKKEb+/uqj6LXfixsu3+vqHkFJy5swbGIbBnDlzRoN2keWb3x+YVckrhIKiKKRSSUCg6/qo+s+uIp/1pUouJDl4PHPH4mdJ3V3kUuXPwm1Pyd6PlfCNYmkC+y/29aIWyGQt0AAAAABJRU5ErkJggg==)}
+</style>
+</helmet>
+<div class="cv">
+<h1>Rebrand <span>AgentChamber</span> · mockup de planificación, revisado tras UX</h1>
+<p class="lead">Baja fidelidad salvo el icono, que ya es el definitivo: cada icono que se ve aquí es el fichero entregado en la rama <code>designer/DGX-514-assets</code>, embebido tal cual, y los de 16/24/29/32/38 px son el raster real, píxel a píxel. Revisión de <code>nota-ux-mockup.md</code>: las filas con <span class="tag res">RESUELTO</span> cierran un hallazgo. Tema oscuro por defecto; las piezas rotuladas «claro» usan <code>data-theme="light"</code> de la plantilla. Los números <span class="pin">1</span> enlazan con las notas de cada fila.</p>
+<!-- F0 · Icono -->
+<section class="row">
+<div class="side">
+<div class="k">Frame 0 · Icono</div>
+<h2>El icono maestro y su prueba a tamaño real</h2>
+<p><b>Tarea:</b> reconocer AgentChamber entre otras apps y pestañas, a cualquier tamaño.</p>
+<p class="fix"><span class="tag res">RESUELTO</span> UX pedía el icono real verificado a 16, 24 y 29 px como criterio del entregable. Abajo está el raster de los ficheros entregados, no un hueco.</p>
+<p>Fuente: <code>docs/brand/agentchamber/build-icons.mjs</code> (una geometría para todos los ficheros).</p>
+</div>
+<div class="frame">
+<div class="col" style="flex:1 1 100%">
+<div class="cap">Maestros <span class="pin">1</span></div>
+<div style="display:flex;gap:18px;align-items:flex-end;flex-wrap:wrap">
+<div class="col" style="align-items:center;gap:4px"><span class="ic ic-tile" style="width:128px;height:128px"></span><span class="m">macOS · Linux</span></div>
+<div class="col" style="align-items:center;gap:4px"><span class="ic ic-ios" style="width:100px;height:100px;border-radius:22px"></span><span class="m">iOS · PWA (sin alfa)</span></div>
+<div class="col" style="align-items:center;gap:4px"><span class="ic ic-win" style="width:96px;height:96px"></span><span class="m">Windows (transparente)</span></div>
+<div class="col theme" data-theme="light" style="align-items:center;gap:4px"><span class="ic ic-mark-l" style="width:72px;height:72px"></span><span class="m">Marca · claro</span></div>
+<div class="col theme" style="align-items:center;gap:4px"><span class="ic ic-mark-d" style="width:72px;height:72px"></span><span class="m">Marca · oscuro</span></div>
+</div>
+</div>
+<div class="col" style="flex:1 1 100%">
+<div class="cap">Prueba a tamaño real: 1:1 y ampliado ×6 sin suavizar <span class="pin">2</span></div>
+<div class="theme" data-theme="light" style="display:flex;gap:16px;align-items:flex-end;flex-wrap:wrap">
+<div class="col" style="align-items:center;gap:4px"><span class="px px-fav-light-16" style="width:16px;height:16px"></span><span class="px px-fav-light-16" style="width:96px;height:96px"></span><span class="m">favicon 16 · pestaña clara</span></div>
+<div class="col" style="align-items:center;gap:4px"><span class="px px-fav-light-24" style="width:24px;height:24px"></span><span class="px px-fav-light-24" style="width:144px;height:144px"></span><span class="m">24 · barra 1,5×</span></div>
+<div class="col" style="align-items:center;gap:4px"><span class="px px-ico-16" style="width:16px;height:16px"></span><span class="px px-ico-16" style="width:96px;height:96px"></span><span class="m">.ico 16 · Explorador</span></div>
+<div class="col" style="align-items:center;gap:4px"><span class="px px-ios-29" style="width:29px;height:29px;border-radius:7px"></span><span class="px px-ios-29" style="width:174px;height:174px;border-radius:40px"></span><span class="m">iOS 29 · Ajustes</span></div>
+</div>
+<div class="theme" style="display:flex;gap:16px;align-items:flex-end;flex-wrap:wrap">
+<div class="col" style="align-items:center;gap:4px"><span class="px px-fav-dark-16" style="width:16px;height:16px"></span><span class="px px-fav-dark-16" style="width:96px;height:96px"></span><span class="m">favicon 16 · pestaña oscura</span></div>
+<div class="col" style="align-items:center;gap:4px"><span class="px px-ico-24" style="width:24px;height:24px"></span><span class="px px-ico-24" style="width:144px;height:144px"></span><span class="m">.ico 24 · barra de tareas</span></div>
+<div class="col" style="align-items:center;gap:4px"><span class="px px-mac-16" style="width:16px;height:16px"></span><span class="px px-mac-16" style="width:96px;height:96px"></span><span class="m">.icns 16 · Finder</span></div>
+<div class="col" style="align-items:center;gap:4px"><span class="px px-ios-38" style="width:38px;height:38px;border-radius:9px"></span><span class="px px-ios-38" style="width:228px;height:228px;border-radius:52px"></span><span class="m">iOS 38 · notificación</span></div>
+</div>
+</div>
+<ul class="notes" style="max-width:none;flex:1 1 100%">
+<li><span class="pin">1</span><span>Se queda el cubo de la cámara: quien venía de OpenChamber reconoce la silueta. Cambia lo de dentro: el sello de OpenCode de la cara superior pasa a un rombo <code>--accent</code>, el agente dentro de la cámara. El glifo de la bandeja de macOS (<code>tray-glyph.svg</code>) ya era cubo + rombo y no se toca.</span></li>
+<li><span class="pin">2</span><span><b>Criterio de aceptación del icono:</b> a 16 px se distinguen el contorno del cubo y el rombo de color en pestaña clara y oscura; a 24 y 29 px se leen las dos caras. Por debajo de 32 px el trazo es más grueso y el rombo más grande (tamaño óptico, generado aparte, no reescalado).</span></li>
+<li><span class="pin">3</span><span>El rombo usa <code>--accent</code> del tema (oscuro <code>#ff5a1f</code>, claro <code>#ee4f0c</code>): 3,65:1 en pestaña clara y 5,16:1 en oscura, por encima del 3:1 para gráficos.</span></li>
+</ul>
+</div>
+</section>
+<!-- F1 · Web -->
+<section class="row">
+<div class="side">
+<div class="k">Frame 1 · Web</div>
+<h2>Pestaña, cabecera y móvil</h2>
+<p><b>Tarea:</b> reconocer la pestaña y la app de un vistazo, también en el navegador del móvil.</p>
+<p class="fix"><span class="tag res">RESUELTO</span> Cabecera por debajo de 640 px dibujada a 390 px. Corrección: la cabecera real (<code>Header.tsx</code>) no lleva logo. Muestra el título de la sesión o del proyecto y, sin ninguno, el nombre del producto. Se dibuja como es: el rebrand solo cambia el texto.</p>
+<p>Ficheros: <code>favicon.svg</code>, <code>favicon-16/32.png</code>, <code>apple-touch-icon-*.png</code>, <code>pwa-*.png</code>, <code>site.webmanifest</code>, <code>&lt;title&gt;</code>, <code>useWindowTitle.ts</code>.</p>
+</div>
+<div class="frame">
+<div class="col" style="flex:1 1 520px">
+<div class="cap">Escritorio · oscuro · con sesión abierta</div>
+<div class="win">
+<div class="tb"><i></i><i></i><i></i>
+<span style="display:flex;gap:6px;align-items:center;background:var(--surface);padding:4px 10px;border-radius:6px 6px 0 0;color:var(--text)"><span class="px px-fav-dark-16" style="width:16px;height:16px"></span> mi-proyecto | AgentChamber <span class="pin">1</span></span>
+<span style="display:flex;gap:6px;align-items:center;padding:4px 10px"><span class="ph" style="width:12px;height:12px"></span> Otra pestaña</span>
+</div>
+<div style="display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:1px solid var(--border)">
+<div class="col" style="gap:0"><span class="t">Refactor del login</span><span class="m">mi-proyecto · main</span></div><span class="pin">2</span>
+<span style="margin-left:auto" class="m">Sesiones · Ajustes</span>
+</div>
+<div class="body" style="display:grid;grid-template-columns:140px 1fr;gap:12px;min-height:80px">
+<div class="ph" style="border-radius:8px;height:70px"></div>
+<div class="ph" style="border-radius:8px;height:70px"></div>
+</div>
+</div>
+<div class="cap">Sin proyecto abierto: el título cae al nombre del producto</div>
+<div class="win"><div style="display:flex;align-items:center;gap:10px;padding:10px 14px"><span class="t">AgentChamber</span><span class="m" style="margin-left:auto">Abrir carpeta</span></div></div>
+</div>
+<div class="col theme" data-theme="light" style="flex:0 1 300px">
+<div class="cap">Claro · pestaña y favicon</div>
+<div style="display:flex;gap:8px;flex-wrap:wrap">
+<span style="display:flex;gap:6px;align-items:center;background:var(--surface);border:1px solid var(--border);padding:6px 10px;border-radius:6px"><span class="px px-fav-light-16" style="width:16px;height:16px"></span> mi-proyecto | Agent…</span>
+<span style="display:flex;gap:6px;align-items:center;background:var(--surface);border:1px solid var(--border);padding:6px 10px;border-radius:6px"><span class="px px-fav-light-16" style="width:16px;height:16px"></span></span>
+</div>
+<div class="m">Pestaña fijada: solo el favicon, y se reconoce.</div>
+<div class="cap">Inicio del móvil (PWA / apple-touch) <span class="pin">3</span></div>
+<div style="display:flex;gap:14px;align-items:flex-end">
+<div class="col" style="align-items:center;gap:4px;width:64px"><span class="ic ic-ios" style="width:56px;height:56px;border-radius:13px"></span><span class="lbl" style="width:72px;margin:0 -4px">AgentChamber</span></div>
+<div class="col" style="align-items:center;gap:4px;width:64px"><span class="ph" style="width:56px;height:56px"></span><span class="lbl m" style="width:64px">Otra</span></div>
+</div>
+</div>
+<div class="col" style="flex:0 0 auto">
+<div class="cap">Móvil · 390 px · oscuro <span class="pin">4</span></div>
+<div class="phone">
+<div class="sb"><span>9:41</span><span>●●●</span></div>
+<div style="display:flex;align-items:center;gap:4px;padding:0 6px;height:52px;border-bottom:1px solid var(--border)">
+<span class="hit" style="background:var(--surface-2)">☰</span>
+<div class="col" style="gap:0;min-width:0;flex:1"><span class="t" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">AgentChamber</span></div>
+<span class="hit">＋</span><span class="hit">⋯</span>
+</div>
+<div class="body col" style="align-items:center;text-align:center;gap:10px;padding:28px 20px">
+<span class="ic ic-mark-d" style="width:96px;height:96px;opacity:.9"></span>
+<span class="t">Aún no hay proyectos</span>
+<span class="m">Abre una carpeta para crear tu primera sesión.</span>
+<span class="btn pri touch block">Abrir carpeta</span>
+</div>
+<div style="display:flex;align-items:center;gap:4px;padding:0 6px;height:52px;border-top:1px solid var(--border)">
+<span class="hit">☰</span>
+<div class="col" style="gap:0;min-width:0;flex:1"><span class="t" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Refactor del login con tokens de sesión</span><span class="m">mi-proyecto</span></div>
+<span class="hit">＋</span><span class="hit">⋯</span>
+</div>
+<div class="m" style="padding:6px 12px 12px">Abajo: la misma cabecera con una sesión abierta; el título largo se corta con «…».</div>
+</div>
+</div>
+<ul class="notes" style="max-width:none;flex:1 1 100%">
+<li><span class="pin">1</span><span><code>&lt;title&gt;</code> y <code>APP_TITLE</code> de <code>useWindowTitle.ts</code>: «proyecto | AgentChamber». El favicon SVG sigue <code>prefers-color-scheme</code> (contorno <code>currentColor</code>) y el rombo cambia al <code>--accent</code> de cada tema. Los PNG de 16/32 llevan su propio fondo oscuro y se leen en cualquier barra.</span></li>
+<li><span class="pin">2</span><span>La cabecera no gana logo. Es la de siempre, con título y proyecto; el nombre del producto solo sale cuando no hay nada abierto (<code>Header.tsx</code>, el fallback de <code>currentSessionTitle</code>).</span></li>
+<li><span class="pin">3</span><span>Manifest: <code>name</code> «AgentChamber», <code>short_name</code> «AgentChamber». Se quedan <code>theme_color</code> y <code>background_color</code>, que son los de la UI.</span></li>
+<li><span class="pin">4</span><span>Por debajo de 640 px, todo lo que se toca mide 44 × 44 px (menú, nueva sesión, más) y el botón principal ocupa todo el ancho con 44 px de alto. Ahí la marca la llevan el icono de inicio, la pestaña y el estado vacío (marca de 96 px), no la cabecera.</span></li>
+</ul>
+</div>
+</section>
+<!-- F2 · macOS -->
+<section class="row">
+<div class="side">
+<div class="k">Frame 2 · macOS</div>
+<h2>Dock, menú e instalador .dmg</h2>
+<p><b>Tarea:</b> instalar arrastrando a Aplicaciones y encontrar la app en el Dock.</p>
+<p>Ficheros: <code>resources/icons/icon.icns</code> y <code>dev-icon.icns</code>, <code>AppIcon.icon/</code> (capas de macOS 26) y <code>Assets.car</code>, bloques <code>mac</code>/<code>dmg</code> de <code>electron/package.json</code>.</p>
+</div>
+<div class="frame">
+<div class="col theme" data-theme="light" style="flex:1 1 380px">
+<div class="cap">Ventana del .dmg (540×340, claro) <span class="pin">1</span></div>
+<div class="win" style="aspect-ratio:540/340;display:flex;flex-direction:column;background:var(--bg)">
+<div class="tb"><i></i><i></i><i></i><b>AgentChamber 1.x.y</b></div>
+<div style="flex:1;display:flex;align-items:center;justify-content:space-around;padding:12px">
+<div class="col" style="align-items:center;gap:6px"><span class="ic ic-tile" style="width:110px;height:110px"></span><span class="m" style="color:var(--text)">AgentChamber.app</span></div>
+<span class="flow">→</span>
+<div class="col" style="align-items:center;gap:6px"><span class="ph" style="width:90px;height:90px"></span><span class="m" style="color:var(--text)">Aplicaciones</span></div>
+</div>
+</div>
+<div class="m">Fichero: <code>AgentChamber-1.x.y-mac-arm64.dmg</code></div>
+</div>
+<div class="col" style="flex:1 1 320px">
+<div class="cap">Barra de menús y bandeja <span class="pin">2</span></div>
+<div class="win"><div style="display:flex;gap:16px;padding:6px 12px;font-size:12px;align-items:center"><b>AgentChamber</b><span>Archivo</span><span>Editar</span><span>Ver</span><span>Ventana</span></div>
+<div class="body" style="padding:8px 12px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:4px;font-size:12px;max-width:220px"><span>Acerca de AgentChamber</span><span class="m">Buscar actualizaciones…</span><span class="m">Ocultar AgentChamber</span><span class="m">Salir de AgentChamber</span></div></div>
+<div class="cap">Dock <span class="pin">3</span></div>
+<div style="display:flex;flex-direction:column;align-items:center;gap:6px">
+<span class="tip">AgentChamber</span>
+<div style="display:flex;gap:10px;align-items:flex-end;padding:8px 14px;background:var(--surface-2);border:1px solid var(--border);border-radius:16px">
+<span class="ph" style="width:48px;height:48px"></span><span class="ph" style="width:48px;height:48px"></span>
+<div class="col" style="align-items:center;gap:4px"><span class="ic ic-tile" style="width:56px;height:56px;margin:-4px"></span><span style="width:4px;height:4px;border-radius:50%;background:var(--text)"></span></div>
+<span class="ph" style="width:48px;height:48px"></span>
+</div>
+</div>
+</div>
+<ul class="notes">
+<li><span class="pin">1</span><span>Cambian el título y el nombre del .app. El fondo del dmg se queda como está (<code>#FFFCF0</code>): el rebrand no rediseña el instalador.</span></li>
+<li><span class="pin">2</span><span><code>productName</code> manda en el menú, en «Acerca de» y en el texto de la bandeja (<code>tray.mjs</code>). El glifo de la bandeja ya es cubo + rombo y no cambia.</span></li>
+<li><span class="pin">3</span><span>En macOS 26 el Dock usa <code>Assets.car</code>, compilado de <code>AppIcon.icon/</code> con <code>actool</code> en un Mac (<code>bun run --cwd packages/electron generate:macos-icon</code>). Las capas nuevas ya están entregadas. Si no se recompila, macOS 26 seguirá enseñando el cubo viejo.</span></li>
+</ul>
+</div>
+</section>
+<!-- F3 · iOS -->
+<section class="row">
+<div class="side">
+<div class="k">Frame 3 · iOS</div>
+<h2>TestFlight, inicio y arranque</h2>
+<p><b>Tarea:</b> el tester reconoce la build en TestFlight y la encuentra en su iPhone.</p>
+<p class="fix"><span class="tag res">RESUELTO</span> Bloqueante UX. Decisión: <code>CFBundleDisplayName</code> = «AgentChamber», sin nombre corto. Se dibuja el peor caso, con la etiqueta truncada.</p>
+<p>Ficheros: <code>AppIcon.appiconset/AppIcon-512@2x.png</code> (1024, sin alfa; hoy es el icono por defecto de Capacitor), <code>Splash.imageset</code> (claro y oscuro), <code>Info.plist</code>.</p>
+</div>
+<div class="frame">
+<div class="col" style="flex:0 0 230px">
+<div class="cap">TestFlight · ficha <span class="pin">1</span></div>
+<div class="win" style="border-radius:24px;padding:16px;display:flex;flex-direction:column;gap:12px">
+<div style="display:flex;gap:12px;align-items:center"><span class="ic ic-ios" style="width:60px;height:60px;border-radius:14px"></span><div class="col" style="gap:2px"><span class="t">AgentChamber</span><span class="m">1.x.y (build N)</span><span class="m">Caduca en 90 días</span></div></div>
+<span class="btn pri ios">Instalar</span>
+<div class="col" style="gap:4px"><span class="cap">Qué probar</span><span class="m">OpenChamber ahora se llama AgentChamber. Si tenías OpenChamber en el iPhone, esta se instala aparte: conecta tu servidor otra vez (QR) y borra la antigua.</span></div>
+</div>
+</div>
+<div class="col" style="flex:0 0 250px">
+<div class="cap">Inicio · iPhone estándar <span class="pin">2</span></div>
+<div class="win" style="border-radius:24px;padding:16px 10px;display:grid;grid-template-columns:repeat(4,56px);gap:14px 4px;justify-content:space-between">
+<div class="col" style="align-items:center;gap:4px"><span class="ph" style="width:48px;height:48px"></span><span class="lbl m" style="width:56px">Notas</span></div>
+<div class="col" style="align-items:center;gap:4px"><span class="ic ic-ios" style="width:48px;height:48px;border-radius:11px"></span><span class="lbl" style="width:auto;overflow:visible;margin:0 -8px">AgentChamber</span></div>
+<div class="col" style="align-items:center;gap:4px"><span class="ph" style="width:48px;height:48px"></span><span class="lbl m" style="width:56px">TestFlight</span></div>
+<div class="col" style="align-items:center;gap:4px"><span class="ph" style="width:48px;height:48px"></span><span class="lbl m" style="width:56px">Ajustes</span></div>
+</div>
+<div class="cap">Peor caso · iPhone SE, «Zoom de pantalla» o texto grande <span class="pin">3</span></div>
+<div class="win" style="border-radius:24px;padding:16px 10px;display:grid;grid-template-columns:repeat(4,56px);gap:14px 4px;justify-content:space-between">
+<div class="col" style="align-items:center;gap:4px"><span class="ph" style="width:48px;height:48px"></span><span class="lbl m" style="width:56px">Notas</span></div>
+<div class="col" style="align-items:center;gap:4px"><span class="ic ic-ios" style="width:48px;height:48px;border-radius:11px"></span><span class="lbl" style="width:auto;overflow:visible;font-size:11px;margin:0 -6px">AgentCham…</span></div>
+<div class="col" style="align-items:center;gap:4px"><span class="ph" style="width:48px;height:48px"></span><span class="lbl m" style="width:56px;font-size:11px">TestFlight</span></div>
+<div class="col" style="align-items:center;gap:4px"><span class="ph" style="width:48px;height:48px"></span><span class="lbl m" style="width:56px;font-size:11px">Ajustes</span></div>
+</div>
+<div class="cap">Buscar «agent» (Spotlight)</div>
+<div class="win" style="border-radius:14px;padding:10px;display:flex;gap:10px;align-items:center"><span class="ic ic-ios" style="width:38px;height:38px;border-radius:9px"></span><div class="col" style="gap:0"><span class="t">AgentChamber</span><span class="m">Aplicación</span></div></div>
+</div>
+<div class="col" style="flex:0 0 auto">
+<div class="cap">Arranque (launch) · claro y oscuro <span class="pin">4</span></div>
+<div style="display:flex;gap:10px">
+<div class="theme" data-theme="light" style="padding:0;border-radius:24px"><div class="win" style="width:120px;border-radius:24px;aspect-ratio:9/19.5;display:grid;place-items:center;background:var(--bg)"><span class="ic ic-mark-l" style="width:44px;height:44px"></span></div></div>
+<div class="win" style="width:120px;border-radius:24px;aspect-ratio:9/19.5;display:grid;place-items:center;background:var(--bg)"><span class="ic ic-mark-d" style="width:44px;height:44px"></span></div>
+</div>
+<div class="m">Sigue el modo del sistema, sin texto.</div>
+</div>
+<ul class="notes">
+<li><span class="pin">1</span><span>El nombre en TestFlight sale de App Store Connect, no del binario: es un paso manual de quien tiene la cuenta, en DGX-516. El bundle ID lo pone <code>vars.IOS_BUNDLE_ID</code>. Si no coincide con el de una build que el tester ya tenga, iOS la instala como otra app, con su propio almacenamiento y sin los servidores guardados. Por eso «Qué probar» dice cómo volver a conectar y que se borre la vieja. En ese caso, en el primer arranque de iOS siempre sale C, la conexión (frame 5).</span></li>
+<li><span class="pin">2</span><span>En un iPhone estándar «AgentChamber» (12 caracteres) cabe justo. Es hipótesis sin medir en un dispositivo; qa la mide en el simulador.</span></li>
+<li><span class="pin">3</span><span>En el peor caso iOS corta por el final: «AgentCham…». Se acepta porque sigue empezando por «Agent», el icono es único en la pantalla y Spotlight, Ajustes y TestFlight enseñan el nombre entero. Con un nombre corto («Chamber») buscar «agent» ya no la encontraría, y el nombre dejaría de coincidir con TestFlight.</span></li>
+<li><span class="pin">4</span><span>La pantalla de arranque lleva solo la marca centrada, sin texto, como pide la HIG de Apple. Hay variante clara y oscura (<code>appearances: luminosity dark</code>), así que no hay fogonazo blanco con el iPhone en modo oscuro.</span></li>
+</ul>
+</div>
+</section>
+<!-- F4 · Windows y Linux -->
+<section class="row">
+<div class="side">
+<div class="k">Frame 4 · Windows y Linux</div>
+<h2>Actualizar, reabrir y anclar</h2>
+<p><b>Tarea:</b> instalar o actualizar, y volver a abrir la app desde el menú del sistema o la barra de tareas.</p>
+<p class="fix"><span class="tag res">RESUELTO</span> Bloqueante UX: tras actualizar queda <b>una sola entrada</b> en Inicio y en Aplicaciones instaladas, y es AgentChamber. El <code>appId</code> cambia (decisión del architect), así que el instalador sustituye a OpenChamber en el sitio en vez de instalarse al lado.</p>
+<p class="fix"><span class="tag res">RESUELTO</span> Barra de tareas dibujada. <code>Comment</code> del <code>.desktop</code> escrito para el usuario.</p>
+<p>Ficheros: <code>resources/icons/icon.ico</code>, <code>icon-win.svg</code>, <code>app-icon.svg</code>, bloques <code>win</code>/<code>nsis</code>/<code>linux</code> de <code>electron/package.json</code>, <code>linux-autostart.mjs</code>.</p>
+</div>
+<div class="frame">
+<div class="col" style="flex:1 1 300px">
+<div class="cap">1 · Actualización (NSIS, un clic) <span class="pin">1</span></div>
+<div class="win">
+<div class="tb"><span class="px px-ico-16" style="width:16px;height:16px"></span><span style="margin-left:4px">Instalando AgentChamber</span></div>
+<div class="body col">
+<div style="display:flex;gap:12px;align-items:center"><span class="ic ic-win" style="width:48px;height:48px"></span><div class="col" style="gap:2px"><span class="t">AgentChamber 1.x.y</span><span class="m">Sustituyendo a OpenChamber… tus datos se quedan.</span></div></div>
+<div class="bar"><span style="width:62%"></span></div>
+</div>
+</div>
+<div class="cap">2 · Menú Inicio, buscar «chamber» <span class="pin">2</span></div>
+<div class="win body col" style="gap:8px">
+<div class="field" style="min-height:0;padding:6px 10px;color:var(--text)">chamber</div>
+<div style="display:flex;gap:10px;align-items:center;padding:6px;border-radius:6px;background:var(--surface-2)"><span class="px px-ico-32" style="width:32px;height:32px"></span><div class="col" style="gap:0"><span class="ok">AgentChamber</span><span class="m">Aplicación</span></div></div>
+<div class="m">Una sola coincidencia. OpenChamber ya no está.</div>
+</div>
+<div class="cap">3 · Configuración › Aplicaciones instaladas</div>
+<div class="win body col" style="gap:6px">
+<div style="display:flex;gap:10px;align-items:center"><span class="px px-ico-24" style="width:24px;height:24px"></span><span>AgentChamber</span><span class="m" style="margin-left:auto">1.x.y</span></div>
+</div>
+</div>
+<div class="col" style="flex:1 1 320px">
+<div class="cap">4 · Barra de tareas · oscuro <span class="pin">3</span></div>
+<div class="win">
+<div style="height:70px;display:flex;align-items:flex-end;justify-content:center;padding-bottom:6px"><span class="tip">AgentChamber</span></div>
+<div class="taskbar">
+<span class="slot"><span class="ph" style="width:24px;height:24px"></span></span>
+<span class="slot"><span class="px px-ico-24" style="width:24px;height:24px"></span></span>
+<span class="slot on"><span class="px px-ico-24" style="width:24px;height:24px"></span><span class="run focus"></span></span>
+<span class="slot"><span class="ph" style="width:24px;height:24px"></span><span class="run"></span></span>
+</div>
+</div>
+<div class="m">Ranura 2: anclada, cerrada. Ranura 3: abierta y en primer plano, con la píldora <code>--accent</code>. El icono es el mismo <code>.ico</code> de 24 px en las dos.</div>
+<div class="theme" data-theme="light">
+<div class="cap">Barra de tareas · claro</div>
+<div class="taskbar" style="border-radius:8px">
+<span class="slot"><span class="ph" style="width:24px;height:24px"></span></span>
+<span class="slot on"><span class="px px-ico-24" style="width:24px;height:24px"></span><span class="run"></span></span>
+<span class="slot"><span class="ph" style="width:24px;height:24px"></span></span>
+</div>
+</div>
+</div>
+<div class="col" style="flex:1 1 280px">
+<div class="cap">Linux · lanzador (GNOME/KDE) <span class="pin">4</span></div>
+<div class="win body" style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;justify-items:center">
+<div class="col" style="align-items:center;gap:4px"><span class="ph" style="width:48px;height:48px"></span><span class="m">Terminal</span></div>
+<div class="col" style="align-items:center;gap:4px"><span class="ic ic-tile" style="width:56px;height:56px;margin:-4px"></span><span>AgentChamber</span></div>
+<div class="col" style="align-items:center;gap:4px"><span class="ph" style="width:48px;height:48px"></span><span class="m">Archivos</span></div>
+</div>
+<div class="tip" style="align-self:center">Trabaja con agentes de IA en tus proyectos de código</div>
+<div class="cap">Entrada .desktop</div>
+<div class="field" style="font:12px/1.6 ui-monospace,Menlo,monospace;color:var(--text)">Name=AgentChamber<br>Comment=Work with AI coding agents on your projects<br>Comment[es]=Trabaja con agentes de IA en tus proyectos de código<br>Icon=agentchamber<br><span style="color:var(--muted)">AgentChamber-1.x.y-linux-x64.AppImage</span></div>
+</div>
+<ul class="notes" style="max-width:none;flex:1 1 100%">
+<li><span class="pin">1</span><span><b>Una sola app tras actualizar:</b> el instalador NSIS identifica la instalación por su GUID, que sale del <code>appId</code>. Si se fija <code>nsis.guid</code> al GUID que generaba <code>dev.openchamber.desktop</code>, ve la instalación de OpenChamber como la misma app: ejecuta su desinstalador en silencio, conservando los datos, y deja solo AgentChamber. La pantalla sigue siendo de un clic; solo cambia el texto. Si el plan no fija el GUID, este frame no se cumple y hay que dibujar otra cosa: hoy ningún paso quita la entrada vieja.</span></li>
+<li><span class="pin">2</span><span>Inicio y Aplicaciones instaladas: una entrada con el nombre y el icono nuevos. Nunca dos.</span></li>
+<li><span class="pin">3</span><span>Un ancla de OpenChamber hecha antes de actualizar tiene que seguir funcionando y enseñar el icono nuevo. Si el ejecutable cambia de nombre o de carpeta, el instalador sustituye el acceso anclado. qa lo comprueba en Windows; si no se puede, queda como riesgo en su veredicto.</span></li>
+<li><span class="pin">4</span><span><code>Comment</code> es el texto de ayuda del lanzador: dice para qué sirve, en la lengua del usuario. Antes ponía «Desktop runtime for …», lenguaje interno. <code>Icon</code>/<code>StartupWMClass</code>/<code>executableName</code>: si cambian, hay que migrar el autoarranque que ya creó <code>linux-autostart.mjs</code>.</span></li>
+</ul>
+</div>
+</section>
+<!-- F5 · Primer arranque: camino feliz -->
+<section class="row">
+<div class="side">
+<div class="k">Frame 5 · Primer arranque</div>
+<h2>Camino feliz</h2>
+<p><b>Tarea:</b> abrir la app por primera vez tras el cambio de nombre y ponerse a trabajar sin perder nada.</p>
+<p>B tiene dos entradas: quien viene de OpenChamber (hay datos suyos) y quien instala por primera vez. UX lo dio por bueno; solo cambian el icono real y, en móvil, los botones táctiles.</p>
+<p class="fix"><span class="tag res">RESUELTO</span> En la web por debajo de 640 px y en iOS tras la pantalla de arranque, los botones miden 44 px.</p>
+</div>
+<div class="frame" style="align-items:stretch">
+<div class="col" style="flex:0 0 160px">
+<div class="cap">A · Arranque</div>
+<div class="win body col" style="align-items:center;justify-content:center;min-height:210px;gap:10px">
+<span class="ic ic-mark-d" style="width:72px;height:72px"></span><span class="t">AgentChamber</span>
+<div class="bar" style="width:100%"><span style="width:35%"></span></div>
+<span class="m">Arrancando opencode…</span>
+</div>
+</div>
+<span class="flow">→</span>
+<div class="col" style="flex:0 0 230px">
+<div class="cap">B1 · Venía de OpenChamber <span class="pin">1</span></div>
+<div class="win body col" style="gap:10px">
+<span class="ic ic-mark-d" style="width:40px;height:40px"></span>
+<span class="t">OpenChamber ahora es AgentChamber</span>
+<span class="m">Mismo producto, nombre nuevo. Tus proyectos, sesiones y ajustes siguen aquí.</span>
+<div style="display:flex;gap:8px"><span class="btn pri is-focus">Continuar</span><span class="btn">Qué ha cambiado</span></div>
+</div>
+<div class="cap">B2 · Instalación nueva</div>
+<div class="win body col" style="gap:10px">
+<span class="t">Te damos la bienvenida a AgentChamber</span>
+<span class="m">Conecta con opencode para empezar.</span>
+<div><span class="btn pri">Empezar</span></div>
+</div>
+</div>
+<span class="flow">→</span>
+<div class="col" style="flex:0 0 220px">
+<div class="cap">C · Conexión (solo si no hay ninguna)</div>
+<div class="win body col" style="gap:10px">
+<span class="t">¿Dónde está opencode?</span>
+<div class="field" style="color:var(--text)">● Este equipo (local)</div>
+<div class="field">○ Servidor remoto · https://…</div>
+<div><span class="btn pri">Conectar</span></div>
+</div>
+</div>
+<span class="flow">→</span>
+<div class="col" style="flex:1 1 200px">
+<div class="cap">D · Listo (vacío) <span class="pin">2</span></div>
+<div class="win" style="min-height:210px">
+<div style="display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--border)"><span class="t">AgentChamber</span></div>
+<div class="body col" style="align-items:center;text-align:center;gap:8px;padding:20px 16px">
+<span class="ic ic-mark-d" style="width:72px;height:72px;opacity:.35"></span>
+<span class="t">Aún no hay proyectos</span>
+<span class="m">Abre una carpeta para crear tu primera sesión.</span>
+<span class="btn pri">Abrir carpeta</span>
+</div>
+</div>
+</div>
+<div class="col" style="flex:0 0 auto">
+<div class="cap">B1 en móvil · 390 px (web &lt; 640 e iOS) <span class="pin">3</span></div>
+<div class="phone">
+<div class="sb"><span>9:41</span><span>●●●</span></div>
+<div class="body col" style="gap:12px;padding:28px 20px 24px">
+<span class="ic ic-mark-d" style="width:56px;height:56px"></span>
+<span class="t" style="font-size:18px">OpenChamber ahora es AgentChamber</span>
+<span class="m" style="font-size:14px">Mismo producto, nombre nuevo. Tus servidores y ajustes siguen aquí.</span>
+<span class="btn pri touch block is-focus">Continuar</span>
+<span class="btn touch block">Qué ha cambiado</span>
+</div>
+</div>
+</div>
+<ul class="notes" style="max-width:none;flex:1 1 100%">
+<li><span class="pin">1</span><span>B1 sale <b>una sola vez</b> y solo si hay datos de OpenChamber. No bloquea: con Esc o «Continuar» se entra a la app con todo cargado. Quien ya tiene conexión se salta C. «Qué ha cambiado» abre las notas de la versión, no una pantalla nueva.</span></li>
+<li><span class="pin">2</span><span>D: quien viene de OpenChamber y tiene proyectos entra en su última sesión, no en el estado vacío. La marca del estado vacío es la de <code>ChatEmptyState</code>, ya con el rombo nuevo.</span></li>
+<li><span class="pin">3</span><span>En táctil los dos botones van apilados, a todo el ancho y con 44 px de alto (<code>.btn.touch.block</code>). El principal va primero, como en iOS. En iOS, si el bundle ID es nuevo, no hay datos que traer: no sale B1 y se pasa de A a C (frame 3).</span></li>
+</ul>
+</div>
+</section>
+<!-- F6 · Primer arranque: estados -->
+<section class="row">
+<div class="side">
+<div class="k">Frame 6 · Primer arranque</div>
+<h2>Estados: carga, error y botones</h2>
+<p><b>Tarea:</b> saber qué pasa y qué hacer cuando el arranque no sale bien.</p>
+<p>Cada error dice qué ha fallado y dónde, y ofrece una salida. Nunca hay una pantalla sin botón. Los botones usan <code>--on-accent</code> en los dos temas.</p>
+</div>
+<div class="frame">
+<div class="col" style="flex:1 1 220px">
+<div class="cap">Carga lenta (&gt; 20 s)</div>
+<div class="win body col" style="align-items:center;gap:8px">
+<span class="ic ic-mark-d" style="width:56px;height:56px"></span>
+<div class="bar" style="width:100%"><span style="width:70%"></span></div>
+<span class="m">Está tardando más de lo normal.</span>
+<span class="btn">Ver registro</span>
+</div>
+</div>
+<div class="col" style="flex:1 1 260px">
+<div class="cap">Error · opencode no responde</div>
+<div class="err col">
+<span class="t"><span class="dot"></span>No se pudo conectar con opencode</span>
+<span class="m">127.0.0.1:4096 no responde (ECONNREFUSED).</span>
+<div style="display:flex;gap:8px;flex-wrap:wrap"><span class="btn pri">Reintentar</span><span class="btn">Cambiar servidor</span><span class="btn">Copiar error</span></div>
+</div>
+<div class="cap">Error · migración de datos <span class="pin">1</span></div>
+<div class="err col">
+<span class="t"><span class="dot"></span>No se han podido traer tus ajustes de OpenChamber</span>
+<span class="m">Tus proyectos siguen intactos en la carpeta antigua.</span>
+<div style="display:flex;gap:8px;flex-wrap:wrap"><span class="btn pri">Reintentar</span><span class="btn">Seguir sin ellos</span></div>
+</div>
+</div>
+<div class="col" style="flex:1 1 260px">
+<div class="cap">Botón principal · oscuro <span class="pin">2</span></div>
+<div style="display:flex;gap:8px;flex-wrap:wrap">
+<span class="btn pri">Normal</span><span class="btn pri is-hover">Hover</span><span class="btn pri is-focus">Foco</span><span class="btn pri is-disabled">Desact.</span>
+</div>
+<div class="cap">Botón secundario · oscuro</div>
+<div style="display:flex;gap:8px;flex-wrap:wrap">
+<span class="btn">Normal</span><span class="btn is-hover">Hover</span><span class="btn is-focus">Foco</span><span class="btn is-disabled">Desact.</span>
+</div>
+<div class="cap">Táctil · 44 px (web &lt; 640 e iOS)</div>
+<div style="display:flex;gap:8px;flex-wrap:wrap">
+<span class="btn pri touch">Normal</span><span class="btn pri touch is-focus">Foco</span><span class="btn touch">Secundario</span><span class="btn pri touch is-disabled">Desact.</span>
+</div>
+<div data-theme="light" class="col theme">
+<div class="cap">Claro · B1 y botones</div>
+<div class="win body col" style="gap:8px">
+<span class="t">OpenChamber ahora es AgentChamber</span>
+<div style="display:flex;gap:8px;flex-wrap:wrap"><span class="btn pri">Continuar</span><span class="btn pri is-focus">Foco</span><span class="btn">Qué ha cambiado</span></div>
+<div style="display:flex;gap:8px;flex-wrap:wrap"><span class="btn pri touch">Continuar · 44</span><span class="btn touch">Secundario · 44</span></div>
+</div>
+</div>
+</div>
+<ul class="notes" style="max-width:none;flex:1 1 100%">
+<li><span class="pin">1</span><span>El error de migración nunca borra ni mueve la carpeta antigua: la migración copia, no traslada. En Windows el desinstalador viejo corre en modo «conservar datos» (frame 4).</span></li>
+<li><span class="pin">2</span><span>El texto sobre el acento es <code>--on-accent</code>: 6,09:1 en oscuro y 4,91:1 en claro, medido por UX. Pasa AA; el blanco de antes daba 3,12:1. El foco es un anillo de 2 px <code>--accent</code> con 2 px de separación, en los dos temas.</span></li>
+</ul>
+</div>
+</section>
+</div>
+</x-dc>
+</body>
+</html>
