@@ -356,7 +356,7 @@ describe('parseHostMessage', () => {
       ...message,
       payload: { ...message.payload, snapshot: { ...message.payload.snapshot, lastAssistantAt: '1700000000000' } },
     }).success).toBe(false);
-    const { sessionId: _ignored, ...snapshotWithoutSessionId } = message.payload.snapshot;
+    const snapshotWithoutSessionId = { ...message.payload.snapshot, sessionId: undefined };
     expect(hostMessageSchema.safeParse({
       ...message,
       payload: { ...message.payload, snapshot: snapshotWithoutSessionId },
