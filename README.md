@@ -1,3 +1,16 @@
+# AgentChamber
+
+> **AgentChamber** es el fork oficial de la compañía de [OpenChamber](https://github.com/openchamber/openchamber)
+> (MIT): un fork de trabajo, no un proyecto respaldado por los mantenedores de
+> OpenChamber — el nombre, la marca y el scope `@openchamber/*` siguen siendo de
+> upstream y MIT cubre el código, no la marca.
+>
+> Frente a upstream, AgentChamber añade la ejecución multi-agente lado a lado —
+> **OpenCode** y **Claude Code** en el mismo servidor y la misma UI — y la
+> integración con las herramientas internas de la compañía. Todo lo demás de
+> OpenChamber se conserva tal cual; las mejoras que merecen la pena se devuelven
+> a upstream por PR.
+
 # <picture><source media="(prefers-color-scheme: dark)" srcset="docs/references/badges/openchamber-logo-dark.svg"><img src="docs/references/badges/openchamber-logo-light.svg" width="32" height="32" align="absmiddle" /></picture> OpenChamber
 
 [![GitHub stars](https://img.shields.io/github/stars/openchamber/openchamber?style=flat&labelColor=100F0F&color=66800B)](https://github.com/openchamber/openchamber/stargazers)

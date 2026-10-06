@@ -1,0 +1,21 @@
+# Allowlist de gitleaks para el fork (DGX-515).
+#
+# Solo falsos positivos del HISTORIAL heredado de upstream — comprobados uno a
+# uno el 2026-10-06: ninguna es una credencial real. Si gitleaks encuentra
+# algo fuera de esta lista, se trata como secreto real: `PARA SECURITY:` y
+# ticket de rotación, nunca una entrada nueva aquí sin ese visto bueno.
+#
+# Los ficheros de `spaces/` ya no existen en el árbol: la entrada solo silencia
+# sus commits históricos.
+
+title = "AgentChamber fork allowlist"
+
+[allowlist]
+description = "fixtures de test de upstream y un client id público de OAuth"
+paths = [
+  '''packages/web/server/lib/spaces/''',              # tests con claves falsas tipo '0123456789abcdef'
+  '''packages/web/server/lib/company-office/webhook/receiver\.test\.js''',  # 'a-test-secret-that-is-long-enough-32b'
+]
+regexes = [
+  '''91bbe26a69a2c8568d3683f1e01e776c''',  # DEFAULT_LINEAR_CLIENT_ID: OAuth client id público, no un secreto
+]

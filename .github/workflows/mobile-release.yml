@@ -109,6 +109,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
   android-release:
+    environment: release # DGX-515: keystore Android tras aprobación manual (revisores: config del repo)
     name: Android signed release
     if: inputs.build_android
     runs-on: arc-k8s
@@ -185,6 +186,7 @@ jobs:
         working-directory: ${{ env.ANDROID_PROJECT_DIR }}
 
   ios-testflight:
+    environment: release # DGX-515: credenciales App Store Connect tras aprobación manual
     name: iOS TestFlight upload
     if: inputs.build_ios
     # 2026-10-05 devops · fuera de pool: no existe hardware de esa plataforma en el clúster (skill ci-runners-arc, INFRA-548)

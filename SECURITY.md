@@ -1,5 +1,12 @@
 # Security Policy
 
+> This repository (**AgentChamber**) is a company fork of
+> [openchamber/openchamber](https://github.com/openchamber/openchamber). Report
+> vulnerabilities in *this fork's* code or CI to
+> [security@e-dani.com](mailto:security@e-dani.com); issues that also affect
+> upstream go to upstream as well (address below).
+
+
 ## Reporting a Vulnerability
 
 If you discover a security vulnerability in OpenChamber, please report it responsibly.

@@ -11,6 +11,7 @@ permissions:
 
 jobs:
   publish:
+    environment: release # DGX-515: VSCE_PAT y OVSX_PAT tras aprobación manual
     runs-on: arc-k8s
     env:
       VSCE_PAT: ${{ secrets.VSCE_PAT }}
