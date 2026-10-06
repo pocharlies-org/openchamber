@@ -12,8 +12,9 @@
 //   GITHUB_OUTPUT      status, tag, branch, pushable (when set)
 //
 // Subcommands (after the sync, same checkout): `publish-pr` pushes the sync
-// branch and opens the PR, `publish-issue` opens (or updates) the conflict
-// issue. They use the REST API with GH_TOKEN because the arc-k8s image has no `gh`.
+// branch and opens the PR, `publish-issue` delivers the report as an issue or, where
+// issues are disabled, as a pull request. They use the REST API with GH_TOKEN
+// because the arc-k8s image has no `gh`.
 //
 // Exit codes: 0 = up to date or clean, 1 = conflict, 2 = bad input.
 
@@ -124,42 +125,99 @@ export const runSync = ({ repoDir, target = 'main', upstreamUrl, upstreamRef = '
   return { ...result, status: 'clean', report: renderReport({ ...result, status: 'clean', target }) };
 };
 
-const api = async (method, route, body) => {
-  const response = await fetch(`https://api.github.com/repos/${process.env.GITHUB_REPOSITORY}${route}`, {
-    method,
-    headers: {
-      authorization: `Bearer ${process.env.GH_TOKEN}`,
-      accept: 'application/vnd.github+json',
-      'x-github-api-version': '2022-11-28',
-    },
-    body: body && JSON.stringify(body),
-  });
-  if (!response.ok) throw new Error(`${method} ${route}: ${response.status} ${await response.text()}`);
-  return response.json();
-};
+/** GitHub REST client for the running repository; `fetchFn` is injectable so tests never touch the network. */
+export const createApi = ({ fetchFn = fetch, repository = process.env.GITHUB_REPOSITORY, token = process.env.GH_TOKEN } = {}) =>
+  async (method, route, body) => {
+    const response = await fetchFn(`https://api.github.com/repos/${repository}${route}`, {
+      method,
+      headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28' },
+      body: body && JSON.stringify(body),
+    });
+    if (!response.ok) throw Object.assign(new Error(`${method} ${route}: ${response.status} ${await response.text()}`), { status: response.status });
+    return response.json();
+  };
 
-/** Pushes the sync branch (never forced: if it exists remotely, a PR is already in flight) and opens the PR. */
-const publishPr = async ({ repoDir, target, branch, tag, report }) => {
-  if (git(repoDir, ['ls-remote', 'origin', `refs/heads/${branch}`])) {
-    console.log(`${branch} already exists on origin; nothing to publish.`);
-    return;
-  }
+const gitPush = (repoDir, branch) => {
   const basic = Buffer.from(`x-access-token:${process.env.GH_TOKEN}`).toString('base64');
   git(repoDir, ['push', 'origin', `${branch}:refs/heads/${branch}`], {
     env: { ...process.env, GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'http.extraheader', GIT_CONFIG_VALUE_0: `AUTHORIZATION: basic ${basic}` },
   });
-  const pr = await api('POST', '/pulls', { title: `sync: upstream ${tag}`, head: branch, base: target, body: report });
-  console.log(`PR opened: ${pr.html_url}`);
 };
 
-const publishIssue = async ({ tag, report }) => {
-  const title = `Sync de upstream ${tag}: ${process.env.SYNC_STATUS === 'conflict' ? 'conflicto' : 'push manual'}`;
+/** Pushes the sync branch (never forced: if it exists remotely, a PR is already in flight) and opens the PR. */
+const publishPr = async ({ repoDir, target, branch, tag, report, api = createApi() }) => {
+  if (git(repoDir, ['ls-remote', 'origin', `refs/heads/${branch}`])) {
+    console.log(`${branch} already exists on origin; nothing to publish.`);
+    return;
+  }
+  gitPush(repoDir, branch);
+  try {
+    const pr = await api('POST', '/pulls', { title: `sync: upstream ${tag}`, head: branch, base: target, body: report });
+    console.log(`PR opened: ${pr.html_url}`);
+  } catch (error) {
+    // The branch is already on origin; the report is in the run summary. Typical cause: the repo
+    // setting "Allow GitHub Actions to create pull requests" is off.
+    console.error(`::error::branch ${branch} pushed but the PR could not be opened: ${error.message}`);
+    throw error;
+  }
+};
+
+const issueChannel = async ({ api, tag, status, report }) => {
+  const title = `Sync de upstream ${tag}: ${status === 'conflict' ? 'conflicto' : 'push manual'}`;
   const open = await api('GET', '/issues?state=open&per_page=100');
   const existing = open.find((issue) => !issue.pull_request && issue.title === title);
   const result = existing
     ? await api('POST', `/issues/${existing.number}/comments`, { body: report })
     : await api('POST', '/issues', { title, body: report });
-  console.log(`Issue: ${result.html_url}`);
+  return result.html_url;
+};
+
+/**
+ * Same report, on a pull request, for repositories with issues turned off.
+ * Order: the open sync PR of this tag, else the open report PR of this tag, else a
+ * new report PR from `sync/upstream-<tag>-report` (the target plus one empty commit,
+ * because a conflicted sync leaves no branch of its own).
+ */
+const pullRequestChannel = async ({ api, repoDir, target, tag, report, pushReportBranch }) => {
+  const open = await api('GET', '/pulls?state=open&per_page=100');
+  const mine = open.filter((pr) => pr.head?.ref === `sync/upstream-${tag}` || pr.head?.ref === `sync/upstream-${tag}-report`);
+  const existing = mine.find((pr) => pr.head.ref === `sync/upstream-${tag}`) ?? mine[0];
+  if (existing) return (await api('POST', `/issues/${existing.number}/comments`, { body: report })).html_url;
+  const reportBranch = `sync/upstream-${tag}-report`;
+  await pushReportBranch(repoDir, target, reportBranch);
+  const pr = await api('POST', '/pulls', { title: `sync: informe de upstream ${tag}`, head: reportBranch, base: target, body: report, draft: true });
+  return pr.html_url;
+};
+
+const pushEmptyReportBranch = (repoDir, target, branch) => {
+  git(repoDir, ['checkout', '-q', '-B', branch, `origin/${target}`]);
+  git(repoDir, [...IDENTITY, 'commit', '-q', '--allow-empty', '-m', `sync report ${branch}`]);
+  gitPush(repoDir, branch);
+};
+
+/**
+ * Delivers the report outside the run. The run summary is always written by the
+ * workflow; this adds a durable copy where someone will look: an issue, and where
+ * the repository has issues disabled (or the call fails), a pull request.
+ * @returns {Promise<{delivered: boolean, channel?: string, url?: string, errors: string[]}>}
+ */
+export const publishReport = async ({ api, repoDir, target, tag, status, report, pushReportBranch = pushEmptyReportBranch, log = console }) => {
+  const errors = [];
+  for (const [channel, run] of [
+    ['issue', () => issueChannel({ api, tag, status, report })],
+    ['pull-request', () => pullRequestChannel({ api, repoDir, target, tag, report, pushReportBranch })],
+  ]) {
+    try {
+      const url = await run();
+      log.log(`Report delivered as ${channel}: ${url}`);
+      return { delivered: true, channel, url, errors };
+    } catch (error) {
+      errors.push(`${channel}: ${error.message}`);
+      log.warn(`::warning::report channel ${channel} failed: ${error.message}`);
+    }
+  }
+  log.error('::error::the report reached no channel outside this run; it is in the run summary');
+  return { delivered: false, errors };
 };
 
 const isDirectRun = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
@@ -167,12 +225,16 @@ if (isDirectRun) {
   const env = process.env;
   const [subcommand] = process.argv.slice(2);
   if (subcommand) {
-    const publish = { 'publish-pr': publishPr, 'publish-issue': publishIssue }[subcommand];
-    if (!publish) {
+    const common = { repoDir: process.cwd(), target: env.SYNC_TARGET, tag: env.SYNC_TAG, report: readFileSync(env.SYNC_REPORT_FILE, 'utf8') };
+    if (subcommand === 'publish-pr') {
+      await publishPr({ ...common, branch: env.SYNC_BRANCH });
+    } else if (subcommand === 'publish-issue') {
+      const outcome = await publishReport({ ...common, api: createApi(), status: env.SYNC_STATUS });
+      process.exit(outcome.delivered ? 0 : 1);
+    } else {
       console.error(`::error::unknown subcommand ${subcommand}`);
       process.exit(2);
     }
-    await publish({ repoDir: process.cwd(), target: env.SYNC_TARGET, branch: env.SYNC_BRANCH, tag: env.SYNC_TAG, report: readFileSync(env.SYNC_REPORT_FILE, 'utf8') });
     process.exit(0);
   }
   let result;

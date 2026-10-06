@@ -6,7 +6,7 @@ import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { runSync } from './upstream-sync.mjs';
+import { publishReport, runSync } from './upstream-sync.mjs';
 
 const SCRIPT = fileURLToPath(new URL('./upstream-sync.mjs', import.meta.url));
 const root = mkdtempSync(path.join(os.tmpdir(), 'upstream-sync-'));
@@ -166,5 +166,111 @@ describe('upstream-sync', () => {
   it('rejects a ref that is not a release tag', () => {
     const { upstream, fork } = makeFixture('badref', { ownEdits: clean });
     assert.throws(() => runSync({ repoDir: fork, upstreamUrl: upstream, upstreamRef: '$(id)' }), /invalid/);
+  });
+
+  it('lists every conflicting file when the first own commit touches many (the v2.1.1 shape: 14 files)', () => {
+    const files = Array.from({ length: 14 }, (_, i) => `side/file-${String(i + 1).padStart(2, '0')}.txt`);
+    const upstream = path.join(root, 'many-upstream');
+    const fork = path.join(root, 'many-fork');
+    mkdirSync(upstream);
+    git(upstream, 'init', '-q');
+    for (const f of files) commit(upstream, f, 'base\n', `upstream: base ${f}`);
+    git(upstream, 'tag', 'v1.0.0');
+    for (const f of files) writeFileSync(path.join(upstream, f), 'upstream\n');
+    git(upstream, 'add', '-A');
+    git(upstream, 'commit', '-qm', 'upstream: rewrite side conversations');
+    git(upstream, 'tag', 'v1.1.0');
+    git(root, 'clone', '-q', upstream, fork);
+    git(fork, 'checkout', '-q', '-B', 'main', 'v1.0.0');
+    for (const f of files) writeFileSync(path.join(fork, f), 'ours\n');
+    git(fork, 'add', '-A');
+    git(fork, 'commit', '-qm', 'feat(chat): add declarative side conversations');
+    commit(fork, 'own/later.txt', 'l\n', 'own: later');
+    git(fork, 'update-ref', 'refs/remotes/origin/main', 'main');
+    git(fork, 'tag', '-d', 'v1.1.0');
+
+    const result = runSync({ repoDir: fork, upstreamUrl: upstream });
+    assert.equal(result.status, 'conflict');
+    assert.deepEqual(result.conflict.files, files);
+    assert.match(result.conflict.commit, /declarative side conversations/);
+    for (const f of files) assert.ok(result.report.includes(`- \`${f}\``), f);
+    assert.match(result.report, /own: later/); // not applied, listed
+  });
+});
+
+/** An API double: `routes` maps "METHOD /path" to a reply, a `reply(fn)` or an Error; anything else is a 404. */
+const reply = (fn) => ({ reply: fn });
+const fakeApi = (routes) => {
+  const calls = [];
+  const api = async (method, route, body) => {
+    calls.push(`${method} ${route.split('?')[0]}`);
+    const hit = routes[`${method} ${route.split('?')[0]}`];
+    if (hit === undefined) throw Object.assign(new Error(`${method} ${route}: 404`), { status: 404 });
+    if (hit instanceof Error) throw hit;
+    return hit?.reply ? hit.reply(body) : hit;
+  };
+  return { api, calls };
+};
+const silent = { log() {}, warn() {}, error() {} };
+const issuesDisabled = Object.assign(new Error('GET /issues: 410 the repository has disabled issues'), { status: 410 });
+const base = { repoDir: '/unused', target: 'main', tag: 'v1.1.1', status: 'conflict', report: '# informe\n- `a.txt`', log: silent };
+
+describe('publishReport', () => {
+  it('opens the issue when issues are enabled, and touches no pull request', async () => {
+    const { api, calls } = fakeApi({ 'GET /issues': [], 'POST /issues': reply(() => ({ html_url: 'https://x/issues/1' })) });
+    const out = await publishReport({ ...base, api });
+    assert.deepEqual([out.delivered, out.channel], [true, 'issue']);
+    assert.deepEqual(calls, ['GET /issues', 'POST /issues']);
+  });
+
+  it('comments on the open issue of the same title instead of duplicating it', async () => {
+    const { api, calls } = fakeApi({
+      'GET /issues': [{ number: 7, title: 'Sync de upstream v1.1.1: conflicto' }],
+      'POST /issues/7/comments': reply(() => ({ html_url: 'https://x/issues/7#c' })),
+    });
+    assert.equal((await publishReport({ ...base, api })).url, 'https://x/issues/7#c');
+    assert.deepEqual(calls, ['GET /issues', 'POST /issues/7/comments']);
+  });
+
+  it('with issues disabled, comments on the open sync PR of that tag', async () => {
+    const { api, calls } = fakeApi({
+      'GET /issues': issuesDisabled,
+      'GET /pulls': [{ number: 3, head: { ref: 'sync/upstream-v1.1.1' } }, { number: 4, head: { ref: 'other' } }],
+      'POST /issues/3/comments': reply(() => ({ html_url: 'https://x/pull/3#c' })),
+    });
+    const out = await publishReport({ ...base, api });
+    assert.deepEqual([out.delivered, out.channel, out.url], [true, 'pull-request', 'https://x/pull/3#c']);
+    assert.match(out.errors[0], /disabled issues/);
+    assert.deepEqual(calls, ['GET /issues', 'GET /pulls', 'POST /issues/3/comments']);
+  });
+
+  it('with issues disabled and no PR in flight, opens a draft report PR from a report branch', async () => {
+    const pushed = [];
+    let body;
+    const { api } = fakeApi({
+      'GET /issues': issuesDisabled,
+      'GET /pulls': [],
+      'POST /pulls': reply((b) => { body = b; return { html_url: 'https://x/pull/9' }; }),
+    });
+    const out = await publishReport({ ...base, api, pushReportBranch: (_dir, target, branch) => pushed.push([target, branch]) });
+    assert.equal(out.url, 'https://x/pull/9');
+    assert.deepEqual(pushed, [['main', 'sync/upstream-v1.1.1-report']]);
+    assert.deepEqual([body.head, body.base, body.draft, body.body], ['sync/upstream-v1.1.1-report', 'main', true, base.report]);
+  });
+
+  it('falls back when the issue call fails for any other reason too', async () => {
+    const { api } = fakeApi({
+      'GET /issues': Object.assign(new Error('boom'), { status: 502 }),
+      'GET /pulls': [{ number: 3, head: { ref: 'sync/upstream-v1.1.1-report' } }],
+      'POST /issues/3/comments': reply(() => ({ html_url: 'https://x/pull/3#c' })),
+    });
+    assert.equal((await publishReport({ ...base, api })).channel, 'pull-request');
+  });
+
+  it('reports not delivered, with both errors, when no channel works', async () => {
+    const { api } = fakeApi({ 'GET /issues': issuesDisabled, 'GET /pulls': new Error('GET /pulls: 403') });
+    const out = await publishReport({ ...base, api });
+    assert.equal(out.delivered, false);
+    assert.equal(out.errors.length, 2);
   });
 });
