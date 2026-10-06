@@ -10,7 +10,10 @@ each new tag; the logic lives in `scripts/upstream-sync.mjs` and is tested in
 1. Fetches upstream tags and finds the newest `vX.Y.Z` tag (or `upstream_ref`).
 2. Takes the own commits: reachable from `origin/<target>`, from no upstream tag and not
    from upstream's default branch (so work pulled in with `merge -s ours` is never "own"),
-   and not already carried by an earlier sync (see below). Upstream refs are fetched into
+   and not already carried by an earlier sync: `cherry-pick -x` leaves
+   `(cherry picked from commit <sha>)` in each carried commit, so the originals it names are
+   dropped, whatever way the sync PR was merged (merge commit or rebase; a squash cannot be
+   told apart from new work). Upstream refs are fetched into
    `refs/upstream/*`, so fork-made tags never count as releases.
 3. Builds `sync/upstream-<tag>` at the new tag and cherry-picks them in order.
 4. Clean: pushes the branch and opens a PR against `main` listing every applied commit.
@@ -22,13 +25,6 @@ Triggers: Monday 05:17 UTC (`schedule`) and `workflow_dispatch`. Dispatch inputs
 conflict still fails the run), `target` (branch carrying the stack) and
 `upstream_ref`. Never `pull_request`: the job has write permissions.
 Re-running for a tag whose branch is already on `origin` does nothing.
-
-## Merging a sync PR
-
-Merge it with a **merge commit** (the default PR title `Merge pull request … from …/sync/upstream-<tag>`
-is what the next run looks for). The next sync excludes everything reachable from the first
-parent of the latest such merge, so each own commit is carried once. A squash or rebase merge
-loses that marker and the next run would carry the old commits again.
 
 ## Decision: report-only when the tag touches workflows (2026-10-06)
 

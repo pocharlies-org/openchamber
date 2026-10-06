@@ -43,16 +43,23 @@ const releaseTags = (cwd, args = []) =>
   lines(git(cwd, ['for-each-ref', '--sort=-v:refname', '--format=%(refname:strip=3)', ...args, UPSTREAM_TAGS])).filter((t) => RELEASE_TAG.test(t));
 
 /**
- * The fork's own commits: reachable from the target, from nothing upstream (any
- * tag, or its default branch: a merge -s ours can pull in unreleased upstream
- * work), and not carried by an earlier sync. After a sync PR is merged with a
- * merge commit the target holds both the old own commits and their cherry-picks;
- * the first parent of that merge is the old line, so it is excluded.
+ * The fork's own commits: reachable from the target and from nothing upstream
+ * (any tag, or its default branch: a merge -s ours can pull in unreleased
+ * upstream work), minus what an earlier sync already carried. That is told by
+ * content, never by how the sync PR was merged: `cherry-pick -x` leaves
+ * "(cherry picked from commit <sha>)" in every carried commit, so the originals
+ * named there are dropped; and `--cherry-pick` drops copies of upstream commits
+ * (a rebase merge replays the sync branch, upstream history included).
  */
 const ownCommits = (cwd, targetRef) => {
-  const [previousLine] = git(cwd, ['log', '--merges', '--first-parent', '-1', '--grep=sync/upstream-', '--format=%P', targetRef]).split(' ');
-  const carried = previousLine ? [`^${previousLine}`] : [];
-  return lines(git(cwd, ['rev-list', '--reverse', '--no-merges', targetRef, ...carried, '--not', UPSTREAM_HEAD, `--glob=${UPSTREAM_TAGS}/*`]));
+  // Two passes on purpose: with the tags as extra negatives the upstream side of the
+  // patch comparison would lose exactly the commits a rebase-merged copy mirrors.
+  const notCopies = new Set(lines(git(cwd, ['rev-list', '--no-merges', '--cherry-pick', '--right-only', `${UPSTREAM_HEAD}...${targetRef}`])));
+  const candidates = lines(git(cwd, ['rev-list', '--reverse', '--no-merges', targetRef, '--not', UPSTREAM_HEAD, `--glob=${UPSTREAM_TAGS}/*`])).filter((sha) => notCopies.has(sha));
+  if (!candidates.length) return candidates;
+  const messages = git(cwd, ['log', '--no-walk=unsorted', '--stdin', '--format=%B'], { input: `${candidates.join('\n')}\n`, stdio: ['pipe', 'pipe', 'pipe'] });
+  const carried = new Set([...messages.matchAll(/\(cherry picked from commit ([0-9a-f]{40})\)/g)].map((m) => m[1]));
+  return candidates.filter((sha) => !carried.has(sha));
 };
 
 const renderReport = ({ status, tag, baseTag, target, branch, applied, conflict, remaining, touchesWorkflows }) => {
@@ -86,8 +93,11 @@ export const runSync = ({ repoDir, target = 'main', upstreamUrl, upstreamRef = '
   const branch = `sync/upstream-${tag}`;
   const result = { tag, baseTag, branch, applied: [], touchesWorkflows: false };
 
-  if (allTags.indexOf(tag) >= allTags.indexOf(baseTag)) {
-    return { ...result, status: 'up-to-date', report: `# Sync de upstream\n\n\`${target}\` ya contiene \`${baseTag}\`; nada que sincronizar.\n` };
+  // Synced = every commit of the tag is in the target or has a patch-equivalent there
+  // (ancestry alone misses a sync PR merged by rebase, whose commits are copies).
+  const missing = git(repoDir, ['rev-list', '--no-merges', '--cherry-pick', '--right-only', '--count', `${targetRef}...${UPSTREAM_TAGS}/${tag}`]);
+  if (allTags.indexOf(tag) >= allTags.indexOf(baseTag) || missing === '0') {
+    return { ...result, status: 'up-to-date', report: `# Sync de upstream\n\n\`${target}\` ya tiene \`${tag}\` (última base: \`${baseTag}\`); nada que sincronizar.\n` };
   }
 
   const own = ownCommits(repoDir, targetRef);

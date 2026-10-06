@@ -103,6 +103,36 @@ describe('upstream-sync', () => {
     assert.equal(git(fork, 'rev-list', '--count', 'refs/upstream/tags/v1.2.0..' + second.branch), '2');
   });
 
+  it('keeps an own commit that lands on main between cutting the sync branch and merging its PR', () => {
+    const { upstream, fork } = makeFixture('between', { ownEdits: clean });
+    const first = runSync({ repoDir: fork, upstreamUrl: upstream });
+    git(fork, 'checkout', '-q', 'main');
+    commit(fork, 'own/x.txt', 'x\n', 'own: added while the sync PR was open');
+    git(fork, 'merge', '-q', '--no-ff', first.branch, '-m', `Merge pull request #1 from fork/${first.branch}`);
+    git(fork, 'update-ref', 'refs/remotes/origin/main', 'main');
+    commit(upstream, 'a.txt', 'one\nTWO upstream\nthree\nfour\n', 'upstream: edit four');
+    git(upstream, 'tag', 'v1.2.0');
+
+    const second = runSync({ repoDir: fork, upstreamUrl: upstream });
+    assert.deepEqual(second.applied.map((c) => c.slice(8)).sort(), ['own: add b', 'own: add c', 'own: added while the sync PR was open']);
+  });
+
+  it('a sync PR merged by rebase is recognised as synced and carries each own commit once', () => {
+    const { upstream, fork } = makeFixture('rebase', { ownEdits: clean });
+    const first = runSync({ repoDir: fork, upstreamUrl: upstream });
+    // rebase merge: every commit of the PR replayed on main, upstream history included
+    git(fork, 'checkout', '-q', 'main');
+    git(fork, 'cherry-pick', '--allow-empty', '--keep-redundant-commits', `refs/upstream/tags/v1.0.0..${first.branch}`);
+    git(fork, 'update-ref', 'refs/remotes/origin/main', 'main');
+    assert.equal(runSync({ repoDir: fork, upstreamUrl: upstream }).status, 'up-to-date');
+
+    commit(upstream, 'a.txt', 'one\nTWO upstream\nthree\nfour\n', 'upstream: edit four');
+    git(upstream, 'tag', 'v1.2.0');
+    const second = runSync({ repoDir: fork, upstreamUrl: upstream });
+    assert.equal(second.status, 'clean');
+    assert.deepEqual(second.applied.map((c) => c.slice(8)), ['own: add b', 'own: add c']);
+  });
+
   it('flags a tag that changes workflows so the run does not push', () => {
     const { upstream, fork } = makeFixture('wf', { ownEdits: clean, upstreamWorkflow: true });
     const result = runSync({ repoDir: fork, upstreamUrl: upstream });
