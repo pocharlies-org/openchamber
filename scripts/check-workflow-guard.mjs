@@ -23,8 +23,12 @@ import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { parse } from 'yaml';
 
-const SELF_HOSTED = /\b(self-hosted|macbook|x86)\b/i;
-const HOSTED_OS = /\b(macos[-\w]*|windows[-\w]*|ubuntu-latest|ubuntu-\d+\.\d+)\b/;
+// En eventos de PR el único runner permitido: allowlist, no denylist — así
+// blacksmith-*, etiquetas de terceros y cualquier etiqueta futura caen solas.
+const ALLOWED_PR_RUNNERS = new Set(['arc-k8s']);
+// Reusables de workflows permitidos en PR: los de la org (auditados). Un
+// `uses:` a un repo ajeno con `secrets: inherit` es un cauce de exfiltración.
+const ORG_PREFIX = 'pocharlies-org/';
 
 // El valor de `on:` llega del YAML como string (`on: pull_request`), lista de
 // eventos u objeto con claves de evento; `null` (clave sin valor) no aporta.
@@ -36,10 +40,13 @@ const triggerEvents = (workflow) => {
   return Object.keys(on).map((k) => (k === 'true' ? 'on' : k));
 };
 
-const runsOnTokens = (job) => {
-  const runner = job['runs-on'];
-  if (runner === null || runner === undefined) return '';
-  return (Array.isArray(runner) ? runner : [runner]).join(' ');
+// true solo si runs-on es literalmente arc-k8s (string) o una lista de
+// etiquetas todas arc-k8s. Expresiones (${{ matrix.runner }}), mapas
+// {group,labels} y cualquier otra etiqueta no se demuestran: no valen.
+const runnerAllowed = (runner) => {
+  if (runner === String(runner)) return ALLOWED_PR_RUNNERS.has(runner);
+  if (Array.isArray(runner)) return runner.length > 0 && runner.every((t) => ALLOWED_PR_RUNNERS.has(t));
+  return false;
 };
 
 export function checkWorkflow(file, text) {
@@ -61,19 +68,22 @@ export function checkWorkflow(file, text) {
   for (const [name, job] of Object.entries(jobs)) {
     if (!job || Array.isArray(job)) continue;
     const where = `${file} job "${name}"`;
-    const runs = runsOnTokens(job);
-    // Un job con `if:` atado a otro evento (dispatch, tag) no corre en la PR
-    // aunque el workflow también dispare por pull_request. Heurística: si el
-    // `if` menciona `workflow_dispatch` o `github.event_name`, se excluye.
+    // Un job con `if:` anclado a un evento que no es la PR (dispatch, push,
+    // schedule, release, o solo `inputs.*`) no corre en pull_request. Ojo:
+    // `if: github.event_name == 'pull_request'` NO exime — corre en la PR.
     const jobIf = String(job.if ?? '');
-    const runsOnPr = prEvents.length > 0 && !/workflow_dispatch|github\.event_name/.test(jobIf);
-    if (runs && !runs.includes('${{') && runsOnPr) {
-      if (SELF_HOSTED.test(runs)) {
-        errors.push(`::error file=${file}::${where}: runner propio (${runs.trim()}) en un workflow que dispara por pull_request`);
+    const anchoredElsewhere =
+      (/github\.event_name\s*==\s*'(workflow_dispatch|push|schedule|release)'/.test(jobIf) ||
+        (/\binputs\./.test(jobIf) && !/github\.event_name/.test(jobIf))) &&
+      !jobIf.includes('pull_request');
+    const runsOnPr = prEvents.length > 0 && !anchoredElsewhere;
+    if (job.uses !== undefined) {
+      if (runsOnPr && !String(job.uses).startsWith(ORG_PREFIX) && !String(job.uses).startsWith('./')) {
+        errors.push(`::error file=${file}::${where}: workflow reutilizable de un repo ajeno a la org en un job que corre en pull_request (${job.uses})`);
       }
-      if (prEvents.includes('pull_request') && HOSTED_OS.test(runs)) {
-        errors.push(`::error file=${file}::${where}: runner hosted de SO (${runs.trim()}) en pull_request; los jobs de PR van a arc-k8s (skill ci-runners-arc)`);
-      }
+    } else if (runsOnPr && job['runs-on'] !== undefined && !runnerAllowed(job['runs-on'])) {
+      const shown = Array.isArray(job['runs-on']) ? job['runs-on'].join(', ') : String(job['runs-on']);
+      errors.push(`::error file=${file}::${where}: runs-on '${shown}' no es arc-k8s literal; en eventos de PR solo se permite arc-k8s (skill ci-runners-arc)`);
     }
     if (!job.environment) {
       const jobText = JSON.stringify(job);
