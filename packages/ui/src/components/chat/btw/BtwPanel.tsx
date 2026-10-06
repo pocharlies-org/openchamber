@@ -1,9 +1,13 @@
 import React from 'react';
-import type { Message, Part } from '@opencode-ai/sdk/v2';
+import { ComposerFloatingPanel } from '../composer/ui/ComposerFloatingPanel';
+import type { Message, Part } from '@/lib/opencode/model';
+import { getLastConversationRecord, isIncompleteAssistantTurn } from '@/lib/opencode/model';
 import { useI18n } from '@/lib/i18n';
+import { isIMECompositionEvent } from '@/lib/ime';
 import { cn } from '@/lib/utils';
 import { toast } from '@/components/ui';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Icon } from '@/components/icon/Icon';
 import { useBtwStore } from '@/stores/useBtwStore';
 import { useSync } from '@/sync/use-sync';
@@ -12,7 +16,7 @@ import {
     useSessionRenderable,
     useSessionStatus,
     useScopedBlockingPermissions,
-    useScopedBlockingQuestions,
+    useScopedBlockingForms,
 } from '@/sync/sync-context';
 import { useStreamingStore } from '@/sync/streaming';
 import { ScrollShadow } from '@/components/ui/ScrollShadow';
@@ -22,7 +26,7 @@ import { ChatSurfaceProvider } from '../ChatSurfaceContext';
 import { useMobileAutocompleteMaxHeight } from '../useMobileAutocompleteMaxHeight';
 import ChatMessage from '../ChatMessage';
 import { PermissionCard } from '../PermissionCard';
-import { QuestionCard } from '../QuestionCard';
+import { FormCard } from '../FormCard';
 
 const IDLE_SESSION_STATUS = { type: 'idle' as const };
 
@@ -38,13 +42,16 @@ const IDLE_SESSION_STATUS = { type: 'idle' as const };
  * Three exits: collapse (panel minimizes to the composer chip, the composer
  * returns to the main session), promote (the fork becomes a normal session
  * and the app navigates to it), destroy (the fork is deleted; the main
- * conversation is never touched).
+ * conversation is never touched). Destroying a fork that has messages of its
+ * own asks first, offering promote as the alternative.
  */
-export const BtwPanel: React.FC<{ parentSessionId: string; panel: BtwPanelState }> = ({
+export const BtwPanel: React.FC<{ parentSessionId: string; panel: BtwPanelState; onExit: () => void }> = ({
     parentSessionId,
     panel,
+    onExit,
 }) => {
     const { t } = useI18n();
+    useEscapeToExit(onExit, !panel.collapsed && Boolean(panel.pending || panel.creating || panel.btwSessionId));
 
     if (panel.btwSessionId && panel.btwDirectory) {
         return (
@@ -54,7 +61,6 @@ export const BtwPanel: React.FC<{ parentSessionId: string; panel: BtwPanelState 
                     btwSessionId: panel.btwSessionId,
                     directory: panel.btwDirectory,
                 }}
-                title={panel.btwSession?.title?.trim() || t('chat.btw.titleFallback')}
                 boundaryMessageID={panel.boundaryMessageID}
                 collapsed={panel.collapsed}
             />
@@ -63,12 +69,33 @@ export const BtwPanel: React.FC<{ parentSessionId: string; panel: BtwPanelState 
 
     if (panel.creating) {
         return (
-            <BtwFrame title={t('chat.btw.titleFallback')}>
+            <BtwFrame>
                 <div className="flex items-center gap-2 px-4 py-4 text-sm text-muted-foreground">
                     <Icon name="loader-4" className="size-4 animate-spin" />
                     <span>{t('chat.btw.loading')}</span>
                 </div>
             </BtwFrame>
+        );
+    }
+
+    if (panel.pending) {
+        return (
+            <BtwFrame
+                draftHint={t('chat.btw.draftHint')}
+                collapsed={panel.collapsed}
+                actions={(
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={onExit}
+                        aria-label={t('chat.btw.cancelAria')}
+                        title={t('chat.btw.cancelAria')}
+                    >
+                        <Icon name="close" className="size-4" />
+                    </Button>
+                )}
+            />
         );
     }
 
@@ -85,13 +112,64 @@ const useBtwDestroy = (sessionRef: BtwSessionRef | null): (() => void) => {
     }, [sessionRef, t]);
 };
 
+/**
+ * Whether closing the fork would lose something: any record past the
+ * inherited-history boundary. A fork whose messages are not loaded yet counts
+ * as having content, so an unloaded (collapsed) panel never deletes silently.
+ */
+const useBtwHasOwnContent = (sessionRef: BtwSessionRef, boundaryMessageID: string | null): boolean => {
+    const sync = useSync();
+    const renderable = useSessionRenderable(sessionRef.btwSessionId, sessionRef.directory);
+    React.useEffect(() => {
+        if (!renderable) {
+            void sync.ensureSessionRenderable(sessionRef.btwSessionId, false, sessionRef.directory);
+        }
+    }, [renderable, sessionRef.btwSessionId, sessionRef.directory, sync]);
+    const messageRecords = useSessionMessageRecords(sessionRef.btwSessionId, sessionRef.directory);
+    return React.useMemo(
+        () => !renderable || filterBtwTailMessages(messageRecords, boundaryMessageID).length > 0,
+        [boundaryMessageID, messageRecords, renderable],
+    );
+};
+
+/** Closing a fork with messages asks first: discard it, or keep it as its own session. */
+const BtwCloseConfirmDialog: React.FC<{
+    open: boolean;
+    onCancel: () => void;
+    onDiscard: () => void;
+    onKeep: () => void;
+}> = ({ open, onCancel, onDiscard, onKeep }) => {
+    const { t } = useI18n();
+    return (
+        <Dialog open={open} onOpenChange={(next) => { if (!next) onCancel(); }}>
+            <DialogContent showCloseButton={false} className="max-w-sm gap-5">
+                <DialogHeader>
+                    <DialogTitle>{t('chat.btw.closeConfirm.title')}</DialogTitle>
+                    <DialogDescription>{t('chat.btw.closeConfirm.description')}</DialogDescription>
+                </DialogHeader>
+                <DialogFooter className="gap-2">
+                    <Button type="button" variant="outline" size="sm" onClick={onCancel}>
+                        {t('chat.btw.closeConfirm.cancel')}
+                    </Button>
+                    <Button type="button" variant="outline" size="sm" onClick={onKeep}>
+                        {t('chat.btw.closeConfirm.keep')}
+                    </Button>
+                    <Button type="button" variant="destructive" size="sm" onClick={onDiscard}>
+                        {t('chat.btw.closeConfirm.discard')}
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    );
+};
+
 type BtwSessionData = {
     messageRecords: Array<{ info: Message; parts: Part[] }>;
     sessionIsWorking: boolean;
     streamingMessageId: string | null;
     activeStreamingPhase: 'streaming' | 'cooldown' | 'completed' | null;
     sessionPermissions: ReturnType<typeof useScopedBlockingPermissions>;
-    sessionQuestions: ReturnType<typeof useScopedBlockingQuestions>;
+    sessionForms: ReturnType<typeof useScopedBlockingForms>;
     isEmpty: boolean;
 };
 
@@ -124,7 +202,7 @@ const useBtwSessionData = (
         ),
     );
     const sessionPermissions = useScopedBlockingPermissions(sessionId, directory);
-    const sessionQuestions = useScopedBlockingQuestions(sessionId, directory);
+    const sessionForms = useScopedBlockingForms(sessionId, directory);
 
     const tailRecords = React.useMemo(
         () => filterBtwTailMessages(messageRecords, boundaryMessageID),
@@ -132,23 +210,17 @@ const useBtwSessionData = (
     );
 
     const sessionIsWorking = React.useMemo(() => {
-        if (sessionPermissions.length > 0 || sessionQuestions.length > 0) {
+        if (sessionPermissions.length > 0 || sessionForms.length > 0) {
             return false;
         }
         const statusType = status.type ?? 'idle';
         if (statusType === 'busy' || statusType === 'retry') {
             return true;
         }
-        // SAFETY: reads only the optional `time.completed` field, which the
-        // SDK Message union does not expose uniformly; a missing value means
-        // the assistant turn has not completed.
-        const lastMessage = tailRecords[tailRecords.length - 1]?.info as (Message & { time?: { completed?: number } }) | undefined;
-        return Boolean(
-            lastMessage
-            && lastMessage.role === 'assistant'
-            && typeof lastMessage.time?.completed !== 'number',
-        );
-    }, [sessionPermissions.length, sessionQuestions.length, status.type, tailRecords]);
+        // Plumbing roles trail the assistant message, so the working state
+        // follows the last conversation message, not the last record.
+        return isIncompleteAssistantTurn(getLastConversationRecord(tailRecords)?.info);
+    }, [sessionPermissions.length, sessionForms.length, status.type, tailRecords]);
 
     return {
         messageRecords: tailRecords,
@@ -156,26 +228,23 @@ const useBtwSessionData = (
         streamingMessageId,
         activeStreamingPhase,
         sessionPermissions,
-        sessionQuestions,
+        sessionForms,
         isEmpty: tailRecords.length === 0,
     };
 };
 
-/** Esc collapses the sheet (never destroys) unless focus is in a text field. */
-const useEscapeToCollapse = (onCollapse: () => void): void => {
+/** Composer and popup handlers get first refusal; the owner decides cancel versus collapse. */
+const useEscapeToExit = (onExit: () => void, enabled: boolean): void => {
     React.useEffect(() => {
+        if (!enabled) return;
         const handleKeyDown = (event: KeyboardEvent) => {
-            if (event.key !== 'Escape') return;
-            // SAFETY: keydown targets are DOM elements (or null on window).
-            const target = event.target as HTMLElement | null;
-            if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
-                return;
-            }
-            onCollapse();
+            if (event.key !== 'Escape' || event.defaultPrevented || isIMECompositionEvent(event)) return;
+            event.preventDefault();
+            onExit();
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [onCollapse]);
+    }, [enabled, onExit]);
 };
 
 /**
@@ -217,79 +286,81 @@ const useAutoScroll = (
 };
 
 const BtwFrame: React.FC<{
-    title: string;
     actions?: React.ReactNode;
     onTitleClick?: () => void;
     titleClickLabel?: string;
     collapsed?: boolean;
     headerSpinner?: boolean;
+    draftHint?: string;
     children?: React.ReactNode;
-}> = ({ title, actions, onTitleClick, titleClickLabel, collapsed, headerSpinner, children }) => (
-    <div
-        className="chat-input-column absolute bottom-full left-0 right-0 z-30 mb-3"
-        role="dialog"
-        aria-label="btw"
-    >
-        <div className="oc-glass-popover w-full overflow-hidden rounded-xl border border-[var(--interactive-border)] shadow-[0_4px_16px_-4px_rgb(0_0_0_/_0.12)]">
-            <div className="flex items-center gap-2 px-3 py-1.5">
-                {onTitleClick ? (
-                    <button
-                        type="button"
-                        onClick={onTitleClick}
-                        aria-label={titleClickLabel}
-                        title={titleClickLabel}
-                        className="flex min-w-0 items-center gap-2 text-left text-muted-foreground transition-colors hover:text-foreground"
-                    >
-                        {headerSpinner ? (
-                            <Icon name="loader-4" className="size-3.5 shrink-0 animate-spin" />
-                        ) : (
-                            <Icon name="chat-ai-3" className="size-3.5 shrink-0" />
-                        )}
-                        <span className="typography-ui-label min-w-0 truncate font-semibold">
-                            {title}
-                        </span>
-                        <Icon name={collapsed ? 'arrow-up-s' : 'arrow-down-s'} className="size-4 shrink-0" />
-                    </button>
-                ) : (
-                    <span className="flex min-w-0 items-center gap-2 text-muted-foreground">
+}> = ({ actions, onTitleClick, titleClickLabel, collapsed, headerSpinner, draftHint, children }) => (
+    <ComposerFloatingPanel role="dialog" ariaLabel="btw" compact={collapsed} header={<>
+            {onTitleClick ? (
+                <button
+                    type="button"
+                    onClick={onTitleClick}
+                    aria-label={titleClickLabel}
+                    title={titleClickLabel}
+                    className="flex min-w-0 items-center gap-2 text-left text-muted-foreground transition-colors hover:text-foreground"
+                >
+                    {headerSpinner ? (
+                        <Icon name="loader-4" className="size-3.5 shrink-0 animate-spin" />
+                    ) : (
                         <Icon name="chat-ai-3" className="size-3.5 shrink-0" />
-                        <h2 className="typography-ui-label min-w-0 truncate font-semibold">
-                            {title}
-                        </h2>
-                    </span>
-                )}
-                <div className="min-w-0 flex-1" />
-                {actions}
-            </div>
-            {children ? (
-                <>
-                    {children}
-                    <div className="h-2" />
-                </>
-            ) : null}
-        </div>
-    </div>
+                    )}
+                    <Icon name={collapsed ? 'arrow-up-s' : 'arrow-down-s'} className="size-4 shrink-0" />
+                </button>
+            ) : (
+                <span className="flex min-w-0 items-center gap-2 text-muted-foreground">
+                    <Icon name="chat-ai-3" className="size-3.5 shrink-0" />
+                    {draftHint ? <span className="typography-ui-label truncate">{draftHint}</span> : null}
+                </span>
+            )}
+            <div className="min-w-0 flex-1" />
+            {actions}
+    </>}>
+        {children ? (
+            <>
+                {children}
+                <div className="h-2" />
+            </>
+        ) : null}
+    </ComposerFloatingPanel>
 );
 
 const BtwSheet: React.FC<{
     sessionRef: BtwSessionRef;
-    title: string;
     boundaryMessageID: string | null;
     collapsed: boolean;
-}> = ({ sessionRef, title, boundaryMessageID, collapsed }) => {
+}> = ({ sessionRef, boundaryMessageID, collapsed }) => {
     const { t } = useI18n();
     const handleDestroy = useBtwDestroy(sessionRef);
     const setCollapsed = React.useCallback((next: boolean) => {
         useBtwStore.getState().setPanelState(sessionRef.parentSessionId, { collapsed: next });
     }, [sessionRef.parentSessionId]);
     const handleToggleCollapsed = React.useCallback(() => setCollapsed(!collapsed), [collapsed, setCollapsed]);
-    const handleCollapse = React.useCallback(() => setCollapsed(true), [setCollapsed]);
     const handlePromote = React.useCallback(() => {
         void promoteBtwSession(sessionRef).catch(() => {
             toast.error(t('chat.btw.toast.promoteFailed'));
         });
     }, [sessionRef, t]);
-    useEscapeToCollapse(handleCollapse);
+    const hasOwnContent = useBtwHasOwnContent(sessionRef, boundaryMessageID);
+    const [confirmingClose, setConfirmingClose] = React.useState(false);
+    const handleClose = React.useCallback(() => {
+        if (hasOwnContent) {
+            setConfirmingClose(true);
+            return;
+        }
+        handleDestroy();
+    }, [handleDestroy, hasOwnContent]);
+    const closeConfirm = (
+        <BtwCloseConfirmDialog
+            open={confirmingClose}
+            onCancel={() => setConfirmingClose(false)}
+            onDiscard={() => { setConfirmingClose(false); handleDestroy(); }}
+            onKeep={() => { setConfirmingClose(false); handlePromote(); }}
+        />
+    );
 
     const toggleLabel = collapsed ? t('chat.btw.expandAria') : t('chat.btw.collapseAria');
     const headerButtonClass = 'size-7 rounded-lg text-muted-foreground transition-colors hover:text-foreground hover:!bg-transparent active:!bg-transparent';
@@ -311,7 +382,7 @@ const BtwSheet: React.FC<{
                 variant="ghost"
                 size="icon"
                 className={headerButtonClass}
-                onClick={handleDestroy}
+                onClick={handleClose}
                 aria-label={t('chat.btw.destroyAria')}
                 title={t('chat.btw.destroyAria')}
             >
@@ -322,25 +393,29 @@ const BtwSheet: React.FC<{
 
     if (collapsed) {
         return (
-            <BtwCollapsedStrip
-                sessionRef={sessionRef}
-                title={title}
-                actions={actions}
-                onExpand={handleToggleCollapsed}
-                expandLabel={toggleLabel}
-            />
+            <>
+                <BtwCollapsedStrip
+                    sessionRef={sessionRef}
+                    actions={actions}
+                    onExpand={handleToggleCollapsed}
+                    expandLabel={toggleLabel}
+                />
+                {closeConfirm}
+            </>
         );
     }
 
     return (
-        <BtwExpandedSheet
-            sessionRef={sessionRef}
-            title={title}
-            boundaryMessageID={boundaryMessageID}
-            actions={actions}
-            onTitleClick={handleToggleCollapsed}
-            titleClickLabel={toggleLabel}
-        />
+        <>
+            <BtwExpandedSheet
+                sessionRef={sessionRef}
+                boundaryMessageID={boundaryMessageID}
+                actions={actions}
+                onTitleClick={handleToggleCollapsed}
+                titleClickLabel={toggleLabel}
+            />
+            {closeConfirm}
+        </>
     );
 };
 
@@ -351,16 +426,14 @@ const BtwSheet: React.FC<{
  */
 const BtwCollapsedStrip: React.FC<{
     sessionRef: BtwSessionRef;
-    title: string;
     actions: React.ReactNode;
     onExpand: () => void;
     expandLabel: string;
-}> = ({ sessionRef, title, actions, onExpand, expandLabel }) => {
+}> = ({ sessionRef, actions, onExpand, expandLabel }) => {
     const status = useSessionStatus(sessionRef.btwSessionId, sessionRef.directory) ?? IDLE_SESSION_STATUS;
     const isBusy = status.type === 'busy' || status.type === 'retry';
     return (
         <BtwFrame
-            title={title}
             actions={actions}
             onTitleClick={onExpand}
             titleClickLabel={expandLabel}
@@ -372,12 +445,11 @@ const BtwCollapsedStrip: React.FC<{
 
 const BtwExpandedSheet: React.FC<{
     sessionRef: BtwSessionRef;
-    title: string;
     boundaryMessageID: string | null;
     actions: React.ReactNode;
     onTitleClick: () => void;
     titleClickLabel: string;
-}> = ({ sessionRef, title, boundaryMessageID, actions, onTitleClick, titleClickLabel }) => {
+}> = ({ sessionRef, boundaryMessageID, actions, onTitleClick, titleClickLabel }) => {
     const data = useBtwSessionData(sessionRef.btwSessionId, sessionRef.directory, boundaryMessageID);
     const bodyRef = React.useRef<HTMLDivElement | null>(null);
     const contentRef = React.useRef<HTMLDivElement | null>(null);
@@ -395,7 +467,7 @@ const BtwExpandedSheet: React.FC<{
         : undefined;
 
     return (
-        <BtwFrame title={title} actions={actions} onTitleClick={onTitleClick} titleClickLabel={titleClickLabel} collapsed={false}>
+        <BtwFrame actions={actions} onTitleClick={onTitleClick} titleClickLabel={titleClickLabel} collapsed={false}>
             <ChatSurfaceProvider mode="peek">
                 <BtwMessages
                     data={data}
@@ -433,6 +505,7 @@ const BtwMessages: React.FC<{
             onScroll={onBodyScroll}
             size={32}
             data-scroll-shadow="true"
+            data-selection-menu-boundary="true"
             className="max-h-[min(55vh,520px)] min-h-0 overflow-y-auto px-3 py-1"
             style={maxHeight !== undefined ? { maxHeight } : undefined}
         >
@@ -449,10 +522,10 @@ const BtwMessages: React.FC<{
                         }
                     />
                 ))}
-                {data.sessionQuestions.length > 0 || data.sessionPermissions.length > 0 ? (
+                {data.sessionForms.length > 0 || data.sessionPermissions.length > 0 ? (
                     <div>
-                        {data.sessionQuestions.map((question) => (
-                            <QuestionCard key={question.id} question={question} />
+                        {data.sessionForms.map((form) => (
+                            <FormCard key={form.id} form={form} />
                         ))}
                         {data.sessionPermissions.map((permission) => (
                             <PermissionCard key={permission.id} permission={permission} />

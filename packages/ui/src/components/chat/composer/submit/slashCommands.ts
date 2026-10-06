@@ -9,12 +9,13 @@
  * commands are data.
  *
  * Commands that are not "send a prompt pair" (undo, redo, timeline, compact,
- * handoff-review) stay with the composer: they manipulate session state or
+ * handoff-review, fork) stay with the composer: they manipulate session state or
  * open UI rather than producing a message.
  */
 
 import type { I18nKey } from '@/lib/i18n';
 import type { MagicPromptId } from '@/lib/magicPrompts';
+import type { EngineCapabilities, EngineOperation } from '@/lib/sessionEngine';
 
 /** What a command needs before it can run. */
 export type CommandRequirement = 'session' | 'session-or-draft';
@@ -136,6 +137,61 @@ export interface ParsedSlashCommand {
     argument: string;
 }
 
+export type LocalSlashCommandPlan = {
+    command: ParsedSlashCommand;
+    kind: 'action' | 'prompt';
+    attachedContext: 'none' | 'retain' | 'send';
+};
+
+const LOCAL_ACTION_COMMANDS = new Set([
+    'undo',
+    'redo',
+    'timeline',
+    'handoff-review',
+    'compact',
+    'fork',
+    'login',
+]);
+
+/**
+ * Commands that belong to one engine only. `/login` is Claude Code's sign-in,
+ * and a process the Agent SDK drives answers it with "isn't available in this
+ * environment" — OpenChamber runs the CLI's own `auth login` in its place (see
+ * server/lib/claude/account.js). On OpenCode the text stays OpenCode's.
+ */
+const CLAUDE_ONLY_COMMANDS = new Set(['login']);
+
+/**
+ * The engine operation each local command relies on (see lib/sessionEngine.ts).
+ * A session whose engine lacks it is not offered the command, and typing it
+ * does not run it: the text goes to the engine as written. `null` means the
+ * command works on any engine — a prompt pair is a prompt everywhere, and
+ * `init` becomes the engine's own `/init`.
+ *
+ * - undo/redo stage a revert; the timeline only navigates (its revert action
+ *   is gated where it is rendered).
+ * - `/btw` keeps its link to the parent in session metadata.
+ */
+export const LOCAL_COMMAND_REQUIRES: Readonly<Record<string, EngineOperation | null>> = {
+    init: null,
+    review: null,
+    undo: 'revert',
+    redo: 'revert',
+    timeline: null,
+    compact: 'compact',
+    fork: 'fork',
+    btw: 'metadata',
+    'handoff-review': null,
+    ...Object.fromEntries(MAGIC_PROMPT_COMMANDS.map((command) => [command.name, null])),
+};
+
+/** Whether a session whose engine has `capabilities` gets the local command `name`. */
+export function localCommandAvailable(name: string, capabilities: EngineCapabilities): boolean {
+    if (CLAUDE_ONLY_COMMANDS.has(name)) return capabilities.commands === 'prompt';
+    const requirement = LOCAL_COMMAND_REQUIRES[name];
+    return requirement === undefined || requirement === null || capabilities[requirement];
+}
+
 /**
  * Read the leading slash command out of a message, if there is one. Only the
  * first word counts as the command; the rest is its argument.
@@ -152,6 +208,45 @@ export function parseSlashCommand(text: string): ParsedSlashCommand | null {
         name,
         argument: withoutSlash.slice(name.length).trim(),
     };
+}
+
+/**
+ * Plan commands owned by the composer before attached context is consumed.
+ * Action commands leave that context in the composer; prompt commands send it.
+ * Unknown commands return null so the OpenCode command router remains authoritative.
+ */
+export function planLocalSlashCommand(
+    text: string,
+    inputMode: 'normal' | 'shell' | undefined,
+    hasAttachedContext: boolean,
+    hasSession: boolean,
+    capabilities?: EngineCapabilities,
+): LocalSlashCommandPlan | null {
+    if (inputMode !== 'normal') return null;
+    const command = parseSlashCommand(text);
+    if (!command) return null;
+    // A command the session's engine cannot run is not a local command there.
+    if (capabilities && !localCommandAvailable(command.name, capabilities)) return null;
+
+    if (LOCAL_ACTION_COMMANDS.has(command.name)) {
+        if (!hasSession) return null;
+
+        return {
+            command,
+            kind: 'action',
+            attachedContext: hasAttachedContext ? 'retain' : 'none',
+        };
+    }
+
+    if (command.name === 'btw' || findMagicPromptCommand(command.name)) {
+        return {
+            command,
+            kind: 'prompt',
+            attachedContext: hasAttachedContext ? 'send' : 'none',
+        };
+    }
+
+    return null;
 }
 
 /** The prompt-pair command for `name`, or null when it is not one. */
@@ -173,7 +268,7 @@ export function canRunCommand(
 export function buildCommandVariables(
     command: MagicPromptCommand,
     argument: string,
-): { visible: Record<string, string>; instructions: Record<string, string> } {
+) {
     const built = command.buildVariables?.(argument) ?? {};
     return {
         visible: built.visible ?? {},

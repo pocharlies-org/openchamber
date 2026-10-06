@@ -1,3 +1,5 @@
+import { dedupeCheckRuns, summarizeCheckRuns, summarizeCombinedStatuses } from './checks-summary.js';
+
 const PR_STATUS_CACHE_TTL_MS = 90_000;
 const PR_STATUS_CACHE_MAX_ENTRIES = 200;
 // Upper bound for resolving a single PR status. resolveGitHubPrStatus makes many
@@ -23,83 +25,6 @@ function invalidatePrContextCache(directory, number) {
       prContextCache.delete(key);
     }
   }
-}
-
-// Aggregate check runs into the summary shape shared by pr/status and
-// pulls/context. Keeps `pending` as queued+in_progress+unconcluded for
-// existing consumers while exposing the split and the earliest start time so
-// the UI can show live "running for N minutes" state.
-// A re-run leaves the previous completed check run in the listForRef payload
-// alongside the new in-progress one. GitHub's UI shows only the latest run
-// per (app, name); mirror that so counts match what users see on github.com.
-function dedupeCheckRuns(checkRuns) {
-  const byName = new Map();
-  for (const run of checkRuns) {
-    const key = `${run?.app?.id ?? run?.app?.slug ?? ''}::${run?.name ?? ''}`;
-    const previous = byName.get(key);
-    if (!previous) {
-      byName.set(key, run);
-      continue;
-    }
-    const previousStartedAt = Date.parse(previous?.started_at || '') || 0;
-    const startedAt = Date.parse(run?.started_at || '') || 0;
-    if (startedAt > previousStartedAt
-      || (startedAt === previousStartedAt && (run?.id ?? 0) > (previous?.id ?? 0))) {
-      byName.set(key, run);
-    }
-  }
-  return Array.from(byName.values());
-}
-
-function summarizeCheckRuns(checkRuns) {
-  const counts = { success: 0, failure: 0, pending: 0, inProgress: 0, queued: 0 };
-  let startedAt = null;
-  for (const run of checkRuns) {
-    const status = run?.status;
-    const conclusion = run?.conclusion;
-    if (status === 'in_progress') {
-      counts.pending += 1;
-      counts.inProgress += 1;
-      const runStartedAt = typeof run?.started_at === 'string' ? run.started_at : null;
-      if (runStartedAt && (!startedAt || runStartedAt < startedAt)) {
-        startedAt = runStartedAt;
-      }
-      continue;
-    }
-    if (status === 'queued') {
-      counts.pending += 1;
-      counts.queued += 1;
-      continue;
-    }
-    if (!conclusion) {
-      counts.pending += 1;
-      continue;
-    }
-    if (conclusion === 'success' || conclusion === 'neutral' || conclusion === 'skipped') {
-      counts.success += 1;
-    } else {
-      counts.failure += 1;
-    }
-  }
-  const total = counts.success + counts.failure + counts.pending;
-  const state = counts.failure > 0
-    ? 'failure'
-    : (counts.pending > 0 ? 'pending' : (total > 0 ? 'success' : 'unknown'));
-  return { state, total, ...counts, ...(startedAt ? { startedAt } : {}) };
-}
-
-function summarizeCombinedStatuses(statuses) {
-  const counts = { success: 0, failure: 0, pending: 0 };
-  statuses.forEach((s) => {
-    if (s.state === 'success') counts.success += 1;
-    else if (s.state === 'failure' || s.state === 'error') counts.failure += 1;
-    else if (s.state === 'pending') counts.pending += 1;
-  });
-  const total = counts.success + counts.failure + counts.pending;
-  const state = counts.failure > 0
-    ? 'failure'
-    : (counts.pending > 0 ? 'pending' : (total > 0 ? 'success' : 'unknown'));
-  return { state, total, ...counts, inProgress: counts.pending, queued: 0 };
 }
 
 function withTimeout(promise, timeoutMs, label) {
@@ -711,6 +636,46 @@ export function registerGitHubRoutes(app) {
     }
   });
 
+  // Batched live status for PRs and issues the client already knows by
+  // number. The sidebar polls this instead of re-resolving every branch.
+  app.post('/api/github/pr/summaries', async (req, res) => {
+    const { parseSummaryRefs, fetchPrSummaries, isGraphqlRateLimitError, MAX_SUMMARY_REFS } = await import('./pr-summaries.js');
+    const refs = parseSummaryRefs(req.body?.refs);
+    const issueRefs = parseSummaryRefs(req.body?.issueRefs ?? []);
+    if (!refs || !issueRefs || refs.length + issueRefs.length > MAX_SUMMARY_REFS) {
+      return res.status(400).json({ error: 'refs and issueRefs must be lists of { owner, repo, number }, at most 100 in total' });
+    }
+    try {
+      const { getOctokitOrNull } = await getGitHubLibraries();
+      const octokit = getOctokitOrNull();
+      if (!octokit) {
+        return res.json({ connected: false });
+      }
+      const { isGitHubRateLimited } = await import('./rate-limit.js');
+      if (isGitHubRateLimited()) {
+        return res.status(503).json({ error: 'GitHub rate limited' });
+      }
+      const fetchedAt = Date.now();
+      const { summaries, issueSummaries } = refs.length + issueRefs.length > 0
+        ? await fetchPrSummaries({ octokit, refs, issueRefs })
+        : { summaries: [], issueSummaries: [] };
+      return res.json({ connected: true, fetchedAt, summaries, issueSummaries });
+    } catch (error) {
+      if (error?.status === 401) {
+        const { clearGitHubAuth } = await getGitHubLibraries();
+        clearGitHubAuth();
+        return res.json({ connected: false });
+      }
+      const { isGitHubRateLimitError, noteGitHubRateLimit } = await import('./rate-limit.js');
+      if (isGraphqlRateLimitError(error) || isGitHubRateLimitError(error)) {
+        noteGitHubRateLimit(error);
+        return res.status(503).json({ error: 'GitHub rate limited' });
+      }
+      console.error('Failed to load GitHub PR summaries:', error);
+      return res.status(500).json({ error: error.message || 'Failed to load GitHub PR summaries' });
+    }
+  });
+
   app.post('/api/github/pr/create', async (req, res) => {
     try {
       const directory = typeof req.body?.directory === 'string' ? req.body.directory.trim() : '';
@@ -781,14 +746,14 @@ export function registerGitHubRoutes(app) {
       // Determine the source remote for the head branch
       // Priority: 1) explicit headRemote, 2) tracking branch remote, 3) 'origin' if targeting non-origin
       let sourceRemote = headRemote;
-      const { getStatus, getRemotes } = await import('../git/index.js');
+      const { getTrackingBranch, getRemotes } = await import('../git/index.js');
       
       // If no explicit headRemote, check the branch's tracking info
       if (!sourceRemote) {
-        const status = await getStatus(directory).catch(() => null);
-        if (status?.tracking) {
+        const tracking = await getTrackingBranch(directory).catch(() => null);
+        if (tracking) {
           // tracking is like "gsxdsm/fix/multi-remote-branch-creation" or "origin/main"
-          const trackingRemote = status.tracking.split('/')[0];
+          const trackingRemote = tracking.split('/')[0];
           if (trackingRemote) {
             sourceRemote = trackingRemote;
           }
@@ -1490,30 +1455,20 @@ export function registerGitHubRoutes(app) {
           const prRefs = items
             .map((item) => ({ number: item.number, repoRef: findRepoForSearchItem(item) }))
             .filter((ref) => Number.isFinite(ref.number) && ref.number > 0 && ref.repoRef);
-          let prs;
-          if (prRefs.length === 0) {
-            prs = [];
-          } else {
-            const results = await Promise.all(prRefs.map(async ({ number, repoRef }) => {
-              try {
-                const pr = await octokit.rest.pulls.get({
-                  owner: repoRef.owner,
-                  repo: repoRef.repo,
-                  pull_number: number,
-                });
-                return mapPrSummary(pr.data, repoRef);
-              } catch {
-                return null;
-              }
-            }));
-            prs = results.filter(Boolean);
-          }
+          const prs = await Promise.all(prRefs.map(async ({ number, repoRef }) => {
+            const pr = await octokit.rest.pulls.get({
+              owner: repoRef.owner,
+              repo: repoRef.repo,
+              pull_number: number,
+            });
+            return mapPrSummary(pr.data, repoRef);
+          }));
           const fetchedCount = (effectivePage - 1) * 50 + items.length;
           const hasMore = fetchedCount < totalCount;
           return res.json({ connected: true, repo, prs, page: effectivePage, hasMore });
         } catch (error) {
-          console.error('Failed to search GitHub PRs:', error);
-          return res.json({ connected: true, repo, prs: [], page: effectivePage, hasMore: false });
+          console.error('Failed to search or enrich GitHub PRs:', error);
+          throw error;
         }
       }
 
@@ -1532,7 +1487,7 @@ export function registerGitHubRoutes(app) {
           return { prs, hasMore };
         } catch (error) {
           console.warn(`Failed to list PRs for ${repoRef.owner}/${repoRef.repo}:`, error?.message || error);
-          return { prs: [], hasMore: false };
+          throw error;
         }
       };
 

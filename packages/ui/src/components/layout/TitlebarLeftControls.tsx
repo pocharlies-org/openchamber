@@ -1,8 +1,12 @@
 import React from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Icon } from '@/components/icon/Icon';
 import { cn } from '@/lib/utils';
 import { useUIStore } from '@/stores/useUIStore';
+import { useProjectsStore } from '@/stores/useProjectsStore';
+import { useSessionUIStore } from '@/sync/session-ui-store';
+import { requestNewClaudeSession } from '@/sync/session-actions';
 import { useI18n } from '@/lib/i18n';
 import { WindowsWindowControls } from '@/components/desktop/WindowsWindowControls';
 import { formatShortcutForDisplay, getEffectiveShortcutCombo } from '@/lib/shortcuts';
@@ -10,7 +14,7 @@ import { invokeDesktop } from '@/lib/desktop';
 import { useDesktopWindowControlsLayout } from '@/hooks/useDesktopWindowControlsLayout';
 
 const ICON_BUTTON_CLASS =
-  'app-region-no-drag inline-flex h-8 w-8 items-center justify-center gap-2 rounded-md typography-ui-label font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary hover:bg-interactive-hover transition-colors';
+  'app-region-no-drag inline-flex h-8 w-8 items-center justify-center gap-2 rounded-md typography-ui-label font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring hover:bg-interactive-hover transition-colors';
 
 /**
  * Persistent top-left titlebar controls (app menu on frameless chrome + sidebar toggle).
@@ -26,10 +30,30 @@ const ICON_BUTTON_CLASS =
 export const TitlebarLeftControls: React.FC = () => {
   const { t } = useI18n();
   const toggleSidebar = useUIStore((state) => state.toggleSidebar);
+  const isSidebarOpen = useUIStore((state) => state.isSidebarOpen);
   const shortcutOverrides = useUIStore((state) => state.shortcutOverrides);
   const clusterRef = React.useRef<HTMLDivElement | null>(null);
 
   const toggleShortcut = formatShortcutForDisplay(getEffectiveShortcutCombo('toggle_sidebar', shortcutOverrides));
+  // Starting a session shares the titlebar row with the sidebar toggle, so it
+  // stays in one place whether the sidebar is open or collapsed.
+  const handleNewSession = React.useCallback(() => {
+    useUIStore.getState().closeMainSurfaces();
+    useSessionUIStore.getState().openNewSessionDraft();
+  }, []);
+  // The header button offers the same choice as the project "+": opencode or
+  // Claude Code. Claude needs a concrete directory, so it rides the active
+  // project; with no project registered the menu keeps the single opencode
+  // entry and behaves exactly as before.
+  const activeProjectPath = useProjectsStore((state) => {
+    if (!state.activeProjectId) return null;
+    const project = state.projects.find((entry) => entry.id === state.activeProjectId);
+    return project?.path || null;
+  });
+  const handleNewClaudeSession = React.useCallback(() => {
+    useUIStore.getState().closeMainSurfaces();
+    requestNewClaudeSession(activeProjectPath);
+  }, [activeProjectPath]);
   const { usesFramelessChrome, side: windowControlsSide } = useDesktopWindowControlsLayout();
 
   const handleOpenWindowsAppMenu = React.useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
@@ -120,6 +144,52 @@ export const TitlebarLeftControls: React.FC = () => {
             <p>{t('header.actions.openSessionsWithShortcut', { shortcut: toggleShortcut })}</p>
           </TooltipContent>
         </Tooltip>
+
+        {/* Labelled while the sidebar is open; collapses to an icon with a
+            tooltip so the cluster stays compact over the header otherwise.
+            The click opens the tool choice, like the project "+". */}
+        <DropdownMenu>
+          {isSidebarOpen ? (
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className={cn(ICON_BUTTON_CLASS, '-ml-1 w-auto shrink-0 px-2 font-normal')}
+              >
+                <Icon name="chat-new" className="h-[18px] w-[18px]" />
+                <span className="truncate">{t('sessions.sidebar.header.actions.newSession')}</span>
+              </button>
+            </DropdownMenuTrigger>
+          ) : (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label={t('sessions.sidebar.header.actions.newSession')}
+                    className={cn(ICON_BUTTON_CLASS, '-ml-1 shrink-0')}
+                  >
+                    <Icon name="chat-new" className="h-[18px] w-[18px]" />
+                  </button>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>{t('sessions.sidebar.header.actions.newSession')}</p>
+              </TooltipContent>
+            </Tooltip>
+          )}
+          <DropdownMenuContent align="start" className="min-w-[180px]">
+            <DropdownMenuItem onClick={handleNewSession}>
+              <Icon name="chat-new" className="mr-1.5 h-4 w-4" />
+              {t('sessions.sidebar.header.actions.newSession')}
+            </DropdownMenuItem>
+            {activeProjectPath ? (
+              <DropdownMenuItem onClick={handleNewClaudeSession}>
+                <Icon name="claude-code" className="mr-1.5 h-4 w-4" />
+                {t('sessions.sidebar.project.actions.newClaudeSession')}
+              </DropdownMenuItem>
+            ) : null}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </div>
   );

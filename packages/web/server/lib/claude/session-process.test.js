@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import nodeCrypto from 'crypto';
 
-import { createClaudeSessionProcess } from './session-process.js';
+import { createClaudeSessionProcess, toCliContent } from './session-process.js';
 
 /** A channel the fake CLI writes its output to. */
 const createChannel = () => {
@@ -226,5 +226,186 @@ describe('claude session process', () => {
     expect(onExit).toHaveBeenCalledTimes(1);
     expect(proc.hasExited()).toBe(true);
     await expect(proc.send([{ type: 'text', text: 'late' }])).rejects.toThrow(/exited/);
+  });
+});
+
+/** A CLI that answers the first prompt with a fixed script of messages. */
+const makeScriptedSdk = (script) => {
+  const handles = [];
+  const sdk = {
+    query: vi.fn(({ prompt }) => {
+      const output = createChannel();
+      (async () => {
+        for await (const message of prompt) {
+          output.push({ ...message, isReplay: true });
+          for (const entry of script) output.push(entry);
+          output.push({ type: 'result', is_error: false, ...(script.result || {}) });
+        }
+        output.end();
+      })();
+      const handle = Object.assign(output, {
+        interrupt: vi.fn(async () => {}),
+        close: vi.fn(() => output.end()),
+        stopTask: vi.fn(async () => {}),
+        setPermissionMode: vi.fn(async () => {}),
+      });
+      handles.push(handle);
+      return handle;
+    }),
+  };
+  return { sdk, handles };
+};
+
+const toolUpdates = (events) => events
+  .filter((payload) => payload.type === 'message.part.updated' && payload.properties.part.type === 'tool')
+  .map((payload) => payload.properties.part);
+
+describe('claude session process — Claude Code parity', () => {
+  it('shows tool calls under OpenCode names, with the exact diff once the result is in', async () => {
+    const script = [
+      { type: 'assistant', message: { id: 'api_1', content: [{ type: 'tool_use', id: 'toolu_e', name: 'Edit', input: { file_path: '/repo/a.js', old_string: 'x', new_string: 'y' } }] } },
+      {
+        type: 'user',
+        message: { content: [{ type: 'tool_result', tool_use_id: 'toolu_e', content: 'ok' }] },
+        tool_use_result: { structuredPatch: [{ oldStart: 7, oldLines: 1, newStart: 7, newLines: 1, lines: ['-x', '+y'] }] },
+      },
+    ];
+    const { proc, events } = createProcess({ sdkBundle: makeScriptedSdk(script) });
+    await proc.send([{ type: 'text', text: 'edit it' }]);
+
+    const updates = toolUpdates(events);
+    expect(updates[0]).toMatchObject({ tool: 'edit', state: { status: 'running', input: { filePath: '/repo/a.js' } } });
+    expect(updates[0].state.metadata.files[0].patch).toContain('@@ -1,1 +1,1 @@');
+    const done = updates.at(-1);
+    expect(done).toMatchObject({ tool: 'edit', state: { status: 'completed', output: 'ok' } });
+    expect(done.state.metadata.files[0].patch).toContain('@@ -7,1 +7,1 @@');
+    // The raw Claude call the part was mapped from never leaves the process.
+    expect(updates.every((part) => !('rawName' in part) && !('rawInput' in part))).toBe(true);
+    await proc.close();
+  });
+
+  it('keeps a subagent out of the answer and links its call to the child session', async () => {
+    const onSubagentStarted = vi.fn();
+    const onSubagentEnded = vi.fn();
+    const script = [
+      { type: 'assistant', message: { id: 'api_1', content: [{ type: 'tool_use', id: 'toolu_a', name: 'Agent', input: { subagent_type: 'Explore', description: 'Find it', prompt: 'look' } }] } },
+      { type: 'system', subtype: 'task_started', task_id: 'ag1', tool_use_id: 'toolu_a', description: 'Find it', subagent_type: 'Explore' },
+      { type: 'stream_event', parent_tool_use_id: 'toolu_a', event: { type: 'message_start', message: { id: 'api_sub', usage: { input_tokens: 99 } } } },
+      { type: 'user', parent_tool_use_id: 'toolu_a', uuid: 'sub-prompt', message: { content: 'look' } },
+      { type: 'assistant', parent_tool_use_id: 'toolu_a', message: { id: 'api_sub', content: [{ type: 'text', text: 'inner work' }] } },
+      { type: 'assistant', parent_tool_use_id: 'toolu_a', message: { id: 'api_sub', content: [{ type: 'tool_use', id: 'toolu_inner', name: 'Grep', input: { pattern: 'x' } }] } },
+      { type: 'user', parent_tool_use_id: 'toolu_a', message: { content: [{ type: 'tool_result', tool_use_id: 'toolu_inner', content: 'x' }] } },
+      { type: 'assistant', parent_tool_use_id: 'toolu_unknown', message: { id: 'api_lost', content: [{ type: 'text', text: 'orphan' }] } },
+      { type: 'system', subtype: 'task_notification', task_id: 'ag1', status: 'completed', summary: 'found' },
+      {
+        type: 'user',
+        message: { content: [{ type: 'tool_result', tool_use_id: 'toolu_a', content: 'report' }] },
+        tool_use_result: { agentId: 'ag1', status: 'completed' },
+      },
+    ];
+    const { proc, events } = createProcess({
+      sdkBundle: makeScriptedSdk(script),
+      dependencies: { childSessionId: (agentId) => `pub~${agentId}`, onSubagentStarted, onSubagentEnded },
+    });
+    await proc.send([{ type: 'text', text: 'delegate' }]);
+
+    // The subagent's own work streams into its child session, never the parent's answer.
+    const parentTexts = textParts(events).filter((part) => part.sessionID === 'sess-1').map((part) => part.text);
+    expect(parentTexts).not.toContain('inner work');
+    const childTexts = textParts(events).filter((part) => part.sessionID === 'sess-1~ag1').map((part) => part.text);
+    expect(childTexts).toContain('inner work');
+    const childInfos = events.filter((payload) => payload.type === 'message.updated' && payload.properties.info.id === 'msg_api_sub');
+    expect(childInfos.length).toBeGreaterThan(0);
+    expect(childInfos.every((payload) => payload.properties.info.sessionID === 'sess-1~ag1')).toBe(true);
+    const updates = toolUpdates(events).filter((part) => part.sessionID === 'sess-1');
+    expect(updates[0]).toMatchObject({ tool: 'subagent', state: { status: 'running', input: { agent: 'Explore', description: 'Find it' } } });
+    expect(updates[1].state.metadata).toEqual({ sessionID: 'pub~ag1' });
+    expect(updates.at(-1)).toMatchObject({ state: { status: 'completed', output: 'report', metadata: { sessionID: 'pub~ag1' } } });
+    // Its prompt is not replayed live (the transcript read has it under its own id).
+    expect(textParts(events).some((part) => part.messageID === 'msg_sub-prompt')).toBe(false);
+    // Its own calls settle in the child session.
+    const childTool = toolUpdates(events).filter((part) => part.sessionID === 'sess-1~ag1');
+    expect(childTool.at(-1)).toMatchObject({ tool: 'grep', state: { status: 'completed', output: 'x' } });
+    // A frame no task_started linked is dropped, not shown in the parent.
+    expect(textParts(events).some((part) => part.text === 'orphan')).toBe(false);
+    expect(onSubagentStarted).toHaveBeenCalledWith({ agentId: 'ag1', toolUseId: 'toolu_a', description: 'Find it', agentType: 'Explore' });
+    expect(onSubagentEnded).toHaveBeenCalledWith({ agentId: 'ag1', status: 'completed' });
+    await proc.close();
+  });
+
+  it('publishes token usage as it streams, with the cache lifetime and context window it implies', async () => {
+    const onUsage = vi.fn();
+    const usage = { input_tokens: 10, cache_read_input_tokens: 100, cache_creation_input_tokens: 50, cache_creation: { ephemeral_1h_input_tokens: 50, ephemeral_5m_input_tokens: 0 } };
+    const script = [
+      { type: 'stream_event', event: { type: 'message_start', message: { id: 'api_1', usage } } },
+      { type: 'stream_event', event: { type: 'message_delta', usage: { output_tokens: 7 } } },
+      { type: 'assistant', message: { id: 'api_1', content: [{ type: 'text', text: 'hi' }], usage: { ...usage, output_tokens: 7 } } },
+    ];
+    script.result = { modelUsage: { 'claude-opus': { contextWindow: 200000 } } };
+    const { proc, events } = createProcess({ sdkBundle: makeScriptedSdk(script), dependencies: { onUsage } });
+    await proc.send([{ type: 'text', text: 'hello' }]);
+
+    const withTokens = events.filter((payload) => payload.type === 'message.updated' && payload.properties.info.tokens);
+    expect(withTokens.at(-1).properties.info.tokens).toEqual({ input: 10, output: 7, reasoning: 0, cache: { read: 100, write: 50 } });
+    // Counted once per API message, not once per content block.
+    expect(new Set(withTokens.map((payload) => payload.properties.info.id))).toEqual(new Set(['msg_api_1']));
+    expect(onUsage).toHaveBeenCalledWith({ cacheTtlMs: 3600000 });
+    expect(onUsage).toHaveBeenCalledWith({ contextWindow: 200000 });
+    await proc.close();
+  });
+
+  it('follows a mode the CLI switched to by itself (/plan, an approved plan)', async () => {
+    const onModeReported = vi.fn();
+    const script = [
+      { type: 'system', subtype: 'init', permissionMode: 'default' },
+      { type: 'system', subtype: 'status', status: null, permissionMode: 'plan' },
+    ];
+    const bundle = makeScriptedSdk(script);
+    const { proc, handles } = createProcess({ sdkBundle: bundle, dependencies: { onModeReported } });
+    await proc.send([{ type: 'text', text: '/plan' }]);
+    expect(onModeReported).toHaveBeenCalledTimes(1);
+    expect(onModeReported).toHaveBeenCalledWith('plan');
+    expect(proc.permissionMode()).toBe('plan');
+    // The menu's next pick of Manual is sent, not skipped as "already there".
+    await proc.applyPermissionMode('default');
+    expect(handles[0].setPermissionMode).toHaveBeenCalledWith('default');
+    await proc.close();
+  });
+
+  it('stops one subagent and keeps its own idea of the mode after a plan approval', async () => {
+    const bundle = makeScriptedSdk([]);
+    const { proc, handles } = createProcess({ sdkBundle: bundle });
+    await proc.send([{ type: 'text', text: 'go' }]);
+    await expect(proc.stopTask('ag1')).resolves.toBe(true);
+    expect(handles[0].stopTask).toHaveBeenCalledWith('ag1');
+
+    proc.notePermissionMode('acceptEdits');
+    expect(proc.permissionMode()).toBe('acceptEdits');
+    // Already there: no second switch is sent to the CLI.
+    await proc.applyPermissionMode('acceptEdits');
+    expect(handles[0].setPermissionMode).not.toHaveBeenCalled();
+    await proc.applyPermissionMode('plan');
+    expect(handles[0].setPermissionMode).toHaveBeenCalledWith('plan');
+    await proc.close();
+    await proc.exited;
+    await expect(proc.stopTask('ag1')).resolves.toBe(false);
+  });
+});
+
+describe('toCliContent', () => {
+  it('sends a command as the plain string Claude Code parses', () => {
+    expect(toCliContent([{ type: 'text', text: '/compact' }], { asCommand: true })).toBe('/compact');
+    expect(toCliContent([{ type: 'text', text: '/review src\n\nctx' }], { asCommand: true })).toBe('/review src\n\nctx');
+  });
+
+  it('keeps blocks for a prompt, even one starting with a slash: prose is never parsed as a command', () => {
+    const path = [{ type: 'text', text: '/usr/local/bin/node --version shows 18, why?' }];
+    expect(toCliContent(path)).toBe(path);
+    expect(toCliContent(path, { asCommand: false })).toBe(path);
+  });
+
+  it('keeps blocks when a command somehow carries a non-text block', () => {
+    const withImage = [{ type: 'text', text: '/review' }, { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'x' } }];
+    expect(toCliContent(withImage, { asCommand: true })).toBe(withImage);
   });
 });

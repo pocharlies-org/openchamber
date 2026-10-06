@@ -1,4 +1,5 @@
 import React from 'react';
+import { isVimEditorEventTarget } from '@/lib/editorFocus';
 import { isTerminalEventTarget } from '@/lib/terminalFocus';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { activateAdjacentSessionTab, activateSessionTabByIndex, closeSessionTabAndActivateNeighbour } from '@/lib/sessionTabs';
@@ -25,6 +26,9 @@ import {
   type ShortcutActionId,
 } from '@/lib/shortcuts';
 import { ShortcutRegistry } from '@/lib/shortcuts/registry';
+import { enabledGuestSurfaces } from '@/lib/guests/surfaces';
+import { getRuntimeUrlResolver } from '@/lib/runtime-url';
+import { useGuestsStore } from '@/lib/guests/store';
 import { getVisibleContextRailSurfaces } from '@/lib/surfaces/registry';
 import { readEmbeddedThemeSearchParams } from '@/contexts/theme-embedded-bootstrap';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
@@ -42,7 +46,7 @@ import {
   invokeActiveSelectionAddToChat,
 } from '@/lib/addSelectionToChat';
 import { isIMECompositionEvent } from '@/lib/ime';
-import { hasOpenDropdown, isEditableEventTarget, shouldStopDropdownImeEscape } from './keyboard-shortcut-dom';
+import { canUseDigitShortcut, hasActiveBtwComposer, hasOpenDropdown, isEditableEventTarget, shouldStopDropdownImeEscape } from './keyboard-shortcut-dom';
 
 const dropdownTargetSelector = [
   '[data-slot="dropdown-menu-content"]', '[data-slot="select-content"]', '[role="combobox"]',
@@ -148,12 +152,11 @@ export const useKeyboardShortcuts = () => {
         || state.isSessionSwitcherOpen
         || state.isAboutDialogOpen
         || state.isTimelineDialogOpen
-        || state.isMultiRunLauncherOpen
+        || state.runOverviewKey !== null
         || state.isImagePreviewOpen;
       if (
         !state.promptNavigatorEnabled
         || state.isMobile
-        || isVSCodeRuntime()
         || hasOverlay
       ) {
         return false;
@@ -180,6 +183,8 @@ export const useKeyboardShortcuts = () => {
       if (!isVSCodeRuntime() && useUIStore.getState().sessionTabsEnabled && activateAdjacentSessionTab(1)) return;
       return navigateSessionHistory(1) ? undefined : false;
     },
+    session_history_back: (event) => navigateSessionHistoryByShortcut(event, -1),
+    session_history_forward: (event) => navigateSessionHistoryByShortcut(event, 1),
     close_session_tab: () => {
       if (isVSCodeRuntime() || !useUIStore.getState().sessionTabsEnabled) return false;
       if (currentSessionId) {
@@ -227,6 +232,7 @@ export const useKeyboardShortcuts = () => {
       focusChatInput();
     },
     cycle_agent: (event) => {
+      if (hasActiveBtwComposer()) return false;
       const state = useUIStore.getState();
       const hasOverlay = state.isSettingsDialogOpen
         || state.isCommandPaletteOpen
@@ -258,6 +264,7 @@ export const useKeyboardShortcuts = () => {
       return toggleTerminalSurfaceExpanded();
     },
     open_model_selector: () => {
+      if (hasActiveBtwComposer()) return false;
       const state = useUIStore.getState();
       const hasOverlay = state.isCommandPaletteOpen
         || state.isHelpDialogOpen
@@ -267,6 +274,7 @@ export const useKeyboardShortcuts = () => {
       state.setModelSelectorOpen(!state.isModelSelectorOpen);
     },
     cycle_thinking_variant: () => {
+      if (hasActiveBtwComposer()) return false;
       const state = useUIStore.getState();
       const hasOverlay = state.isCommandPaletteOpen
         || state.isHelpDialogOpen
@@ -291,10 +299,12 @@ export const useKeyboardShortcuts = () => {
     cycle_favorite_model_forward: () => cycleFavoriteModel(1),
     cycle_favorite_model_backward: () => cycleFavoriteModel(-1),
     expand_input: () => {
+      if (hasActiveBtwComposer()) return false;
       if (useUIStore.getState().isMobile) return false;
       useUIStore.getState().toggleExpandedInput();
     },
     toggle_dictation: () => {
+      if (hasActiveBtwComposer()) return false;
       const state = useUIStore.getState();
       if (
         state.isCommandPaletteOpen
@@ -312,7 +322,15 @@ export const useKeyboardShortcuts = () => {
     },
   });
 
+  function navigateSessionHistoryByShortcut(event: KeyboardEvent, delta: -1 | 1): boolean | void {
+    // An editor that already handled the chord (CodeMirror outdent/indent)
+    // keeps it.
+    if (event.defaultPrevented) return false;
+    return navigateSessionHistory(delta) ? undefined : false;
+  }
+
   function cycleFavoriteModel(delta: number): boolean | void {
+    if (hasActiveBtwComposer()) return false;
     const state = useUIStore.getState();
     const hasOverlay = state.isCommandPaletteOpen
       || state.isHelpDialogOpen
@@ -400,7 +418,9 @@ export const useKeyboardShortcuts = () => {
       }
       if (
         target?.closest('[role="dialog"]')
+        || target?.closest('[data-btw-composer="true"]')
         || isTerminalEventTarget(target)
+        || isVimEditorEventTarget(target)
         || dropdownOpen
       ) {
         resetAbortPriming();
@@ -426,7 +446,7 @@ export const useKeyboardShortcuts = () => {
         || state.isHelpDialogOpen
         || state.isSessionSwitcherOpen
         || state.isAboutDialogOpen
-        || state.isMultiRunLauncherOpen
+        || state.runOverviewKey !== null
         || state.isImagePreviewOpen;
       if (
         hasOverlay
@@ -495,7 +515,7 @@ export const useKeyboardShortcuts = () => {
         && !event.repeat
         && eventMatchesShortcutPrefix(event, switchSurfacePrefix, heldKeysRef.current)
       ) {
-        if (isEditableEventTarget(event.target)) return;
+        if (!canUseDigitShortcut(event)) return;
         const state = useUIStore.getState();
         if (!state.isMobile && effectiveDirectory) {
           const directory = normalizeContextPanelDirectoryKey(effectiveDirectory);
@@ -509,6 +529,7 @@ export const useKeyboardShortcuts = () => {
             tabs: panel?.tabs ?? [],
             linearConnected: useLinearAuthStore.getState().status?.connected === true,
             githubConnected: useGitHubAuthStore.getState().status?.connected === true,
+            extras: enabledGuestSurfaces(useGuestsStore.getState().guests, getRuntimeUrlResolver().authenticatedAsset),
           });
           const target = visibleSurfaces[switchSurfaceDigit - 1];
           if (target) {
@@ -524,10 +545,7 @@ export const useKeyboardShortcuts = () => {
         sessionTabDigit !== null
         && !event.repeat
         && !isVSCodeRuntime()
-        // Typing a digit in a textarea/input must stay text, never a tab
-        // switch: the default prefix here is a bare modifier, so this fires
-        // on plain ctrl/cmd+1 while the composer has focus (#2689).
-        && !isEditableEventTarget(event.target)
+        && canUseDigitShortcut(event)
         && useUIStore.getState().sessionTabsEnabled
         && eventMatchesShortcutPrefix(
           event,

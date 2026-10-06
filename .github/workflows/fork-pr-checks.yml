@@ -1,0 +1,62 @@
+name: Fork — checks de PR
+
+# Las PRs contra main (la linea propia del fork) no tenian ningun check: los
+# workflows heredados de upstream disparan por comentario o por
+# pull_request_target con condiciones de openchamber/openchamber, y la puerta
+# completa (openchamber-build-pocharlies/build-web.yml) corre DESPUES de
+# fusionar. Esto es la puerta previa: type-check, tests de ui (verdes al 100%
+# en la puerta completa) y los tests de web que toca la PR.
+#
+# Web se limita a `vitest --changed`: la suite entera tiene fallos heredados de
+# upstream que la puerta completa decide contra ci/fallos-conocidos-web.txt,
+# y esa lista vive en el repo de build (privado, sin token desde aqui).
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: type-check + tests
+    # Regla de la org (skill ci-runners-arc).
+    runs-on: arc-k8s
+    timeout-minutes: 45
+    env:
+      # tsc de web llega a ~2.5 GB de RSS (medido: 2573092 KB) y node deriva su
+      # tope de heap de la memoria del pod, ~2 GB en arc-k8s: el run 37525815711
+      # murio con "heap out of memory" (SIGABRT). Mismo margen que el build de
+      # packages/web (6144); sin esto el check falla por tamano, no por codigo.
+      NODE_OPTIONS: --max-old-space-size=4096
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-node-bun
+
+      - name: Dependencias
+        run: bun install --frozen-lockfile
+
+      - name: Type-check
+        run: |
+          set -euo pipefail
+          bun run type-check:ui
+          bun run type-check:web
+
+      - name: Tests de ui
+        run: bun run --cwd packages/ui test
+
+      - name: Tests de web afectados por la PR
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || 'origin/main' }}
+        working-directory: packages/web
+        run: bun x vitest run --changed "$BASE_SHA" --passWithNoTests --retry=2 --testTimeout=60000 --hookTimeout=60000

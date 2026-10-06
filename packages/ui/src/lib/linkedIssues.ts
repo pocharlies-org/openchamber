@@ -1,4 +1,5 @@
-import type { Session } from '@opencode-ai/sdk/v2';
+import type { Session } from '@/lib/opencode/model';
+import { isJsonValue, type JsonValue } from '@openchamber/sdk';
 import { getSessionMetadata, type SessionMetadataRecord } from './sessionReviewMetadata';
 
 /**
@@ -36,7 +37,29 @@ export type LinkedLinearIssue = {
   linkedAt: number;
 };
 
-export type LinkedIssue = LinkedGitHubIssue | LinkedLinearIssue;
+export type LinkedGuestIssue = {
+  /** `guest:{providerId}:{identifier}`, unique per session. */
+  id: string;
+  providerId: string;
+  identifier: string;
+  title: string;
+  url: string;
+  kind: 'guest';
+  /** Missing on older snapshots; those are issues. */
+  thread?: 'issue' | 'pull';
+  author?: string;
+  head?: string;
+  base?: string;
+  /** Opaque guest payload from `attach`, handed back as `ready.item.data`. Never shown or sent to the model. */
+  data?: JsonValue;
+  linkedAt: number;
+};
+
+export const isGuestPull = (entry: { thread?: 'issue' | 'pull' }): boolean => (
+  entry.thread === 'pull'
+);
+
+export type LinkedIssue = LinkedGitHubIssue | LinkedLinearIssue | LinkedGuestIssue;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   Boolean(value && typeof value === 'object' && !Array.isArray(value));
@@ -67,8 +90,28 @@ const isLinkedLinearIssue = (value: unknown): value is LinkedLinearIssue => (
   && Number.isFinite(value.linkedAt)
 );
 
+const isLinkedGuestIssue = (value: unknown): value is LinkedGuestIssue => (
+  isRecord(value)
+  && typeof value.id === 'string'
+  && value.id.length > 0
+  && typeof value.providerId === 'string'
+  && value.providerId.length > 0
+  && typeof value.identifier === 'string'
+  && value.identifier.length > 0
+  && typeof value.title === 'string'
+  && typeof value.url === 'string'
+  && value.kind === 'guest'
+  && (value.thread === undefined || value.thread === 'issue' || value.thread === 'pull')
+  && (value.author === undefined || typeof value.author === 'string')
+  && (value.head === undefined || typeof value.head === 'string')
+  && (value.base === undefined || typeof value.base === 'string')
+  && (value.data === undefined || isJsonValue(value.data as JsonValue))
+  && typeof value.linkedAt === 'number'
+  && Number.isFinite(value.linkedAt)
+);
+
 const isLinkedIssue = (value: unknown): value is LinkedIssue => (
-  isLinkedGitHubIssue(value) || isLinkedLinearIssue(value)
+  isLinkedGitHubIssue(value) || isLinkedLinearIssue(value) || isLinkedGuestIssue(value)
 );
 
 export const buildLinkedIssueId = (owner: string, repo: string, number: number): string =>
@@ -110,6 +153,45 @@ export const buildLinkedIssue = (input: {
   };
 };
 
+export const buildLinkedGuestIssue = (input: {
+  providerId: string;
+  identifier: string;
+  title: string;
+  url: string;
+  thread?: 'issue' | 'pull';
+  author?: string;
+  head?: string;
+  base?: string;
+  data?: JsonValue;
+  linkedAt: number;
+}): LinkedGuestIssue => {
+  const next: LinkedGuestIssue = {
+    id: `guest:${input.providerId}:${input.identifier}`,
+    providerId: input.providerId,
+    identifier: input.identifier,
+    title: input.title,
+    url: input.url,
+    kind: 'guest',
+    thread: input.thread === 'pull' ? 'pull' : 'issue',
+    linkedAt: input.linkedAt,
+  };
+  if (input.author?.trim()) {
+    next.author = input.author.trim();
+  }
+  if (next.thread === 'pull') {
+    if (input.head?.trim()) {
+      next.head = input.head.trim();
+    }
+    if (input.base?.trim()) {
+      next.base = input.base.trim();
+    }
+  }
+  if (input.data !== undefined) {
+    next.data = input.data;
+  }
+  return next;
+};
+
 export const buildLinkedLinearIssue = (input: {
   identifier: string;
   title: string;
@@ -146,6 +228,58 @@ export const getLinkedIssues = (session: Session | null | undefined): LinkedIssu
   // has no row worth showing.
   return openchamber.linked_issues.filter(isLinkedIssue);
 };
+
+export type LinkedGitHubPullRequest = {
+  owner: string;
+  repo: string;
+  number: number;
+  url: string;
+  title: string;
+};
+
+const LINKED_ISSUE_ID_PATTERN = /^([^/\s]+)\/([^/#\s]+)#(\d+)$/;
+
+/**
+ * GitHub pull requests linked to a session, with the repository read from the
+ * entry id. Entries whose URL did not name a GitHub repository at link time
+ * (their id is the URL) cannot be looked up and are left out.
+ */
+export const getLinkedGitHubPullRequests = (session: Session | null | undefined): LinkedGitHubPullRequest[] => (
+  getLinkedIssues(session).flatMap((entry) => {
+    if (entry.kind !== 'pull') return [];
+    const match = LINKED_ISSUE_ID_PATTERN.exec(entry.id);
+    if (!match || Number(match[3]) !== entry.number) return [];
+    return [{ owner: match[1], repo: match[2], number: entry.number, url: entry.url, title: entry.title }];
+  })
+);
+
+/** An issue linked to a session, as the sidebar shows it. */
+export type LinkedSidebarIssue =
+  | { source: 'github'; key: string; owner: string; repo: string; number: number; url: string; title: string }
+  | { source: 'linear' | 'guest'; key: string; identifier: string; url: string; title: string };
+
+/**
+ * Issues linked to a session, in link order. GitHub issues carry their
+ * repository (read from the entry id) so their state can be looked up;
+ * Linear and extension trackers are shown by identifier only. Pull requests,
+ * including extension ones, are not issues here.
+ */
+export const getLinkedSidebarIssues = (session: Session | null | undefined): LinkedSidebarIssue[] => (
+  getLinkedIssues(session).flatMap((entry): LinkedSidebarIssue[] => {
+    if (entry.kind === 'issue') {
+      const match = LINKED_ISSUE_ID_PATTERN.exec(entry.id);
+      if (!match || Number(match[3]) !== entry.number) return [];
+      return [{ source: 'github', key: entry.id, owner: match[1], repo: match[2], number: entry.number, url: entry.url, title: entry.title }];
+    }
+    if (entry.kind === 'linear') {
+      return [{ source: 'linear', key: entry.id, identifier: entry.identifier, url: entry.url, title: entry.title }];
+    }
+    if (entry.kind === 'guest' && !isGuestPull(entry)) {
+      return [{ source: 'guest', key: entry.id, identifier: entry.identifier, url: entry.url, title: entry.title }];
+    }
+    return [];
+  })
+);
 
 export const withLinkedIssue = (
   metadata: SessionMetadataRecord,

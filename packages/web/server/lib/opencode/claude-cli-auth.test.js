@@ -12,11 +12,21 @@ describe('getClaudeCliAuthStatus', () => {
       },
       spawnSyncFn(command, args, options) {
         invocation = { command, args, options };
-        return { stdout: JSON.stringify({ loggedIn: true, authMethod: 'oauth' }) };
+        return { stdout: JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', email: 'me@example.com', subscriptionType: 'max' }) };
       },
     });
 
-    expect(status).toEqual({ connected: true, reason: 'logged-in' });
+    expect(status).toEqual({
+      connected: true,
+      reason: 'logged-in',
+      account: {
+        authMethod: 'claude.ai',
+        email: 'me@example.com',
+        orgName: null,
+        subscriptionType: 'max',
+        configDirectory: null,
+      },
+    });
     expect(invocation.command).toBe('claude');
     expect(invocation.args).toEqual(['auth', 'status', '--json']);
     expect(invocation.options.env.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
@@ -27,7 +37,8 @@ describe('getClaudeCliAuthStatus', () => {
       spawnSyncFn: () => ({ stdout: JSON.stringify({ loggedIn: false }) }),
     });
 
-    expect(status).toEqual({ connected: false, reason: 'logged-out' });
+    // A logged-out CLI has no account to name: it is null, not an empty shell.
+    expect(status).toEqual({ connected: false, reason: 'logged-out', account: null });
   });
 
   test('finds Claude through a login shell when a desktop PATH cannot', () => {
@@ -43,7 +54,8 @@ describe('getClaudeCliAuthStatus', () => {
       },
     });
 
-    expect(status).toEqual({ connected: true, reason: 'logged-in' });
+    expect(status.connected).toBe(true);
+    expect(status.account).toEqual(expect.objectContaining({ email: null, subscriptionType: null }));
     expect(invocations.map(({ command }) => command)).toEqual([
       'claude',
       '/bin/zsh',

@@ -1,133 +1,139 @@
-# Session Assist
+# Session assist
 
-Server-side watcher that generates a short recap of the agent's last reply
-and the agent's own proposed next step with the small model
-(`lib/small-model`), storing both on the session's metadata under
-`metadata.openchamber.assist`.
+The server generates a short reminder of recent work and an optional next user
+message with Small Model. Results live in `metadata.openchamber.assist` with
+`recap`, `suggestion`, `forMessageID`, and `generatedAt`. The payload shape is
+unchanged; an empty suggestion is a successful outcome.
 
-## What the suggestion is
+## Ownership
 
-The suggestion is written **in the agent's voice** — "I would…" — and says what
-it would do next if told to keep going. It is explicitly **not** an order
-addressed to the agent in the user's voice.
+- `runtime.js` owns idle timers, cancellation, provider selection, SDK reads,
+  freshness checks, settings gates, and metadata writes.
+- `context.js` reads bounded history and constructs human turns. It removes
+  tool payloads and injected prompts before retaining message text.
+- `prompt.js` owns the generation instructions and total input budget.
+- `../small-model/DOCUMENTATION.md` owns provider/auth resolution, generation,
+  output limits, and overflow behavior.
 
-That distinction is the reason the whole conversation is sent. A suggestion
-generated from the last exchange alone cannot see the request the session
-started from, so it has no way to know the work is finished, and its prompt
-gives it no way to say so: it will always manufacture a next step, and the
-agent's own "I did not verify X" caveats become the next instruction. The
-system prompt therefore requires an **empty string** when the user's request is
-already satisfied or the session is waiting on a human decision, and an empty
-suggestion is a correct answer rather than a generation failure.
+## What the model receives
 
-## Flow
+Read backward through the official SDK in pages of 200 messages (the largest
+page v2 serves) until history ends or fifty pages have been read: the model
+sees the whole session, not a tail. A failed page or repeated cursor aborts
+generation; it is not treated as complete history. If the latest answer's human
+request has not been found, skip generation rather than invent its context.
 
-1. `createSessionAssistRuntime` is a consumer of the server's global SSE
-   fan-out (`index.js` → `onPayload`), riding the same upstream connection as
-   notifications. Purely event-driven — dormant sessions never generate
-   anything, there is no backfill and no session scanning.
-2. `session.status: idle` arms a 60-second per-session timer; any `busy`/
-   `retry` status or a user `message.updated` clears it (the "1 minute of
-   quiet" rule).
-3. On fire: fetch the session (skip sub-agent sessions with `parentID`),
-   render the WHOLE conversation (`buildTranscript`) and call
-   `generateSmallModelText` with the
-   session's own provider/model taken from the last assistant message — so
-   the utility call spends the same subscription as the conversation.
-   `restrictToPreferredProvider` forbids the resolver's global fallback:
-   conversation content never goes to a provider the user didn't pick for
-   the session, unless the small model was chosen explicitly (settings
-   override or opencode config). A resolver 404 is silently skipped.
-4. The requested JSON fields (`recap`, `suggestion`, or both) are clamped and
-   PATCHed onto the session metadata together with `forMessageID` (the last
-   assistant message id) and `generatedAt`. Before writing, the session tail is
-   re-checked (a stale result is dropped) and the metadata is merged from a
-   fresh session read so concurrent metadata writes made during generation are
-   preserved.
+The whole session is what lets the suggestion see which topics are already
+closed. Whether work remains is judged against the user's most recent request:
+asked to satisfy "what the user actually asked for" over the whole transcript,
+the model declares the opening request done and answers `""` (measured on this
+fork: 16% of assists carried a suggestion with the old three-turn window, 5%
+with the whole session and that wording). Each turn keeps the names of the
+tools the assistant ran (`Tools the assistant used: Bash×3, Read`), never their
+input or output: a session can be almost all tool calls, and without them it
+reads as an empty conversation. The language sample still comes from the last
+three turns.
 
-## Transcript shape and the prefix cache
+Attached quote bodies have their own 4,000-character limit so a large quote
+does not consume the user's comment. Excerpts preserve both ends with an
+explicit omission marker, including the conclusion of a long final report.
 
-`buildTranscript` renders every message oldest-first as `#N Role:` blocks —
-text parts plus **tool names only**, never tool input or output (a session can
-be almost entirely tool calls, so omitting them renders it as an empty
-conversation; including their payloads would pipe file contents and command
-lines into a utility prompt).
+The complete user prompt is sized by the resolved small model's input
+allowance, reserving space for the system prompt; there is no fixed cap. Under
+pressure, drop the oldest turns — only in chunks of eight, and turns keep their
+number in the session — so the start of the transcript moves in steps: the
+prompt goes to the session's own model, and consecutive assists on a session
+then share a token prefix the backend can cache. Everything that varies per
+call (language sample, requested fields) comes after the transcript.
+If the latest pair itself is too large, excerpt
+both its user request and answer rather than discarding either side. If even
+the minimum prompt cannot fit, skip generation. `onOverflow: 'error'` prevents
+the Small Model service from silently cutting off the instructions. Expected
+context/output-budget failures are quiet and do not write metadata.
 
-Everything that varies per call — the pointer to the last message, the
-requested fields, the language sample — goes **after** the transcript. The
-history is therefore an append-only prefix between consecutive assists on one
-session, which a backend that caches prefixes can serve without re-prefilling.
-That is an opportunity, not a guarantee: it depends entirely on the provider.
-An OpenAI-compatible backend in front of vLLM or sglang does it automatically,
-and there the effect is large (measured: 35s for the first assist on a
-154k-character transcript, 8s for each of the next two). Anthropic caching, by
-contrast, requires explicit `cache_control` breakpoints, which `callSmallModel`
-never sends, so this ordering buys nothing there and costs nothing either.
-Over budget the oldest messages are dropped, but only on
-a `TRANSCRIPT_DROP_CHUNK` boundary: dropping one message per turn would move the
-start of the transcript every time and re-prefill the whole session on every
-cycle.
+OpenCode message pages still contain complete tool payloads on the wire. A
+single long turn can therefore require substantial I/O even though its retained
+model context is small. Page/count bounds are not a network-byte quota.
 
-The budget is not a constant. It comes from `describeSmallModel().inputCharBudget`
-for the model that will actually answer, minus `PROMPT_SCAFFOLD_RESERVE_CHARS`:
-a local proxy model is absent from the models.dev catalog and falls back to a
-conservative 64k context, so a fixed budget would either waste a large window or
-overflow a small one.
+## Generation and lifecycle
 
-This buys latency, not spend — the provider still bills every input token, and
-assist cost is now proportional to session length rather than constant. Text
-parts and tool names alone stay far below what the conversation itself sends:
-measured on live sessions, 403 messages render to ~10k tokens, 1921 to ~56k.
+1. The server's existing global event fan-out calls `processPayload`. At an
+   idle event the runtime first asks the injected `evaluateTurn` (the
+   session-work runtime, `../session-work/DOCUMENTATION.md`): one Jev call says
+   which enabled fields are worth the Small Model. It then arms the 60-second
+   quiet window for those fields only, and arms nothing when Jev ruled both out.
+   An unknown answer (no Jev, a failure) keeps every enabled field, so without
+   Jev nothing changes. A newer event drops a pending answer. A session that
+   `../session-lineage.js` knows to be a subsession arms nothing at all: no
+   gate, no timer, no read. No history scan or
+   startup backfill runs.
+2. Busy/retry events and newly created user messages clear pending work and
+   abort in-flight reads/generation. Re-emitted old user updates do not cancel it.
+3. One generation runs per session. If a newer quiet window expires while an
+   old canceled request is still settling, retain that pending run and start it
+   after the old one finishes. Later activity cancels the pending run as well.
+4. Resolve the small model using the last answer's provider/model and the
+   existing explicit settings/config overrides. `restrictToPreferredProvider`
+   prevents an implicit cross-provider fallback. On this fork's instance the
+   Small Model is pinned in Settings → Sessions to `litellm-local/tooling`
+   (`smallModelUseDefault: false`), so the resolution lands on `source:
+   'settings'` for every session, Claude ones included — which is also what
+   keeps a Claude session from being refused with
+   `small-model-provider-unsupported`. Generation accepts an abort signal and a
+   120-second limit.
+5. Recap describes the substantive work and its current result, including the
+   work behind a closing commit or acknowledgment. Suggestion is independent:
+   only unfinished requested agent work should produce a sendable user message.
+   A reply that stops while a step the agent could take in this session is still
+   owed counts as unfinished; an empty suggestion is for a conversation that has
+   genuinely stopped, not for an answer that merely ends politely. Completed
+   work, optional offers, or a decision/action belonging to the user should
+   return an empty suggestion. This is model judgment, not authorization
+   enforcement or a guarantee that every generated field is factually correct.
+   A generation that fails is logged with its status, code, resolved model and
+   the error's own message (credentials stripped, 200 characters); the expected
+   budget failures stay quiet because they say nothing a retry would not repeat.
+6. Re-read the latest message and fresh session before writing. A moved tail,
+   canceled run, changed endpoint/directory, archive, revert, or failed fresh
+   read discards the result. Never merge from the old pre-generation metadata.
+7. Re-check settings, clamp the enabled fields, and merge into fresh metadata.
+   The OpenCode update endpoint has no compare-and-set operation; another
+   writer after the final read is not guarded atomically.
 
-**The fetch scales too, and it is the larger number.** `fetchSessionMessages`
-without a `limit` pulls every message with its parts, tool inputs and outputs
-included, and the transcript then keeps only text and tool names. On a long
-session that is a transient multi-megabyte download and JSON parse in the
-server process once per assist cycle, far bigger than the prompt it produces.
-It is bounded (one in-flight assist per session, a 20s timeout) and OpenCode's
-message endpoint offers no field projection to narrow it, but anyone measuring
-this feature's cost should measure the fetch, not just the model call.
+Stopping the runtime clears pending timers/runs and aborts in-flight operations.
+No failed session blocks another session.
 
-The prefix cache is **assist-to-assist only**. This module calls the provider
-directly, with its own system prompt and no tool schemas, so it shares no
-prefix with the request OpenCode makes for the conversation itself.
+## Settings and consumers
 
-Because the clamp in `lib/small-model` truncates the **tail**, which here is the
-instruction, the call passes `onOverflow: 'error'`. A session larger than its
-own model's context (`context-too-small`) and a reasoning model that spends the
-output budget thinking (`output-exhausted`) are expected outcomes of a
-whole-session transcript, so both are skipped without a warning.
+`sessionRecapEnabled` and `sessionSuggestionEnabled` default on and are checked
+before work and before writing. The Jev gate is a cost filter under these same
+switches, not a setting of its own: it reads the same three turns as the recap,
+so a recap still follows a closing "thanks" after real work. With both off there are no reads, model calls,
+or writes. With one on, the shared recent context is still available, but only
+that field is requested. An empty suggestion does not erase a valid recap.
 
-## Settings gate
+Freshness has one rule, `getCurrentSessionAssist` in
+`packages/ui/src/lib/sessionAssistMetadata.ts`, computed from the session
+record alone so the chat and the sidebar row always agree: the payload is
+current while `generatedAt >= session.time.idle` and the session is not
+reverted. OpenCode moves `time.idle` at every turn end, succeeded or failed.
+Do not compare `forMessageID` with the last loaded message: in v2 the newest
+record is the turn's `idle` marker or a switch record, never the answer.
+When a session turns busy, the runtime also deletes the assist it wrote
+(`persistSessionAssist(id, dir, null)`), so stored state goes stale only for
+payloads written by an earlier process; the `time.idle` rule retires those.
 
-`sessionRecapEnabled` and `sessionSuggestionEnabled` in OpenChamber settings
-(Settings → Chat, default on) are hard generation switches checked at fire
-time. When both are off, no small-model calls run and nothing is written. When
-one is on, the runtime still makes at most one small-model call and asks only
-for that field. The UI also hides disabled payload types immediately.
+- `packages/ui/src/lib/sessionAssistMetadata.ts` parses the payload and owns freshness.
+- `packages/ui/src/hooks/useSessionAssist.ts` adds live-status and settings gating.
+- `SessionRecapSpacer` shows the reminder in the reserved gap under the reply.
+- `SessionSuggestionChip` fills the composer; it never sends automatically.
+- Sidebar rows (`SessionNodeItem`, Projects view) show the current recap in
+  the whole-row tooltip under the same freshness rule, hidden while a turn runs
+  and when `sessionRecapEnabled` is off. The sidebar no longer marks open
+  suggestions; the "In work" block is the sidebar's attention signal.
 
-## Freshness contract (no clearing writes)
-
-Clients do not need the payload to be deleted: they render it only while
-`assist.forMessageID` still equals the session's last assistant message id
-(and the session is idle). Any new message invalidates the payload
-everywhere instantly and offline; the next idle cycle overwrites it.
-
-## UI consumers (packages/ui)
-
-- `lib/sessionAssistMetadata.ts` — payload parsing.
-- `hooks/useSessionAssist.ts` — freshness gating + the 1-minute quiet window
-  for the recap (single timeout to the boundary, no polling).
-- `components/chat/SessionRecapSpacer.tsx` — renders the recap inside the
-  fixed-height reserved gap under the last message (height never changes).
-- `components/chat/SessionSuggestionChip.tsx` — one tappable suggestion chip
-  near the composer (desktop chips row + above the mobile pill); hidden as
-  soon as the composer has any content. Tap fills the input, never sends.
-
-## Limitations
-
-- The watcher lives in the web server, so VS Code (extension-only, no web
-  server) does not generate assists; it still renders payloads produced by a
-  web/desktop instance of the same OpenCode server via `session.updated`.
-- Metadata payloads ride every `session.updated` event — keep the clamps
-  (`RECAP_CHAR_LIMIT`, `SUGGESTION_CHAR_LIMIT`) small.
+Web, Electron, hosted mobile, and Capacitor use the server watcher. VS Code's
+extension-only runtime does not generate assists; shared UI can render payloads
+produced by a server. The background watcher cannot use the browser's message
+store when the UI is closed. Manual AI rename uses that store through
+`SessionMessageLoader`; these are intentionally different retrieval lifecycles.

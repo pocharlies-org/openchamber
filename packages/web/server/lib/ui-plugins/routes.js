@@ -1,3 +1,12 @@
+// Footer panels run everywhere the composer does; VS Code has no host footer.
+const FOOTER_SUPPORT = Object.freeze({
+  web: 'supported',
+  desktop: 'supported',
+  vscode: 'unsupported',
+  hostedMobile: 'supported',
+  capacitorMobile: 'supported',
+});
+
 const STREAM_METRICS_MANIFEST = Object.freeze({
   schemaVersion: 1,
   id: '@pocharlies/openchamber-stream-metrics',
@@ -14,18 +23,31 @@ const STREAM_METRICS_MANIFEST = Object.freeze({
       placement: 'footer',
       mobile: 'compact',
       updateIntervalMs: 250,
-      support: {
-        web: 'supported',
-        desktop: 'supported',
-        vscode: 'unsupported',
-        hostedMobile: 'supported',
-        capacitorMobile: 'supported',
-      },
+      support: FOOTER_SUPPORT,
     }],
   },
 });
 
-const getBuiltInUIPluginCatalog = () => [STREAM_METRICS_MANIFEST];
+const CACHE_TIMER_MANIFEST = Object.freeze({
+  schemaVersion: 1,
+  id: '@pocharlies/openchamber-cache-timer',
+  version: '0.1.0',
+  displayName: { default: 'Cache Timer', es: 'Temporizador de caché' },
+  description: {
+    default: 'Count down the prompt cache of the last turn in the composer footer.',
+    es: 'Cuenta atrás de la caché del prompt del último turno en el pie del compositor.',
+  },
+  engines: { openchamber: '>=1.18.2' },
+  contributes: {
+    composerStatus: [{
+      id: 'openchamber-builtin-cache-timer',
+      placement: 'footer',
+      support: FOOTER_SUPPORT,
+    }],
+  },
+});
+
+const getBuiltInUIPluginCatalog = () => [STREAM_METRICS_MANIFEST, CACHE_TIMER_MANIFEST];
 
 export const registerUIPluginRoutes = (app) => {
   app.get('/api/ui-plugins/catalog', (_req, res) => {

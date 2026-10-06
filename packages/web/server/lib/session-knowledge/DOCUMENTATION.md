@@ -30,6 +30,13 @@ Directories beneath the managed `~/.config/openchamber/chats` root resolve to th
 of what the session is carrying. It lives with the session, so it survives the
 tab closing and is visible to every sender, including the ones with no tab.
 
+A Claude Code session has no metadata of its own, so both keys live for it in
+OpenChamber's engine metadata store (`../openchamber-sessions/engine-metadata-store.js`,
+`engine-session-metadata.json` in the data directory), behind the same
+metadata store API. Before that store existed the cursor could not be written
+for such a session, and the whole knowledge block went out again with every
+message.
+
 The signature covers content revisions, not just identity: editing a pinned note
 must re-send it, not merely renaming one.
 
@@ -51,6 +58,11 @@ messages back to back read as the agent being interrupted twice.
 Nothing here may fail a send. A message without its background costs the agent
 some context; a failed send costs the user their message. Every caller treats an
 error as "no block this time".
+
+While memory is on, every session is told when to save, even with an empty
+store. The tool description alone is read only when the agent already means to
+call it, so agents told nothing here saved only when the user said "remember".
+The session hears "nothing is stored yet" only when both scopes loaded.
 
 A source that will not load never blanks the rest: an unreadable memory store
 still delivers the pinned notes. A memory scope that failed to load is left out
