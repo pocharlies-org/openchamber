@@ -13,6 +13,7 @@ import {
 import { MobileOverlayPanel } from '@/components/ui/MobileOverlayPanel';
 import { Icon } from "@/components/icon/Icon";
 import { DirectoryExplorerDialog } from './DirectoryExplorerDialog';
+import { NewClaudeSessionDialog } from './NewClaudeSessionDialog';
 import { cn, formatPathForDisplay } from '@/lib/utils';
 import type { Session } from '@/lib/opencode/model';
 import type { WorktreeMetadata } from '@/types/worktree';
@@ -26,7 +27,8 @@ import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { useDeviceInfo } from '@/lib/device';
-import { sessionEvents } from '@/lib/sessionEvents';
+import { sessionEvents, type NewClaudeSessionRequest } from '@/lib/sessionEvents';
+import { loadDesktopSettings } from '@/lib/persistence';
 import { useI18n } from '@/lib/i18n';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 
@@ -56,6 +58,7 @@ export const SessionDialogs: React.FC = () => {
     const { git, sourceControl } = useRuntimeAPIs();
     const [isDirectoryDialogOpen, setIsDirectoryDialogOpen] = React.useState(false);
     const [hasShownInitialDirectoryPrompt, setHasShownInitialDirectoryPrompt] = React.useState(false);
+    const [newClaudeSession, setNewClaudeSession] = React.useState<NewClaudeSessionRequest | null>(null);
     const [deleteDialog, setDeleteDialog] = React.useState<DeleteDialogState | null>(null);
     const [deleteDialogSummaries, setDeleteDialogSummaries] = React.useState<Array<{ session: Session; metadata: WorktreeMetadata }>>([]);
     const [deleteDialogShouldRemoveRemote, setDeleteDialogShouldRemoveRemote] = React.useState(false);
@@ -203,6 +206,28 @@ export const SessionDialogs: React.FC = () => {
             setIsDirectoryDialogOpen(true);
         });
     }, []);
+
+    // The `+` of a Claude project asks what the session starts on before it
+    // exists; the request came from a folder or group, so the session it
+    // creates has to be handed back to it.
+    //
+    // Asking is opt-in (`claudeAskSessionDefaults`). By default the click
+    // starts the session straight away on this host's defaults — the same
+    // three picks are in the composer, so the window only cost a click.
+    React.useEffect(() => {
+        return sessionEvents.onNewClaudeSessionRequest(async (payload) => {
+            const settings = await loadDesktopSettings().catch(() => null);
+            if (settings?.claudeAskSessionDefaults === true) {
+                setNewClaudeSession(payload);
+                return;
+            }
+            const session = await sessionActions.createClaudeSession(payload.directory).catch(() => null);
+            if (!session) {
+                toast.error(t('dialog.claudeNew.failed'));
+            }
+            payload.onCreated?.(session);
+        });
+    }, [t]);
 
     React.useEffect(() => {
         if (!deleteDialog) {
@@ -841,6 +866,15 @@ export const SessionDialogs: React.FC = () => {
                 open={isDirectoryDialogOpen}
                 onOpenChange={setIsDirectoryDialogOpen}
             />
+
+            {newClaudeSession ? (
+                <NewClaudeSessionDialog
+                    open
+                    onOpenChange={(open) => { if (!open) setNewClaudeSession(null); }}
+                    directory={newClaudeSession.directory}
+                    onCreated={newClaudeSession.onCreated}
+                />
+            ) : null}
         </>
     );
 };

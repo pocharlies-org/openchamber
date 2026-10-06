@@ -42,6 +42,7 @@ import {
   type PromptRequest,
   type PromptResult,
   type SessionLifecycleEvent,
+  type ComposerStatusSnapshot,
   type StartSessionRequest,
   type GuestConnection,
   type GuestItem,
@@ -127,6 +128,12 @@ export type HostClient = {
   openPopover: (request: GuestPopoverRequest) => Promise<void>;
   closePopover: (id: string, reason?: 'closed' | 'escape') => Promise<void>;
   setPopoverAnchorActive: (id: string, active: boolean) => Promise<void>;
+  /**
+   * The composer-status snapshot the host computes for a
+   * `contributes.composerStatus` contribution of this package. Replays the
+   * last value per contribution id; `null` is the host's "no session" snapshot.
+   */
+  onComposerStatus: (listener: (snapshot: ComposerStatusSnapshot | null, contributionId: string) => void) => () => void;
   /**
    * Answer the host when the user submits one of this package's
    * `contributes.commands`. Return the chip to attach, or `null` for nothing
@@ -288,6 +295,8 @@ export const connectHost = (options: HostClientOptions = {}): HostClient => {
   const itemListeners = new Set<(item: GuestItem | null) => void>();
   const statusControlListeners = new Set<(event: GuestStatusControlEvent) => void>();
   const popoverClosedListeners = new Set<(event: GuestPopoverClosedEvent) => void>();
+  const composerStatusListeners = new Set<(snapshot: ComposerStatusSnapshot | null, contributionId: string) => void>();
+  const lastComposerStatus = new Map<string, ComposerStatusSnapshot>();
   let resolveHandler: ((request: ResolveRequest) => Promise<AttachIssueRequest | null> | AttachIssueRequest | null) | null = null;
   let actionHandler: ((item: GuestActionItem) => void | Promise<void>) | null = null;
   const fileOpenListeners = new Set<(file: FileEditorDocument) => void>();
@@ -413,6 +422,18 @@ export const connectHost = (options: HostClientOptions = {}): HostClient => {
 
     if (message.type === 'popover-closed') {
       emit(popoverClosedListeners, message.payload);
+      return;
+    }
+
+    if (message.type === 'composer-status') {
+      lastComposerStatus.set(message.payload.contributionId, message.payload.snapshot);
+      for (const listener of composerStatusListeners) {
+        try {
+          listener(message.payload.snapshot, message.payload.contributionId);
+        } catch (error) {
+          console.error(error);
+        }
+      }
       return;
     }
 
@@ -792,6 +813,15 @@ export const connectHost = (options: HostClientOptions = {}): HostClient => {
     },
     closePopover,
     setPopoverAnchorActive,
+    onComposerStatus: (listener) => {
+      composerStatusListeners.add(listener);
+      for (const [contributionId, snapshot] of lastComposerStatus) {
+        listener(snapshot, contributionId);
+      }
+      return () => {
+        composerStatusListeners.delete(listener);
+      };
+    },
     onResolve: (handler) => {
       resolveHandler = handler;
       return () => {
@@ -1111,6 +1141,7 @@ export const connectHost = (options: HostClientOptions = {}): HostClient => {
       itemListeners.clear();
       statusControlListeners.clear();
       popoverClosedListeners.clear();
+      composerStatusListeners.clear();
     },
   };
 };

@@ -568,6 +568,40 @@ height floor and uses the existing fullscreen layout.
 none of them is verifiable outside a real device.** Change them only against
 hardware.
 
+## Declarative UI plugins
+
+`lib/uiPlugins.ts` is the minimal host extension API. It validates versioned
+JSON-shaped manifests before registration, rejects unsupported lifecycle policy
+values, prevents duplicate IDs, and returns an unregister callback. Package
+discovery feeds this API from the authenticated `/api/ui-plugins/catalog`
+route. `stores/useUIPluginsStore.ts` keeps the last valid catalog when a refresh
+fails and persists only the client's disabled IDs. The Chat settings page can
+therefore enable or disable a contribution immediately without restarting.
+Discovery must not become a remote-module or arbitrary-JavaScript loader.
+
+The same declarative host API accepts `composerMetrics` contributions. The
+generic `ComposerMetricsSurface` renders supported contributions in the footer;
+it never executes plugin code or branches on the Stream Metrics contribution
+ID. `@pocharlies/openchamber-stream-metrics` uses that surface on web and
+Desktop, the compact form on hosted and Capacitor mobile, and declares VS Code
+unsupported. The metric tracker lives in sync rather than `ChatInput`, and the
+footer subscribes to the active runtime-directory-session snapshot. It also
+reads only that session's message bucket when the bucket changes so opening or
+reloading Web can hydrate the latest completed assistant's authoritative token
+counters; streaming part deltas remain isolated in the tracker and do not
+rerender the footer.
+
+`ComposerStatusSurface.tsx` is the footer slot for `composerStatus`
+contributions (`contributes.composerStatus`, same manifest and support map as
+`composerMetrics`). The host computes the snapshot
+`{ sessionId, engine, providerId, lastAssistantAt }` from its own sync —
+engine from `useSessionEngine`, provider and instant from the session's
+message bucket via `composer-status-snapshot.ts` — and pushes it into the
+guest's frame (`PluginPane` with `surface="composer"`) on every session
+change and completed assistant turn; the guest only paints what arrives. With
+no supported contribution the surface returns `null` — no layout gap until a
+guest declares one.
+
 `state/mobileComposerMorph.ts` plays the pill ↔ composer swap as a FLIP morph
 in the native iOS shell only. The swap commits synchronously (`flushSync`); the glass box
 (`data-composer-box`) is then frozen at its old height and animated to the

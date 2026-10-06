@@ -45,6 +45,16 @@ The Stats page keeps its reports in a feature-local store, `components/views/usa
 
 PR status reads share the aggregate background-network budget as well as their PR-specific cap. Command discovery gates each scope/config read, including body decoding, rather than only gating the initial SDK list. Command reads have a bounded deadline and abort on runtime reset. Reset clears server-derived command caches and invalidates late reads and mutation responses while preserving unsaved command drafts.
 
+`useEngineStore.ts` holds what each session engine can do, per runtime, as the
+server declares it (`GET /api/engines`, `server/lib/engines/engines.js`). Until
+a runtime answers — or on an older server, or VS Code, whose webview answers
+the route locally — the static table in `lib/sessionEngine.ts` stands in. A
+failed read keeps that table and is retried after a minute, never on every
+render. Components read it through `hooks/useSessionEngine.ts`
+(`useSessionEngine` for a synced session, `useSessionEngineById` for per-row
+components that must not subscribe to the record); non-React code uses
+`engineInfoForSession`. Nothing else decides what an engine supports.
+
 These are the most performance-sensitive.
 
 - `useGitStore.ts`
@@ -147,9 +157,20 @@ Examples:
 - `useSessionFoldersStore.ts`
 - `useProjectContextStore.ts`
 - `messageQueueStore.ts`
+- `useSessionSourceFilterStore.ts`
 - `useRoutingStore.ts`
 
 These stores coordinate persistent project/session metadata across multiple views.
+
+`useSessionSourceFilterStore.ts` holds which tool's sessions the desktop sidebar
+lists, plus whether the control is worth showing. The header owns the control and
+the session collection owns the list, and the two never meet through props, so
+the state sits between them the way `useSessionMultiSelectStore` does for
+selection mode. It is deliberately not persisted: a filter that survives a reload
+can leave the sidebar empty on startup with nothing on screen explaining why. For
+the same reason `setAvailable(false)` also resets the filter, so losing the
+control cannot strand the list behind a filter nobody can clear. The mobile
+sessions sheet keeps its own local filter and does not read this store.
 
 `useProjectContextStore.ts` caches server-owned project notes, todos, and plan links, keyed by the path-derived project id. It replaced a pair of `window` CustomEvents that made every mounted notes panel re-read the whole project config. Writes are optimistic and roll back on failure; they are serialized per project, because the server's own store does a read-modify-write and two concurrent saves would otherwise race it. A load that resolves while a write is in flight keeps the local value for that field group only, so a slow snapshot cannot undo newer typing while still delivering the plan list it fetched. A failed load sets `error` and preserves the cached snapshot — an unreachable server must never render as "this project has no notes". Note and plan creation are deliberately not optimistic, since ids and timestamps are assigned by the server. Notes, todos, and plans are written through separate routes and tracked by separate in-flight flags, so a todo toggle cannot clobber a note edit in the same window. Pinned notes and plans are assembled into a synthetic context part by `lib/projectContextPinning.ts` at send time; that module tracks per-session what it already sent so an unchanged pinned set is not re-sent every turn.
 
@@ -420,6 +441,17 @@ Important properties:
 `useWalkthroughStore.ts` keys entries, model and language choices, active requests, and progress pollers by runtime plus the full walkthrough target. Working-tree and branch targets need only their Git source. A pull-request target also carries the immutable `SourceControlReadContext` that discovered it, so equal PR numbers under different accounts, repositories, bindings, or provider instances cannot share client state. The client sends that context on every PR walkthrough operation and rejects successful read or generation responses unless they echo the exact authority tuple. Runtime reset aborts active requests, stops pollers, and clears pending entry-point targets before the new endpoint can reuse them.
 
 ## Ownership Rules
+
+### Declarative UI plugin catalog
+
+`useUIPluginsStore.ts` owns the authenticated declarative UI-plugin catalog and
+per-client enablement. Its built-in fallback contains Side Chat and Stream
+Metrics, so a transient catalog failure preserves usable contributions instead
+of becoming authoritative empty state. Successful refreshes replace the full
+validated catalog; stale runtime responses are rejected by generation. Only
+disabled plugin IDs are persisted. Web, Desktop, hosted mobile, and Capacitor
+load the active runtime's catalog, while VS Code has a stable unsupported
+Stream Metrics policy and performs no metric tracking.
 
 These rules are important. Breaking them tends to reintroduce idle CPU churn, stale UI, or rerender fanout.
 

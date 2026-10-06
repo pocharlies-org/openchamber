@@ -10,6 +10,7 @@ on:
         options:
           - "macos-15"
           - "macos-26"
+        # 2026-10-05 devops · fuera de pool: workflow solo de macOS, sin hardware en el clúster (skill ci-runners-arc, INFRA-548)
         default: "macos-15"
       ref:
         description: Git ref to build (branch, tag, or sha)

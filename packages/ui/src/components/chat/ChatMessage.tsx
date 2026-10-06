@@ -1,3 +1,4 @@
+import { useSessionEngineById } from '@/hooks/useSessionEngine';
 import React from 'react';
 import { modelVariantNames } from '@/lib/modelVariants';
 import { findCatalogModel, type Message, type Part } from '@/lib/opencode/model';
@@ -16,6 +17,8 @@ import { useChatSurfaceMode } from './useChatSurfaceMode';
 
 import MessageBody, { type MessageExtraAction } from './message/MessageBody';
 import { GuestIcon } from '@/components/layout/GuestRailIcon';
+import { Icon } from '@/components/icon/Icon';
+import { runClaudeRewind } from './claudeRewindAction';
 import { useGuestActions } from '@/hooks/useGuestSurfaces';
 import { buildGuestMessageItem, guestMessageActionsFor } from '@/lib/guests/actions';
 import { runGuestAction } from '@/lib/guests/run-action';
@@ -636,6 +639,11 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
         return true;
     }, [isUser, messageTextContent]);
 
+    // What the session's engine can do: a Claude Code session has no revert.
+    const sessionEngine = useSessionEngineById(sessionId);
+    const canRevert = sessionEngine.capabilities.revert;
+    const canForkAtMessage = sessionEngine.capabilities.forkAtMessage;
+
     const handleRevert = React.useCallback(() => {
         if (!sessionId || !message.info.id) return;
         useSessionUIStore.getState().revertToMessage(sessionId, message.info.id);
@@ -662,6 +670,20 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
             },
         }));
     }, [guestActionEntries, isUser, sessionId, t]);
+
+    // "Rewind code to here" on a Claude Code prompt (its file checkpoint).
+    const messageExtraActions = React.useMemo<MessageExtraAction[] | undefined>(() => {
+        const rewind: MessageExtraAction | null = isUser && sessionEngine.id === 'claude' && sessionId && message.info.id
+            ? {
+                id: 'claude:rewind',
+                label: t('chat.claudeRewind.action'),
+                icon: <Icon name="history" className="size-3.5" />,
+                onSelect: () => { void runClaudeRewind(sessionId, message.info.id, t); },
+            }
+            : null;
+        if (!rewind) return guestMessageActions;
+        return [...(guestMessageActions ?? []), rewind];
+    }, [guestMessageActions, isUser, message.info.id, sessionEngine.id, sessionId, t]);
 
     // NEW: Fork handler
     const handleFork = React.useCallback(() => {
@@ -759,6 +781,41 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
         : 'pt-0';
     const userMessageRadius = 'var(--radius-xl)';
 
+    const userBodyProps = {
+        messageId: message.info.id,
+        parts: displayParts,
+        isUser,
+        isMessageCompleted,
+        messageFinish,
+        messageCreatedAt: messageCreatedAt ?? undefined,
+        isMobile,
+        alwaysShowActions: alwaysShowMessageActions,
+        hasTouchInput,
+        copiedCode,
+        onCopyCode: handleCopyCode,
+        expandedTools,
+        onToggleTool: handleToggleTool,
+        onShowPopup: handleShowPopup,
+        streamPhase,
+        allowAnimation,
+        shouldShowHeader: false,
+        hasTextContent,
+        onCopyMessage: handleCopyMessage,
+        onCopyLink: handleCopyLink,
+        copiedMessage,
+        showReasoningTraces,
+        agentMention,
+        onRevert: canRevert ? handleRevert : undefined,
+        onFork: isUser && canForkAtMessage ? handleFork : undefined,
+        contextPinned: isPinnedIntoContext,
+        contextPinPending: pinPending,
+        onToggleContextPin: canPinIntoContext && messageCreatedAt ? handleToggleContextPin : undefined,
+        errorMessage: assistantErrorText,
+        errorResponseBody: assistantErrorResponseBody,
+        stickyUserHeaderEnabled: stickyUserHeader,
+        extraActions: messageExtraActions,
+    };
+
     return (
         <>
             <div
@@ -800,76 +857,14 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                                             data-user-message-bubble=""
                                         >
                                             <MessageBody
-                                                messageId={message.info.id}
-                                                parts={displayParts}
-                                                isUser={isUser}
-                                                isMessageCompleted={isMessageCompleted}
-                                                messageFinish={messageFinish}
-                                                messageCreatedAt={messageCreatedAt ?? undefined}
-                                                 isMobile={isMobile}
-                                                 alwaysShowActions={alwaysShowMessageActions}
-                                                 hasTouchInput={hasTouchInput}
-                                                copiedCode={copiedCode}
-                                                onCopyCode={handleCopyCode}
-                                                expandedTools={expandedTools}
-                                                onToggleTool={handleToggleTool}
-                                                onShowPopup={handleShowPopup}
-                                                streamPhase={streamPhase}
-                                                allowAnimation={allowAnimation}
-                                                shouldShowHeader={false}
-                                                hasTextContent={hasTextContent}
-                                                onCopyMessage={handleCopyMessage}
-                                                onCopyLink={handleCopyLink}
-                                                copiedMessage={copiedMessage}
-                                                showReasoningTraces={showReasoningTraces}
-                                                agentMention={agentMention}
-                                                onRevert={handleRevert}
-                                                onFork={isUser ? handleFork : undefined}
-                                                contextPinned={isPinnedIntoContext}
-                                                contextPinPending={pinPending}
-                                                onToggleContextPin={canPinIntoContext && messageCreatedAt ? handleToggleContextPin : undefined}
-                                                errorMessage={assistantErrorText}
-                                                errorResponseBody={assistantErrorResponseBody}
+                                                {...userBodyProps}
                                                 userActionsMode={useExternalUserActionsRow ? 'external-content' : 'inline'}
-                                                stickyUserHeaderEnabled={stickyUserHeader}
-                                                extraActions={guestMessageActions}
                                             />
                                         </div>
                                         {useExternalUserActionsRow ? (
                                             <MessageBody
-                                                messageId={message.info.id}
-                                                parts={displayParts}
-                                                isUser={isUser}
-                                                isMessageCompleted={isMessageCompleted}
-                                                messageFinish={messageFinish}
-                                                messageCreatedAt={messageCreatedAt ?? undefined}
-                                                 isMobile={isMobile}
-                                                 alwaysShowActions={alwaysShowMessageActions}
-                                                 hasTouchInput={hasTouchInput}
-                                                copiedCode={copiedCode}
-                                                onCopyCode={handleCopyCode}
-                                                expandedTools={expandedTools}
-                                                onToggleTool={handleToggleTool}
-                                                onShowPopup={handleShowPopup}
-                                                streamPhase={streamPhase}
-                                                allowAnimation={allowAnimation}
-                                                shouldShowHeader={false}
-                                                hasTextContent={hasTextContent}
-                                                onCopyMessage={handleCopyMessage}
-                                                onCopyLink={handleCopyLink}
-                                                copiedMessage={copiedMessage}
-                                                showReasoningTraces={showReasoningTraces}
-                                                agentMention={agentMention}
-                                                onRevert={handleRevert}
-                                                onFork={isUser ? handleFork : undefined}
-                                                contextPinned={isPinnedIntoContext}
-                                                contextPinPending={pinPending}
-                                                onToggleContextPin={canPinIntoContext && messageCreatedAt ? handleToggleContextPin : undefined}
-                                                errorMessage={assistantErrorText}
-                                                errorResponseBody={assistantErrorResponseBody}
+                                                {...userBodyProps}
                                                 userActionsMode="external-actions"
-                                                stickyUserHeaderEnabled={stickyUserHeader}
-                                                extraActions={guestMessageActions}
                                             />
                                         ) : null}
                                     </div>
@@ -916,7 +911,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                                 footerAgentName={headerAgentName}
                                 footerVariant={headerVariant}
                                 isDarkTheme={isDarkTheme}
-                                extraActions={guestMessageActions}
+                                extraActions={messageExtraActions}
                             />
 
                         </div>

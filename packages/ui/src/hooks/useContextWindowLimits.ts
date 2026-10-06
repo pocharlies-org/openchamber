@@ -6,6 +6,8 @@ import {
   limitsForAnsweringModel,
   type ContextWindowLimits,
 } from '@/lib/routing/contextWindowLimits';
+import { getClaudeEngineState } from '@/lib/claudeSessionMetadata';
+import { resolveSessionEngine } from '@/lib/sessionEngine';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { useDirectorySync } from '@/sync/sync-context';
 
@@ -35,6 +37,18 @@ export const useContextWindowLimits = (sessionId: string | null, directory?: str
     ), [sessionId]),
     directory,
   );
+  // A Claude Code session runs on Claude's own models: the window its engine
+  // reported (`result.modelUsage[].contextWindow`), never OpenCode's model's.
+  // -1 = a Claude session whose window is not known yet.
+  const claudeWindow = useDirectorySync(
+    React.useCallback((state) => {
+      if (!sessionId) return null;
+      const session = state.session.find((candidate) => candidate.id === sessionId);
+      if (!session || resolveSessionEngine(session) !== 'claude') return null;
+      return getClaudeEngineState(session).contextWindow ?? -1;
+    }, [sessionId]),
+    directory,
+  );
   const answeringModelKey = useDirectorySync(
     React.useCallback((state) => (
       sessionId ? findAnsweringModelKey(state.message[sessionId] ?? []) : null
@@ -43,6 +57,7 @@ export const useContextWindowLimits = (sessionId: string | null, directory?: str
   );
 
   return React.useMemo(() => {
+    if (claudeWindow !== null) return { context: Math.max(0, claudeWindow), output: 0 };
     const onRecord = limitsForAnsweringModel(sessionModelKey, providers);
     if (onRecord.context > 0) return onRecord;
     const answering = limitsForAnsweringModel(answeringModelKey, providers);
@@ -50,5 +65,5 @@ export const useContextWindowLimits = (sessionId: string | null, directory?: str
     const limit = getCurrentModel()?.limit;
     return { context: limit?.context ?? 0, output: limit?.output ?? 0 };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the getter's output tracks the selected model ids
-  }, [sessionModelKey, answeringModelKey, currentProviderId, currentModelId, getCurrentModel, providers]);
+  }, [claudeWindow, sessionModelKey, answeringModelKey, currentProviderId, currentModelId, getCurrentModel, providers]);
 };

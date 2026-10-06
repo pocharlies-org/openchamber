@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import { formatDirectoryName, formatPathForDisplay } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n';
 import { isVSCodeRuntime, requestDirectoryAccess } from '@/lib/desktop';
+import { requestNewClaudeSession } from '@/sync/session-actions';
 import { sessionEvents } from '@/lib/sessionEvents';
 import { CHAT_DRAFT_PROJECT_ID } from '@/lib/chatDirectories';
 import { useSessionFoldersStore } from '@/stores/useSessionFoldersStore';
@@ -296,6 +297,16 @@ function SessionProjectScrollerComponent({ model, view, actions }: Props): React
           });
           actions.openNewSessionDraft({ selectedProjectId: project.id, directoryOverride: project.normalizedPath });
         }}
+        onNewClaudeSession={() => {
+          prepareSessionProjectAction({
+            projectId: project.id,
+            mobileVariant: view.mobileVariant,
+            closeMobileSwitcher: true,
+            setActiveProjectIdOnly: actions.setActiveProjectIdOnly,
+            setSessionSwitcherOpen: actions.setSessionSwitcherOpen,
+          });
+          requestNewClaudeSession(project.normalizedPath);
+        }}
         onNewWorktreeSession={() => {
           prepareSessionProjectAction({
             projectId: project.id,
@@ -359,6 +370,32 @@ function SessionProjectScrollerComponent({ model, view, actions }: Props): React
             });
             actions.openNewSessionDraft({ selectedProjectId: row.projectId, directoryOverride: row.scopeDirectory ?? row.group.directory, targetFolderId: row.folder.id, target: row.group.draftTarget });
           }}
+          onNewClaudeSession={(() => {
+            // The virtualized list is the only path that renders folder headers
+            // (SessionGroupSection does it with renderBody={false}), so this is
+            // where the folder "+" has to be given the tool choice — without it
+            // the button silently drops back to jumping straight to the draft.
+            const claudeDirectory = row.scopeDirectory ?? row.group.directory;
+            if (!claudeDirectory) return undefined;
+            const scopeKey = row.scopeKey;
+            const folderId = row.folder.id;
+            return () => {
+              prepareSessionProjectAction({
+                projectId: row.projectId,
+                mobileVariant: view.mobileVariant,
+                closeMobileSwitcher: true,
+                setActiveProjectIdOnly: actions.setActiveProjectIdOnly,
+                setSessionSwitcherOpen: actions.setSessionSwitcherOpen,
+              });
+              // Created from a folder, so it has to land in that folder —
+              // whenever the dialog hands it back.
+              requestNewClaudeSession(claudeDirectory, (session) => {
+                if (session && scopeKey) {
+                  useSessionFoldersStore.getState().addSessionToFolder(scopeKey, folderId, session.id);
+                }
+              });
+            };
+          })()}
           archivedBucket={row.archived}
         />}
       </DroppableFolderWrapper>;

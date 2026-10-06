@@ -11,10 +11,11 @@ const NOW = 200_000_000;
 const RECENT = NOW - (48 * 60 * 60 * 1000);
 const OLD = NOW - (72 * 60 * 60 * 1000);
 
-const session = (id: string, options: { parentID?: string; archived?: number; updated?: number } = {}): Session => ({
+const session = (id: string, options: { parentID?: string; archived?: number; updated?: number; company?: boolean } = {}): Session => ({
   id,
   parentID: options.parentID,
   time: { created: OLD, updated: options.updated ?? OLD, archived: options.archived },
+  metadata: options.company ? { company: true } : undefined,
 } as Session);
 
 describe('deriveRecentSessions', () => {
@@ -33,6 +34,18 @@ describe('deriveRecentSessions', () => {
       new Set([child.id, archived.id]),
       NOW,
     )).toEqual([]);
+  });
+
+  test('leaves company dispatches out of Recent, even a live one', () => {
+    const companyIdle = session('company-idle', { company: true, updated: RECENT });
+    const companyActive = session('company-active', { company: true });
+    const own = session('own', { updated: RECENT });
+
+    expect(deriveRecentSessions(
+      [companyIdle, companyActive, own],
+      new Set([companyActive.id]),
+      NOW,
+    )).toEqual([own]);
   });
 
   test('keeps inactive membership timestamp-based', () => {

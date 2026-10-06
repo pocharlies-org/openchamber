@@ -17,65 +17,35 @@ unchanged; an empty suggestion is a successful outcome.
 
 ## What the model receives
 
-Read backward through the official SDK in pages of 50 messages until three
-human turns are covered, history ends, or eight pages have been read. A failed
-page or repeated cursor aborts generation; it is not treated as complete history.
-At the page limit, use fewer available human turns. If the latest answer's human
+Read backward through the official SDK in pages of 200 messages (the largest
+page v2 serves) until history ends or fifty pages have been read: the model
+sees the whole session, not a tail. A failed page or repeated cursor aborts
+generation; it is not treated as complete history. If the latest answer's human
 request has not been found, skip generation rather than invent its context.
 
-Three turns retain the substance behind short commit confirmations without
-bringing an entire old task back into the prompt. This was compared against
-one, five, ten, and full-history contexts on long maintainer sessions. There
-is no full-history cache and no assumed provider prefix-cache behavior.
+The whole session is what lets the suggestion see which topics are already
+closed. Whether work remains is judged against the user's most recent request:
+asked to satisfy "what the user actually asked for" over the whole transcript,
+the model declares the opening request done and answers `""` (measured on this
+fork: 16% of assists carried a suggestion with the old three-turn window, 5%
+with the whole session and that wording). Each turn keeps the names of the
+tools the assistant ran (`Tools the assistant used: Bash×3, Read`), never their
+input or output: a session can be almost all tool calls, and without them it
+reads as an empty conversation. The language sample still comes from the last
+three turns.
 
-The latest content record must be a completed, successful, non-summary
-assistant answer with visible text. OpenCode closes every turn with an `idle`
-record and appends agent/model/location switches as records of their own;
-`newestContentId` looks past those, both here and in the re-check before the
-write, so an ordinary v2 transcript still ends in its answer. An `idle` whose
-outcome is `failed` or `interrupted` is not skipped: it disqualifies the turn.
-Child, archived, and reverted sessions are skipped. A new prompt clears the
-revert boundary before its next idle event.
-
-Human turns follow chronological message intervals. OpenCode can insert
-synthetic continuation users during compaction, so a final answer's `parentID`
-need not point directly at the original human request. These continuations stay
-within their human turn; compaction summaries are excluded. An interrupted
-request remains context with its last visible progress explicitly labeled as
-unfinished, rather than being dropped or called a final answer.
-An answer must still reference that human user or one of its continuation
-users; a late answer for an older request cannot be assigned to a newer request.
-
-### Attached context and language
-
-The persisted attachment contract is owned by
-`packages/ui/src/lib/messages/contextParts.ts`. Its user-facing Markdown
-formatter is `packages/ui/src/lib/messages/messageMarkdown.ts`.
-
-The server projects those persisted parts into model context without importing
-the UI runtime: code comments, file/chat quotes, browser annotations, PR comments,
-checks, terminal selections, and linked GitHub/Linear items remain attached to
-the user turn even when their transport part is synthetic. The OpenCode
-`opencodeComment` mirror is also accepted. Unrecognized synthetic prompts and
-ignored parts are excluded. Malformed attached text fails the generation.
-
-Quoted material and the user's own comment are separate blocks. The user's
-authored text is also supplied separately for language selection. Quoted source,
-logs, assistant replies, and injected memory instructions do not choose the
-language. A language-neutral final acknowledgment can use recent authored text.
-The existing Cyrillic/CJK mismatch guard uses that authored sample per field;
-it is not a complete language detector, and it is skipped if no sample exists.
-
-### Input bounds
-
-User text is bounded to 8,000 characters and each assistant answer to 16,000.
 Attached quote bodies have their own 4,000-character limit so a large quote
 does not consume the user's comment. Excerpts preserve both ends with an
 explicit omission marker, including the conclusion of a long final report.
 
-The complete user prompt is limited to 32,000 characters and the resolved small
-model's input allowance, reserving space for the system prompt. Under pressure,
-drop older whole turns first. If the latest pair itself is too large, excerpt
+The complete user prompt is sized by the resolved small model's input
+allowance, reserving space for the system prompt; there is no fixed cap. Under
+pressure, drop the oldest turns — only in chunks of eight, and turns keep their
+number in the session — so the start of the transcript moves in steps: the
+prompt goes to the session's own model, and consecutive assists on a session
+then share a token prefix the backend can cache. Everything that varies per
+call (language sample, requested fields) comes after the transcript.
+If the latest pair itself is too large, excerpt
 both its user request and answer rather than discarding either side. If even
 the minimum prompt cannot fit, skip generation. `onOverflow: 'error'` prevents
 the Small Model service from silently cutting off the instructions. Expected
@@ -104,14 +74,25 @@ model context is small. Page/count bounds are not a network-byte quota.
    after the old one finishes. Later activity cancels the pending run as well.
 4. Resolve the small model using the last answer's provider/model and the
    existing explicit settings/config overrides. `restrictToPreferredProvider`
-   prevents an implicit cross-provider fallback. Production does not pin the
-   experimental model. Generation accepts an abort signal and a 120-second limit.
+   prevents an implicit cross-provider fallback. On this fork's instance the
+   Small Model is pinned in Settings → Sessions to `litellm-local/tooling`
+   (`smallModelUseDefault: false`), so the resolution lands on `source:
+   'settings'` for every session, Claude ones included — which is also what
+   keeps a Claude session from being refused with
+   `small-model-provider-unsupported`. Generation accepts an abort signal and a
+   120-second limit.
 5. Recap describes the substantive work and its current result, including the
    work behind a closing commit or acknowledgment. Suggestion is independent:
    only unfinished requested agent work should produce a sendable user message.
-   Completed work, optional offers, or a decision/action belonging to the user
-   should return an empty suggestion. This is model judgment, not authorization
+   A reply that stops while a step the agent could take in this session is still
+   owed counts as unfinished; an empty suggestion is for a conversation that has
+   genuinely stopped, not for an answer that merely ends politely. Completed
+   work, optional offers, or a decision/action belonging to the user should
+   return an empty suggestion. This is model judgment, not authorization
    enforcement or a guarantee that every generated field is factually correct.
+   A generation that fails is logged with its status, code, resolved model and
+   the error's own message (credentials stripped, 200 characters); the expected
+   budget failures stay quiet because they say nothing a retry would not repeat.
 6. Re-read the latest message and fresh session before writing. A moved tail,
    canceled run, changed endpoint/directory, archive, revert, or failed fresh
    read discards the result. Never merge from the old pre-generation metadata.

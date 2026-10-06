@@ -87,6 +87,8 @@ const SHELL_OUTPUT_TAIL_BYTES = 64 * 1024
 const STATUS_BY_TAG = new Map<string, number>([
   ["InvalidRequestError", 400],
   ["InvalidCursorError", 400],
+  // An engine asked for an operation it does not have (server lib/engines).
+  ["UnsupportedOperationError", 400],
   ["FormInvalidAnswerError", 400],
   ["UnauthorizedError", 401],
   ["ForbiddenError", 403],
@@ -122,8 +124,10 @@ export class OpencodeApiError extends Error {
   /** The id OpenCode prints next to the stack in its own log for a 500, so a
       surface can quote something that can be searched for. */
   readonly ref: string | undefined
+  /** Set on an `UnsupportedOperationError`: which engine refused which operation. */
+  readonly unsupported: { engine: string; operation: string } | undefined
 
-  constructor(operation: string, message: string, options: { status?: number; tag?: string; ref?: string; cause?: unknown }) {
+  constructor(operation: string, message: string, options: { status?: number; tag?: string; ref?: string; unsupported?: { engine: string; operation: string }; cause?: unknown }) {
     super(`${operation} failed${options.status ? ` (${options.status})` : ""}: ${message}`, { cause: options.cause })
     this.name = "OpencodeApiError"
     this.operation = operation
@@ -131,10 +135,17 @@ export class OpencodeApiError extends Error {
     this.tag = options.tag
     this.detail = message
     this.ref = options.ref
+    this.unsupported = options.unsupported
   }
 }
 
-const taggedErrorSchema = z.object({ _tag: z.string(), message: z.string().optional(), ref: z.string().optional() })
+const taggedErrorSchema = z.object({
+  _tag: z.string(),
+  message: z.string().optional(),
+  ref: z.string().optional(),
+  engine: z.string().optional(),
+  operation: z.string().optional(),
+})
 
 class RuntimeRoutingResponseError extends Error {
   constructor(readonly status: number, message: string) {
@@ -186,10 +197,12 @@ export function normalizeOpencodeError(operation: string, error: unknown): Openc
   }
   const tagged = taggedErrorSchema.safeParse(error)
   if (tagged.success) {
+    const { engine, operation: refused } = tagged.data
     return new OpencodeApiError(operation, tagged.data.message ?? tagged.data._tag, {
       status: STATUS_BY_TAG.get(tagged.data._tag),
       tag: tagged.data._tag,
       ref: tagged.data.ref,
+      unsupported: tagged.data._tag === "UnsupportedOperationError" && engine && refused ? { engine, operation: refused } : undefined,
       cause: error,
     })
   }
@@ -217,6 +230,10 @@ type SkillAttachmentRef = { id: string; name: string }
 /** OpenCode rejected a prompt because an attached skill id does not exist. */
 const isSkillNotFound = (error: OpencodeApiError): boolean =>
   error.tag === "InvalidRequestError" && error.detail.startsWith("Skill not found")
+
+/** The session's engine refused an operation it does not have (see lib/sessionEngine.ts). */
+export const isUnsupportedOperation = (error: unknown): error is OpencodeApiError & { unsupported: { engine: string; operation: string } } =>
+  error instanceof OpencodeApiError && error.unsupported !== undefined
 
 export const isOpencodeNotFound = (error: unknown): boolean =>
   error instanceof OpencodeApiError && error.status === 404

@@ -24,6 +24,22 @@ const PR_CONTEXT = {
   primaryRemote: 'upstream',
 };
 
+// Espera un HECHO, no al reloj. Las esperas de 20 ms que habia aqui eran
+// suposiciones sobre cuanto tarda una peticion HTTP en llegar a su handler, y
+// bajo carga la suposicion es falsa: `releaseJob` solo existe DESPUES de que
+// `generateWalkthrough` corra, asi que llamarlo antes revienta con
+// `releaseJob is not a function`. Ese es el flake de este fichero -- falla solo
+// dentro de la suite completa y pasa en aislado, que es la firma de una
+// suposicion temporal, no de un bug.
+const waitFor = async (condition, what, { timeoutMs = 10_000, everyMs = 5 } = {}) => {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (condition()) return;
+    await new Promise((r) => setTimeout(r, everyMs));
+  }
+  throw new Error(`timed out after ${timeoutMs}ms waiting for: ${what}`);
+};
+
 describe('walkthrough routes', () => {
   let server;
   let base;
@@ -231,6 +247,10 @@ describe('walkthrough routes', () => {
     await vi.waitFor(() => expect(generationRequestCount).toBe(1));
     await untilGenerateCalled(seen);
     controller.abort();
+    // Esta espera SE QUEDA. Lo que hay que esperar aqui es que el servidor note
+    // la desconexion, y eso no es observable desde el test: no hay bandera que
+    // mirar. Una espera falsa sobre una condicion que ya es cierta daria una
+    // sensacion de rigor sin comprarla.
     await new Promise((resolve) => setTimeout(resolve, 20));
 
     // The reloaded page sees work in progress and re-attaches to it.

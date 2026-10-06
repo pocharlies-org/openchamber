@@ -24,12 +24,18 @@ import { useConfigStore } from '@/stores/useConfigStore';
 import { isVSCodeRuntime } from '@/lib/desktop';
 import { isDictationCaptureSupported } from '@/lib/dictation/use-dictation-audio-source';
 import { ModelControls } from '../../ModelControls';
+import { ClaudeAgentMap } from '../../ClaudeAgentMap';
+import { ClaudeTodoPill } from '../../ClaudeTodos';
+import { ClaudeModelControls } from '../../ClaudeModelControls';
+import { useSessionEngine } from '@/hooks/useSessionEngine';
 import { ComposerActionButtons } from './ComposerActionButtons';
 import { ComposerAttachmentControls } from './ComposerAttachmentControls';
 import { FocusModeButton } from './FocusModeButton';
 import { PermissionAutoAcceptButton } from './PermissionAutoAcceptButton';
 import type { PermissionMode } from '@/stores/utils/permissionAutoAccept';
 import type { BtwSelection } from '@/stores/useBtwStore';
+import { ComposerMetricsSurface } from './ComposerMetricsSurface';
+import { ComposerStatusSurface } from './ComposerStatusSurface';
 
 const MemoModelControls = React.memo(ModelControls);
 const MemoComposerDictation = React.memo(ComposerDictation);
@@ -39,6 +45,7 @@ export interface ComposerFooterProps {
     isVSCode: boolean;
     sessionId: string | null;
     directory?: string;
+    runtimeKey: string;
     newSessionDraftOpen: boolean;
     messageLength: number;
 
@@ -97,6 +104,7 @@ export function ComposerFooter(props: ComposerFooterProps) {
         isVSCode,
         sessionId: currentSessionId,
         directory,
+        runtimeKey,
         newSessionDraftOpen,
         messageLength,
         radius: chatInputRadius,
@@ -140,6 +148,8 @@ export function ComposerFooter(props: ComposerFooterProps) {
         onRunInParallel,
         parallelRun = null,
     } = props;
+    // Which model picker: the one of the engine that owns the session.
+    const sessionEngine = useSessionEngine(currentSessionId, directory ?? undefined);
 
     const dictationEnabled = useConfigStore((state) => state.dictationEnabled);
     const [dictationSupported] = React.useState(() => !isVSCodeRuntime() && isDictationCaptureSupported());
@@ -194,6 +204,28 @@ export function ComposerFooter(props: ComposerFooterProps) {
                             {!isBtw ? <SessionGoalObjectiveCounter length={messageLength} /> : null}
                         </div>
                         <div className="flex items-center min-w-0 gap-x-1 justify-end">
+                            {!isBtw && currentSessionId && sessionEngine.id === 'claude'
+                                ? <>
+                                    <ClaudeTodoPill sessionId={currentSessionId} directory={directory ?? undefined} />
+                                    <ClaudeAgentMap sessionId={currentSessionId} directory={directory ?? undefined} />
+                                </>
+                                : null}
+                            <ComposerMetricsSurface
+                                isMobile
+                                sessionId={currentSessionId}
+                                directory={directory}
+                                runtimeKey={runtimeKey}
+                                placement="footer"
+                                className="max-w-[9rem] flex-1 justify-end"
+                            />
+                            <ComposerStatusSurface
+                                isMobile
+                                sessionId={currentSessionId}
+                                directory={directory}
+                                runtimeKey={runtimeKey}
+                                placement="footer"
+                                className="flex-none justify-end"
+                            />
                             <div className="flex items-center gap-x-1 flex-shrink-0">
                                 {!isBtw && showDictation ? <button
                                     type="button"
@@ -275,7 +307,36 @@ export function ComposerFooter(props: ComposerFooterProps) {
                         {!isBtw ? <SessionGoalObjectiveCounter length={messageLength} /> : null}
                     </div>
                     <div className={cn('flex items-center flex-1 justify-end', footerGapClass, 'md:gap-x-3')}>
-                        {parallelRun ? <div className="flex-1" /> : isBtw ? <ModelControls className="flex-1 min-w-0 justify-end" sessionId={modelSessionId ?? null} selection={btwSelection} /> : pinnedSelection ? <ModelControls className="flex-1 min-w-0 justify-end" sessionId={currentSessionId} selection={pinnedSelection} agentSelectable /> : <MemoModelControls className={cn('flex-1 min-w-0 justify-end')} onRunInParallel={onRunInParallel} />}
+                        {/* Both surfaces size to their content: growing, they took the
+                            width the model and mode pickers need and truncated them. */}
+                        <ComposerMetricsSurface
+                            isMobile={false}
+                            sessionId={currentSessionId}
+                            directory={directory}
+                            runtimeKey={runtimeKey}
+                            placement="footer"
+                            className="max-w-[22rem] flex-[0_1_auto] justify-end"
+                        />
+                        <ComposerStatusSurface
+                            isMobile={false}
+                            sessionId={currentSessionId}
+                            directory={directory}
+                            runtimeKey={runtimeKey}
+                            placement="footer"
+                            className="flex-none justify-end"
+                        />
+                        {!isBtw && currentSessionId && sessionEngine.id === 'claude'
+                            ? <>
+                                <ClaudeTodoPill sessionId={currentSessionId} directory={directory ?? undefined} />
+                                <ClaudeAgentMap sessionId={currentSessionId} directory={directory ?? undefined} />
+                            </>
+                            : null}
+                        {parallelRun ? <div className="flex-1" />
+                            : isBtw ? <ModelControls className="flex-1 min-w-0 justify-end" sessionId={modelSessionId ?? null} selection={btwSelection} />
+                            : pinnedSelection ? <ModelControls className="flex-1 min-w-0 justify-end" sessionId={currentSessionId} selection={pinnedSelection} agentSelectable />
+                            : currentSessionId && sessionEngine.ownModelCatalog
+                                ? <ClaudeModelControls className="flex-1" sessionId={currentSessionId} directory={directory} />
+                                : <MemoModelControls className={cn('flex-1 min-w-0 justify-end')} onRunInParallel={onRunInParallel} />}
                         {!isBtw ? <MemoComposerDictation
                             radius={chatInputRadius}
                             isMobile={isMobile}

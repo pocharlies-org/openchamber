@@ -2,7 +2,10 @@ import React from 'react';
 import type { PermissionReply, PermissionRequest } from '@/types/permission';
 import { useChatColumnActions, useChatSessionSelection } from './chatColumnSession';
 import { useSessions } from '@/sync/sync-context';
+import { isPermissionAlreadyResolvedError } from '@/sync/permission-reply-classification';
 import * as sessionActions from '@/sync/session-actions';
+import { useI18n } from '@/lib/i18n';
+import { toast } from '@/components/ui';
 
 type ColumnKind = 'main' | 'pinned';
 
@@ -36,22 +39,37 @@ export const usePermissionResponse = (
   onResponse?: (response: PermissionReply) => void,
 ) => {
   const column: ColumnKind = useChatColumnActions().pinned ? 'pinned' : 'main';
+  const { t } = useI18n();
   const [isResponding, setIsResponding] = React.useState(false);
   const [hasResponded, setHasResponded] = React.useState(false);
   const respondToPermission = sessionActions.respondToPermission;
 
-  const respond = React.useCallback(async (response: PermissionReply) => {
+  const respond = React.useCallback(async (response: PermissionReply, message?: string) => {
     setIsResponding(true);
     try {
-      await respondToPermission(permission.sessionID, permission.id, response);
+      await respondToPermission(permission.sessionID, permission.id, response, undefined, message);
       setHasResponded(true);
       onResponse?.(response);
     } catch (error) {
       console.error('[PermissionCard] Failed to respond to permission:', error);
+      // A swallowed failure is how a dead prompt ended up clickable forever: the
+      // card stayed, said nothing, and "always" never persisted the pattern, so
+      // the same directory asked again for the rest of the session. Both
+      // branches speak now; only the server-confirmed one retires the card.
+      if (isPermissionAlreadyResolvedError(error)) {
+        setHasResponded(true);
+        toast.info(t('chat.permissionCard.alreadyResolved'), {
+          description: t('chat.permissionCard.alreadyResolvedDescription'),
+        });
+      } else {
+        toast.error(t('chat.permissionCard.respondFailed'), {
+          description: error instanceof Error ? error.message : String(error),
+        });
+      }
     } finally {
       setIsResponding(false);
     }
-  }, [onResponse, permission.id, permission.sessionID, respondToPermission]);
+  }, [onResponse, permission.id, permission.sessionID, respondToPermission, t]);
 
   const respondRef = React.useRef(respond);
   respondRef.current = respond;

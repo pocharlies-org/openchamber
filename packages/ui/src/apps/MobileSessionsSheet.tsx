@@ -31,6 +31,8 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 
 import { DirectoryExplorerDialog } from '@/components/session/DirectoryExplorerDialog';
+import { SESSION_SOURCE_FILTERS, SESSION_SOURCE_LABEL_KEYS } from '@/lib/sessionSourceFilter';
+import { useMobileSessionSourceFilter } from './useMobileSessionSourceFilter';
 import { Icon } from '@/components/icon/Icon';
 import { NewWorktreeDialog } from '@/components/session/NewWorktreeDialog';
 import { Button } from '@/components/ui/button';
@@ -73,6 +75,7 @@ import {
   useSessionOrderingStore,
 } from '@/sync/session-ordering';
 import { useSessionUIStore } from '@/sync/session-ui-store';
+import { requestNewClaudeSession } from '@/sync/session-actions';
 import { useAllLiveSessions } from '@/sync/sync-context';
 import { useGlobalSyncStore } from '@/sync/global-sync-store';
 import { useSessionUnseenCount } from '@/sync/notification-store';
@@ -820,6 +823,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
   // Bumped to force a re-list of worktrees (e.g. after one is deleted in the editor).
   const [worktreeRefreshKey, setWorktreeRefreshKey] = React.useState(0);
   const [sortPanelOpen, setSortPanelOpen] = React.useState(false);
+  const [newSessionPickerProject, setNewSessionPickerProject] = React.useState<ProjectMeta | null>(null);
   const [directoryDialogOpen, setDirectoryDialogOpen] = React.useState(false);
   const [newWorktreeDialogOpen, setNewWorktreeDialogOpen] = React.useState(false);
   const [worktreeDialogProjectId, setWorktreeDialogProjectId] = React.useState<string | null>(null);
@@ -990,13 +994,15 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
     [childrenBySessionId],
   );
 
+  const { showSourceFilter, sourceFilter, setSourceFilter, filteredSessions } = useMobileSessionSourceFilter(sessions);
+
   // Managed Chats (sessions under ~/.config/openchamber/chats) are not owned
   // by any registered project; they get their own section above the project
   // tree, the same split the desktop sidebar makes. Temporary /btw forks are
   // dropped here as well.
   const { projectSessions, chatSessions } = React.useMemo(
-    () => partitionSidebarSessions(sessions, false),
-    [sessions],
+    () => partitionSidebarSessions(filteredSessions, false),
+    [filteredSessions],
   );
 
   // Sessions in work, with their subsessions, move to their own section under
@@ -1592,6 +1598,14 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
     onOpenChange(false);
   };
 
+  // Same choice as the desktop project "+": an opencode draft or a Claude Code
+  // session, which lives in the project directory itself (no worktree needed).
+  const handleNewClaudeSessionInProject = (project: ProjectMeta) => {
+    setActiveProjectIdOnly(project.id);
+    requestNewClaudeSession(project.path);
+    onOpenChange(false);
+  };
+
   const filteredNodes = React.useMemo(() => {
     if (!normalizedQuery) return projectNodes;
     return projectNodes.filter((node) => {
@@ -1610,7 +1624,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
   const searchSessionMatches = React.useMemo(() => {
     if (!normalizedQuery) return [] as Session[];
     return orderSessionsByLifecycleScopes(
-      sessions.filter((session) => {
+      filteredSessions.filter((session) => {
         // Subsessions are implementation noise in a flat search list — only
         // top-level sessions are searchable.
         if (getParentId(session)) return false;
@@ -1621,7 +1635,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
       pinnedSessionIds,
       sessionOrderRanks,
     );
-  }, [normalizedQuery, pinnedSessionIds, projectsMeta, sessionOrderRanks, sessionOwnership, sessions]);
+  }, [filteredSessions, normalizedQuery, pinnedSessionIds, projectsMeta, sessionOrderRanks, sessionOwnership]);
 
   const searchProjectMatches = React.useMemo<ProjectMeta[]>(() => {
     if (!normalizedQuery) return [];
@@ -1815,6 +1829,29 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
               placeholder={t('mobile.sessions.search.placeholder')}
               clearLabel={t('mobile.sessions.clearSearchAria')}
             />
+            {/* One tap on touch, not hidden in a dropdown: a chip row under the
+                search box, the same four-way choice as the header button. */}
+            {showSourceFilter ? (
+              <div className="mt-2 flex gap-1.5 overflow-x-auto pb-0.5" role="group" aria-label={t('sessions.sidebar.header.sourceFilter.label')}>
+                {SESSION_SOURCE_FILTERS.map((source) => (
+                  <button
+                    key={source}
+                    type="button"
+                    aria-pressed={sourceFilter === source}
+                    onClick={() => setSourceFilter(source)}
+                    style={{ touchAction: 'manipulation' }}
+                    className={cn(
+                      'shrink-0 rounded-full px-3 py-1.5 typography-ui-label transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+                      sourceFilter === source
+                        ? 'bg-primary text-primary-foreground'
+                        : 'bg-interactive-hover text-muted-foreground',
+                    )}
+                  >
+                    {t(SESSION_SOURCE_LABEL_KEYS[source])}
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </div>
           {projectsMeta.length === 0 && chatSessions.length === 0 ? (
             <MobileSessionsEmpty
@@ -1897,7 +1934,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
                         <NewSessionIconButton
                           className="mr-2"
                           label={t('mobile.sessions.newSessionInProjectAria', { label: project.label })}
-                          onClick={() => handleNewSessionInProject(project)}
+                          onClick={() => setNewSessionPickerProject(project)}
                         />
                       </div>
                     ))}
@@ -2191,7 +2228,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
                         <NewSessionIconButton
                           className="mr-2"
                           label={t('mobile.sessions.newSessionInProjectAria', { label: node.project.label })}
-                          onClick={() => handleNewSessionInProject(node.project)}
+                          onClick={() => setNewSessionPickerProject(node.project)}
                         />
                       </div>
                     </MobileSwipeActionsRow>
@@ -2446,6 +2483,37 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
           onClose={() => setEditingProjectId(null)}
           onWorktreesChanged={() => setWorktreeRefreshKey((value) => value + 1)}
         />
+        <MobileOverlayPanel
+          open={newSessionPickerProject !== null}
+          onClose={() => setNewSessionPickerProject(null)}
+          title={newSessionPickerProject
+            ? t('mobile.sessions.newSessionInProjectAria', { label: newSessionPickerProject.label })
+            : ''}
+        >
+          <div className="flex flex-col">
+            {([
+              ['opencode', 'add', 'sessions.sidebar.project.actions.newSession'],
+              ['claude', 'claude-code', 'sessions.sidebar.project.actions.newClaudeSession'],
+            ] as const).map(([source, icon, labelKey]) => (
+              <button
+                key={source}
+                type="button"
+                className="flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-foreground transition-colors active:bg-interactive-active focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                onClick={() => {
+                  const project = newSessionPickerProject;
+                  setNewSessionPickerProject(null);
+                  if (!project) return;
+                  if (source === 'claude') handleNewClaudeSessionInProject(project);
+                  else handleNewSessionInProject(project);
+                }}
+                style={{ touchAction: 'manipulation' }}
+              >
+                <Icon name={icon} className="size-4" />
+                <span className="typography-ui-label">{t(labelKey)}</span>
+              </button>
+            ))}
+          </div>
+        </MobileOverlayPanel>
         <MobileOverlayPanel
           open={sortPanelOpen}
           onClose={() => setSortPanelOpen(false)}

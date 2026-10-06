@@ -1,3 +1,4 @@
+import { SESSION_SOURCE_FILTERS, SESSION_SOURCE_LABEL_KEYS } from '@/lib/sessionSourceFilter';
 import React from 'react';
 import {
   DropdownMenu,
@@ -8,14 +9,15 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { Icon } from "@/components/icon/Icon";
 import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
 import { useSessionMultiSelectStore } from '@/stores/useSessionMultiSelectStore';
+import { useSessionSourceFilterStore } from '@/stores/useSessionSourceFilterStore';
 import { useI18n } from '@/lib/i18n';
 import { updateDesktopSettings } from '@/lib/persistence';
 import { SessionSearchInput } from '@/components/session/SessionSearchInput';
-import { Button } from '@/components/ui/button';
 import { GuestIcon } from '@/components/layout/GuestRailIcon';
 import { useGuestPages } from '@/hooks/useGuestSurfaces';
 import { guestPackageIconSrc, resolveGuestIconName } from '@/lib/guests/icon';
@@ -67,6 +69,10 @@ export function SidebarHeader(props: Props): React.ReactNode {
 
   const selectionModeEnabled = useSessionMultiSelectStore((state) => state.enabled);
   const toggleSelectionMode = useSessionMultiSelectStore((state) => state.toggleMode);
+
+  const sessionSourceFilter = useSessionSourceFilterStore((state) => state.filter);
+  const setSessionSourceFilter = useSessionSourceFilterStore((state) => state.setFilter);
+  const showSessionSourceFilter = useSessionSourceFilterStore((state) => state.available);
 
   const showRecentSection = useSessionDisplayStore((state) => state.showRecentSection);
   const toggleRecentSection = useSessionDisplayStore((state) => state.toggleRecentSection);
@@ -160,7 +166,27 @@ export function SidebarHeader(props: Props): React.ReactNode {
               </TooltipTrigger>
               <TooltipContent side="bottom" sideOffset={4}><p>{t('sessions.sidebar.nav.archive')}</p></TooltipContent>
             </Tooltip>
-            {guestPages.length > 0 && <DropdownMenu>
+            {/* A single page opens in one click under its own icon; the menu only earns its place with two or more. */}
+            {guestPages.length === 1 && (() => {
+              const guest = guestPages[0];
+              const title = guest.pageTitle ?? guest.name;
+              return (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() => useUIStore.getState().setOpenGuestPage(guest.id)}
+                      className={cn(headerActionButtonClass, 'text-muted-foreground hover:text-foreground hover:bg-transparent')}
+                      aria-label={title}
+                    >
+                      <GuestIcon icon={resolveGuestIconName(guest.icon)} iconSrc={guestPackageIconSrc(guest.id, guest.icon, getRuntimeUrlResolver().authenticatedAsset)} className={headerActionIconClass} />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" sideOffset={4}><p>{title}</p></TooltipContent>
+                </Tooltip>
+              );
+            })()}
+            {guestPages.length > 1 && <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="xs" className="w-6 text-muted-foreground" aria-label={t('sessions.sidebar.header.actions.extensionPages')}>
                   <Icon name="apps" className={headerActionIconClass} />
@@ -347,6 +373,33 @@ export function SidebarHeader(props: Props): React.ReactNode {
             </DropdownMenu>
           </div>
         </div>
+
+        {/* Tool filter as a standing control, not a menu row: which tool owns
+            a session is a first-class question once more than one tool feeds
+            the list, and a row buried under the display menu never got found.
+            Scrolls sideways on narrow sidebars, the same escape the mobile
+            sheet uses. */}
+        {showSessionSourceFilter ? (
+          <div
+            className="flex items-center gap-1 overflow-x-auto pb-0.5"
+            role="group"
+            aria-label={t('sessions.sidebar.header.sourceFilter.label')}
+          >
+            {SESSION_SOURCE_FILTERS.map((source) => (
+              <Button
+                key={source}
+                type="button"
+                variant="chip"
+                size="xs"
+                aria-pressed={sessionSourceFilter === source}
+                onClick={() => setSessionSourceFilter(source)}
+                className="shrink-0"
+              >
+                {t(SESSION_SOURCE_LABEL_KEYS[source])}
+              </Button>
+            ))}
+          </div>
+        ) : null}
 
         {isSessionSearchOpen ? (
           <div className="pb-1">

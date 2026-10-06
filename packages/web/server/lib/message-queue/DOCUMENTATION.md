@@ -142,6 +142,32 @@ persisted "sending" flag would strand a message forever.
 
 A 2xx HTML app-shell response is a failed dispatch, not acceptance. The queued item stays persisted and uses the existing retry backoff. Project knowledge is recorded as delivered only after the prompt or command is accepted.
 
+## Sessions of another engine
+
+A Claude Code session (`ses_ccc…`, served by `../claude/routes.js`) is unknown
+to OpenCode: sent to OpenCode's port, a queued message for it either waited
+forever (idleness could not be read) or failed with OpenCode's 404. The queue
+takes `getEngineTransport()` — read at dispatch time, because the Claude surface
+is created after the queue — and hands every session that transport `owns` to
+it instead:
+
+- idleness is `transport.isIdle(sessionId)` (the Claude runtime's own status
+  snapshot: a turn running here or in the process that holds the session); a
+  failed read is unknown, like any other, and backs off;
+- there is no subagent gate: the engine reports a turn and its subagents as one
+  status;
+- the OpenCode model/agent switch, the `openchamber/auto` routing and the
+  OpenCode command lookup do not apply;
+- `transport.send(sessionId, directory, { text, files, context })` admits the
+  captured context and pending project knowledge ahead of the text, and sends
+  a clean `/name args` as the engine's own command (context then waits for the
+  next prompt instead of burying the command). Knowledge is recorded as
+  delivered after the send is accepted, as for OpenCode.
+
+The queue drains on those sessions' idle status too: the server feeds the
+Claude surface's wire events through the same `translateWireEvent` into
+`processPayload` (`server/index.js`).
+
 ## Holds
 
 Auto-review is driven from the UI and bounces the original session through

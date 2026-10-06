@@ -535,7 +535,9 @@ event pipeline next to the error notification) and `summarizeOpenCodeError`
 reads the `{ type, message }` structured error the event carries. The chat shows the newest
 error for the open session under its last message while that turn is the
 latest one (`SessionErrorNotice`), and also names a user message that an idle
-session has left unanswered for five seconds, since an accepted send that
+session has left unanswered for five seconds (thirty for a Claude Code session,
+whose CLI spawns before its first line; never for a Claude session another
+process holds, which runs the turn itself), since an accepted send that
 produced neither a message nor an error would otherwise look like nothing
 happened. Before that no-reply notice shows, the session tail is re-read
 from the server (the live stream may have dropped the reply); the notice
@@ -559,6 +561,22 @@ Browser profiling also enables `localStorage.openchamber_stream_perf` to capture
 The profiler also emits a user-timing mark when pending global-session recency is committed at a lifecycle edge. `summary.json.longTaskAttribution` correlates that mark with enclosing long tasks without recording session data.
 
 Streaming assistant and reasoning text is throttled once before reaching the markdown renderer. The renderer incrementally reconciles changed markdown blocks but does not add a second character-pacing timer, which would multiply parse/morph work while catching up on large streamed chunks.
+
+`stream-metrics.ts` owns the client-observed response timing used by declarative
+composer metric contributions. An optimistic send begins TTFT only after the
+local send is accepted and the user message ID exists. Text, reasoning, or a
+non-pending tool fixes first-visible time exactly once; administrative and empty
+events do not. Live output tokens are explicitly estimated from incremental text
+character counts, while final assistant token fields replace them and recalculate
+exact speed even when they arrive after `session.idle`. When a client opens an
+already materialized session, the latest completed assistant message hydrates
+its authoritative token counters without inventing TTFT, speed, character, or
+byte measurements that this client did not observe. Counters and part state
+are isolated by runtime, normalized directory, session, turn, and assistant
+message, and bounded cleanup handles deletion, reconnect, runtime switching,
+cancellation, and error. SSE ingestion updates counters outside React in O(1)
+per ordinary delta and publishes only dirty session snapshots at the manifest's
+throttled interval (250 ms for the built-in plugin).
 
 The event pipeline delivers each ordered per-directory flush as one reducer batch. Events retain their individual notifications, cleanup, routing, materialization, and debug side effects, while directory mutations accumulate in order and publish one store transaction per touched directory. Global session mutations and live status, ordering, and timing transitions also accumulate in event order and each owner publishes at most once for the flush. Each top-level state slice is cloned lazily at most once in that batch; no-op events do not change references.
 
@@ -649,7 +667,8 @@ Rules:
 5. Composer and queued sends carry their captured runtime, directory, and session through asynchronous preparation. A runtime change cancels the send instead of re-resolving it against the new runtime. Outside VS Code the queue itself is server-owned (`packages/web/server/lib/message-queue/`): the UI hands the server the captured send configuration, resolved text, attachments, and attached context at queue time and the server delivers on idle; the composer only sends a queued message itself after taking it back from the server (`takeForSend`). See the `messageQueueStore.ts` section in `stores/DOCUMENTATION.md`.
 6. After session creation, the directory returned by the server is authoritative over the requested draft directory. The server may canonicalize a worktree path, and the first prompt must use the same directory identity as the created session.
 7. Regular new-chat drafts that inherit the persisted current/last directory must not create a session against a confirmed-missing path. Fall back to the active project only when OpenChamber's directory stat reports the directory missing; keep explicit worktree targets, in-flight worktree creation, and unknown/offline probes unchanged, and do not persist the fallback until session creation succeeds. A concurrent draft rewrite to that same active-project fallback must not abort session creation.
-8. A prompt send that fails **after** the request left the client is ambiguous, never a definite failure: the server may already be answering it. Transports tag those errors (`markAmbiguousTransportFailure` in `@/lib/relay/transport-error`; the relay tunnel tags every stream that dies with a request in flight), and `isAmbiguousSendFailure` reads the tag before falling back to status/text heuristics. An ambiguous failure waits for the connection to return, refetches recent messages, and confirms the optimistic message in place instead of rolling it back — rolling it back lets the message queue re-send a prompt the engine is already running, producing two independent AI responses for one user message.
+8. The session's engine decides how a message travels (`routeMessage`, via `engineInfoForSession` from `stores/useEngineStore.ts`): an OpenCode session resolves `/name` against OpenCode's commands and skills and keeps its shell; a Claude Code session sends every clean `/name args` on the command route (the CLI expands it; context admitted with it waits for the next prompt) and refuses shell mode with `EngineUnsupportedError` before anything leaves the client. Actions an engine lacks (revert, move) refuse the same way in `session-actions.ts`/`sessionWorktreeMove.ts`; the UI hides them first.
+9. A prompt send that fails **after** the request left the client is ambiguous, never a definite failure: the server may already be answering it. Transports tag those errors (`markAmbiguousTransportFailure` in `@/lib/relay/transport-error`; the relay tunnel tags every stream that dies with a request in flight), and `isAmbiguousSendFailure` reads the tag before falling back to status/text heuristics. An ambiguous failure waits for the connection to return, refetches recent messages, and confirms the optimistic message in place instead of rolling it back — rolling it back lets the message queue re-send a prompt the engine is already running, producing two independent AI responses for one user message.
 9. `SessionLiveActivity` has three answers and `unknown` is never `idle`. `getSessionLiveActivity` reports `active` when any child store or the global session-status index holds a non-idle status. Idle requires an explicit idle event or a successful status snapshot in the session's owning directory. A loaded list, a parent repository containing the worktree session, or an omitted global active-index entry does not grant idle authority. Callers that gate a destructive action, such as worktree moves, must refuse on `unknown`.
 10. Revert and unrevert cascade through known descendant sessions before mutating the parent. Revert uses the first descendant user message at or after the parent's target timestamp, including equal timestamps because message IDs do not define chronology. A descendant failure is logged and does not block its siblings or the parent. The parent runs last so its shared-directory file snapshot remains authoritative. A busy descendant is aborted before it is reverted, like the parent, so nothing keeps writing past the revert boundary. Redo clears the revert marker on every descendant, including markers the user set on a subagent independently of the parent undo.
 11. Starting a session from an assistant answer carries the source session ID, rendered directory, and answer text into the action. It must not rediscover that context from the globally active child store or the OpenCode client's fallback directory: the visible session may belong to an existing worktree while the active provider directory points elsewhere. New isolated worktrees resolve their registered parent project from that captured directory, preferring recorded worktree metadata when available. The dialog offers creation only after the project root is confirmed as a Git repository, and the creation boundary repeats that check so stale or bypassed UI state cannot run Git commands against a non-repository directory; failures leave the dialog open and visible.

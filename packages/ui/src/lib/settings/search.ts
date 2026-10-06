@@ -443,6 +443,14 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     keywords: ['input', 'draft', 'spellcheck', 'paste'],
   },
   {
+    id: 'chat.ui-plugins.stream-metrics',
+    page: 'chat',
+    titleKey: 'settings.chat.uiPlugins.streamMetrics.label',
+    descriptionKey: 'settings.chat.uiPlugins.streamMetrics.info',
+    keywords: ['plugin', 'extension', 'stream', 'tokens', 'ttft', 'speed'],
+    isAvailable: (ctx) => !ctx.isVSCode,
+  },
+  {
     id: 'chat.spellcheck',
     page: 'chat',
     titleKey: 'settings.openchamber.visual.field.enableSpellcheckInTextInputs',
@@ -481,6 +489,25 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     page: 'sessions',
     titleKey: 'settings.openchamber.defaults.field.defaultAgent',
     keywords: ['agent', 'new sessions'],
+  },
+  {
+    id: 'sessions.claude-default-model',
+    page: 'sessions',
+    titleKey: 'settings.openchamber.defaults.claude.model',
+    descriptionKey: 'settings.openchamber.defaults.claude.description',
+    keywords: ['claude', 'claude code', 'model', 'new sessions'],
+  },
+  {
+    id: 'sessions.claude-default-thinking',
+    page: 'sessions',
+    titleKey: 'settings.openchamber.defaults.claude.thinking',
+    keywords: ['claude', 'thinking', 'reasoning', 'effort'],
+  },
+  {
+    id: 'sessions.claude-default-mode',
+    page: 'sessions',
+    titleKey: 'settings.openchamber.defaults.claude.mode',
+    keywords: ['claude', 'permission mode', 'plan', 'auto', 'bypass'],
   },
   {
     id: 'sessions.deletion-dialog',

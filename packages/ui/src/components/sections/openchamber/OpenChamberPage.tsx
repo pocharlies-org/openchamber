@@ -24,6 +24,7 @@ import { isCapacitorApp } from '@/lib/platform';
 import { useI18n } from '@/lib/i18n';
 import { subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 import type { OpenChamberSection } from './types';
+import { UIPluginSettings } from './UIPluginSettings';
 
 const useRuntimeEndpointEpoch = (): number => {
     const [epoch, setEpoch] = React.useState(0);
@@ -194,8 +195,9 @@ const VisualSectionContent: React.FC = () => {
 // Chat section: User message rendering, Diff layout, Mobile status bar, Show reasoning traces, Follow-up behavior, Persist draft
 const ChatSectionContent: React.FC = () => {
     return (
-        <OpenChamberVisualSettings
-            visibleSettings={[
+        <>
+            <OpenChamberVisualSettings
+                visibleSettings={[
                 'sessionGoal',
                 'sessionAssist',
                 'chatRenderMode',
@@ -226,8 +228,10 @@ const ChatSectionContent: React.FC = () => {
                 'inputSpellcheck',
                 'largeTextPaste',
                 'enterToSend',
-            ]}
-        />
+                ]}
+            />
+            <UIPluginSettings />
+        </>
     );
 };
 

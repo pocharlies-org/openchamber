@@ -1,3 +1,5 @@
+import { mergeActiveSnapshot, mergePendingList } from './claude-merge.js';
+import { registerEnginesRoute } from '../engines/engines.js';
 import http from 'node:http';
 import https from 'node:https';
 
@@ -299,6 +301,7 @@ export const registerOpenCodeProxy = (app, deps) => {
     SSE_HEARTBEAT_INTERVAL_MS = DEFAULT_SSE_HEARTBEAT_INTERVAL_MS,
     SSE_UPSTREAM_STALL_TIMEOUT_MS = DEFAULT_UPSTREAM_STALL_TIMEOUT_MS,
     getSseUpstreamStallTimeoutMs = () => SSE_UPSTREAM_STALL_TIMEOUT_MS,
+    claudeSurface = null,
     readWorktreeBootstrapStatus = getWorktreeBootstrapStatus,
     WORKTREE_READY_TIMEOUT_MS = 5 * 60 * 1000,
     // OpenCode 2.x has no archive route, so archive state is OpenChamber's own
@@ -776,6 +779,33 @@ export const registerOpenCodeProxy = (app, deps) => {
     return canonicalizeDirectoryQuery(requestUrl);
   };
 
+  /**
+   * Claude Code sessions ride the list the sidebar already renders. They join
+   * the first page only — pagination is OpenCode's, so a cursor walk never sees
+   * them twice or loses them between pages — and never a child listing.
+   */
+  const mergeClaudeSessions = async (req, payload) => {
+    if (!claudeSurface || req.query?.cursor || req.query?.parentID) return payload;
+    const records = sessionListRecords(payload);
+    if (!records) return payload;
+    const directory = typeof req.query?.directory === 'string' && req.query.directory
+      ? req.query.directory
+      : (req.get('x-opencode-directory') ? decodeURIComponent(req.get('x-opencode-directory')) : null);
+    const claude = await claudeSurface
+      .listClaudeSessions({ directory, search: typeof req.query?.search === 'string' ? req.query.search : null })
+      .catch((error) => {
+        console.log(`[SessionMerge] Claude session list failed: ${error?.message ?? error}`);
+        return [];
+      });
+    const seen = new Set(records.map((session) => session?.id).filter(Boolean));
+    const extra = claude.filter((session) => session?.id && !seen.has(session.id));
+    if (extra.length === 0) return payload;
+    const ascending = req.query?.order === 'asc';
+    const merged = [...records, ...extra.map((session) => sanitizeSessionListItem(session))]
+      .sort((a, b) => ((a?.time?.updated ?? 0) - (b?.time?.updated ?? 0)) * (ascending ? 1 : -1));
+    return Array.isArray(payload) ? merged : { ...payload, data: merged };
+  };
+
   const forwardSanitizedSessionListRequest = async (req, res, next, logLabel) => {
     try {
       const upstreamPath = await getRequestUpstreamPath(req);
@@ -797,7 +827,9 @@ export const registerOpenCodeProxy = (app, deps) => {
       }
 
       res.setHeader('content-type', result.contentType);
-      const hostList = await overlayOwnedStateOnList(sanitizeSessionListPayload(result.payload));
+      const sanitized = sanitizeSessionListPayload(result.payload);
+      const merged = result.upstream.ok ? await mergeClaudeSessions(req, sanitized) : sanitized;
+      const hostList = await overlayOwnedStateOnList(merged);
       // The first page of the global list carries every space's sessions after the host's; a
       // later page, and a list scoped to one directory, are the host's alone.
       const listQuery = new URL(upstreamPath, 'http://localhost').searchParams;
@@ -933,10 +965,94 @@ export const registerOpenCodeProxy = (app, deps) => {
     }
   });
 
+  // Claude Code answers the same /api/session* surface for its own ids and must
+  // be registered before the routes below and the generic proxy, which would
+  // otherwise forward those ids to OpenCode and 404 them.
+  if (claudeSurface) {
+    claudeSurface.register(app);
+  }
+
+  // Which session engines run here and what each can do (lib/engines). The UI
+  // gates every engine-specific affordance on this, never on ids or labels.
+  registerEnginesRoute(app, {
+    isClaudeEnabled: () => Boolean(claudeSurface) && process.env.OPENCHAMBER_CLAUDE_LIST_DISABLED !== '1',
+    isClaudeAvailable: () => claudeSurface?.runtime?.ensureAvailable?.() ?? false,
+  });
+
   // V2 lists sessions across directories on every platform and owns pagination.
   app.get('/api/session', (req, res, next) => {
     return forwardSanitizedSessionListRequest(req, res, next, 'session.list');
   });
+
+  // The polled active snapshot is where the sidebar's running dots reconcile
+  // (absence = idle), and it is OpenCode's — a Claude session running here is
+  // absent from it, so the poll would clear the busy state the Claude runtime
+  // just broadcast. Fold the Claude map into the answer. Registered before the
+  // :sessionID route below, which would otherwise read 'active' as an id.
+  app.get('/api/session/active', async (req, res, next) => {
+    if (typeof claudeSurface?.listClaudeActive !== 'function') return next();
+    try {
+      const upstreamPath = await getRequestUpstreamPath(req);
+      const [result, claude] = await Promise.all([
+        fetchSessionListPayload(upstreamPath, { req }),
+        claudeSurface.listClaudeActive({
+          directory: typeof req.query?.directory === 'string' ? req.query.directory : null,
+        }).catch((error) => {
+          console.log(`[SessionMerge] Claude active-status read failed: ${error?.message ?? error}`);
+          return {};
+        }),
+      ]);
+      if (!result.upstream.ok || !result.isJson || result.parseError) return next();
+      const merged = mergeActiveSnapshot(result.payload, claude);
+      res.status(result.upstream.status);
+      res.setHeader('content-type', 'application/json; charset=utf-8');
+      res.json(merged);
+    } catch (error) {
+      if (isAbortError(error)) return;
+      console.error('[proxy] Claude active-status merge error:', error?.message ?? error);
+      if (!res.headersSent) {
+        next(error);
+        return;
+      }
+      res.end();
+    }
+  });
+
+  // Claude Code's open questions (permission prompts, AskUserQuestion forms,
+  // plan approvals) join OpenCode's pending lists. The UI rebuilds its cards
+  // from these lists on every (re)connect: a Claude request missing here
+  // would vanish from the screen while the CLI still waits for its answer.
+  const mergeClaudePending = (kind) => async (req, res, next) => {
+    if (typeof claudeSurface?.listClaudePending !== 'function') return next();
+    try {
+      const upstreamPath = await getRequestUpstreamPath(req);
+      const result = await fetchSessionListPayload(upstreamPath, { req });
+      if (!result.upstream.ok || !result.isJson || result.parseError) return next();
+      const header = req.get('x-opencode-directory');
+      const directory = typeof req.query?.directory === 'string' && req.query.directory
+        ? req.query.directory
+        : (header ? decodeURIComponent(header) : null);
+      const claude = claudeSurface.listClaudePending(kind, { directory });
+      const merged = claude.length > 0 ? mergePendingList(result.payload, claude) : null;
+      res.status(result.upstream.status);
+      res.setHeader('content-type', 'application/json; charset=utf-8');
+      if (!merged) {
+        res.end(result.bodyText);
+        return;
+      }
+      res.json(merged);
+    } catch (error) {
+      if (isAbortError(error)) return;
+      console.error(`[proxy] Claude pending ${kind} merge error:`, error?.message ?? error);
+      if (!res.headersSent) {
+        next(error);
+        return;
+      }
+      res.end();
+    }
+  };
+  app.get('/api/permission/request', mergeClaudePending('permission'));
+  app.get('/api/form', mergeClaudePending('form'));
 
   // One session: the same overlay, so a detail read agrees with the list it
   // came from. Everything else about the record is forwarded untouched.

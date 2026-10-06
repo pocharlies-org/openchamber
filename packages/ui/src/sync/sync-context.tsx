@@ -41,7 +41,7 @@ import {
 } from "./live-aggregate"
 import { bootstrapGlobal, bootstrapDirectory } from "./bootstrap"
 import { retry } from "./retry"
-import { touchStreamingSession, updateChangedStreamingSessions, updateStreamingState } from "./streaming"
+import { touchMessageActivity, touchStreamingSession, updateChangedStreamingSessions, updateStreamingState } from "./streaming"
 import { countSyncPerformance } from "./performance-diagnostics"
 import { runBackgroundNetworkTask } from "@/lib/background-network"
 import { recordDirectoryRecoveryEvent } from "./directory-recovery-snapshots"
@@ -128,6 +128,7 @@ import {
   setImperativeSessionMessageLoader,
   type SessionMessageLoadState,
 } from "./session-message-loader"
+import { streamMetrics } from "./stream-metrics"
 
 // ---------------------------------------------------------------------------
 // Context
@@ -1969,6 +1970,7 @@ export function handleEvent(
   }
 
   childStores.mark(resolvedDirectory)
+  streamMetrics.ingest(expectedRuntimeKey, resolvedDirectory, payload)
 
   if (payload.type === "permission.asked") {
     const permission: PermissionRequest = payload.properties
@@ -2223,6 +2225,11 @@ export function handleEvent(
     const messageID = syncEventMessageID(payload)
     syncDebug.dispatch.eventNoChange(payload.type, sessionID, messageID)
 
+  }
+
+  const activityMessageID = syncEventMessageID(payload) ?? undefined
+  if (activityMessageID && payload.type !== "message.removed") {
+    touchMessageActivity(activityMessageID)
   }
 
   // Snapshot materialization is driven by typed reducer outcomes, not by
@@ -2829,6 +2836,7 @@ export function SyncProvider(props: {
         if (!replayReset && isFirstConnect && !pipelineDisconnectedBeforeFirstConnectRef.current) {
           return
         }
+        streamMetrics.invalidateLive(runtimeKey)
         if (!replayReset && isRecentBoot()) {
           return
         }

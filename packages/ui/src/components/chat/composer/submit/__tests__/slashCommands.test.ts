@@ -1,9 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 
+import { SESSION_ENGINE_INFO } from '@/lib/sessionEngine';
 import {
     buildCommandVariables,
     canRunCommand,
     findMagicPromptCommand,
+    LOCAL_COMMAND_REQUIRES,
+    localCommandAvailable,
     MAGIC_PROMPT_COMMANDS,
     parseSlashCommand,
     planLocalSlashCommand,
@@ -163,5 +166,41 @@ describe('the command table', () => {
             expect(command.instructionsPrompt.startsWith('session.')).toBe(true);
             expect(command.errorToastKey.startsWith('chat.chatInput.toast.')).toBe(true);
         }
+    });
+});
+
+describe('local commands by engine', () => {
+    const claude = SESSION_ENGINE_INFO.claude.capabilities;
+    const opencode = SESSION_ENGINE_INFO.opencode.capabilities;
+
+    test('a Claude Code session keeps fork, compact, btw and the prompt pairs, and loses undo/redo', () => {
+        for (const name of ['fork', 'compact', 'btw', 'summary', 'timeline', 'init', 'handoff-review']) {
+            expect(localCommandAvailable(name, claude)).toBe(true);
+        }
+        for (const name of ['undo', 'redo']) {
+            expect(localCommandAvailable(name, claude)).toBe(false);
+        }
+    });
+
+    test('an OpenCode session keeps every local command', () => {
+        for (const name of Object.keys(LOCAL_COMMAND_REQUIRES)) {
+            expect(localCommandAvailable(name, opencode)).toBe(true);
+        }
+    });
+
+    test('/login is OpenChamber\'s only on Claude Code, where the CLI cannot sign in', () => {
+        expect(localCommandAvailable('login', claude)).toBe(true);
+        expect(localCommandAvailable('login', opencode)).toBe(false);
+        expect(planLocalSlashCommand('/login', 'normal', false, true, claude)?.kind).toBe('action');
+        // On OpenCode the typed text stays the engine's command.
+        expect(planLocalSlashCommand('/login', 'normal', false, true, opencode)).toBeNull();
+        // Without a session there is no engine to ask, so nothing is claimed.
+        expect(planLocalSlashCommand('/login', 'normal', false, false, claude)).toBeNull();
+    });
+
+    test('a command the engine cannot run is not planned locally: the text goes to the engine', () => {
+        expect(planLocalSlashCommand('/undo', 'normal', false, true, claude)).toBeNull();
+        expect(planLocalSlashCommand('/undo', 'normal', false, true, opencode)?.kind).toBe('action');
+        expect(planLocalSlashCommand('/compact', 'normal', false, true, claude)?.kind).toBe('action');
     });
 });

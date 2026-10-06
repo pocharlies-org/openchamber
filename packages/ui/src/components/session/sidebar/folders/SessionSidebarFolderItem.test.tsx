@@ -6,21 +6,11 @@ import { I18nProvider } from '@/lib/i18n';
 import { replaceGlobalSessionStatusById } from '@/sync/global-session-status';
 import { useNotificationStore } from '@/sync/notification-store';
 import { SessionSidebarFolderItem } from './SessionSidebarFolderItem';
+import { installWindowGlobals } from '@/test-utils/happyWindowGlobals';
 
 test('a collapsed virtual folder shows live and unread descendants without mounting them', async () => {
   const dom = new Window({ url: 'http://localhost' });
-  const originals = new Map<string, PropertyDescriptor | undefined>();
-  for (const [name, value] of Object.entries({
-    window: dom, document: dom.document, navigator: dom.navigator,
-    Node: dom.Node, Element: dom.Element, HTMLElement: dom.HTMLElement,
-    MutationObserver: dom.MutationObserver, ResizeObserver: dom.ResizeObserver,
-    getComputedStyle: dom.getComputedStyle.bind(dom),
-    requestAnimationFrame: dom.requestAnimationFrame.bind(dom),
-    cancelAnimationFrame: dom.cancelAnimationFrame.bind(dom), IS_REACT_ACT_ENVIRONMENT: true,
-  })) {
-    originals.set(name, Object.getOwnPropertyDescriptor(globalThis, name));
-    Object.defineProperty(globalThis, name, { configurable: true, writable: true, value });
-  }
+  const restoreGlobals = installWindowGlobals(dom);
   const { createRoot } = await import('react-dom/client');
   const container = document.createElement('div');
   document.body.append(container);
@@ -64,9 +54,49 @@ test('a collapsed virtual folder shows live and unread descendants without mount
     useNotificationStore.setState(originalNotifications);
     container.remove();
     await dom.happyDOM.abort();
-    for (const [name, descriptor] of originals) {
-      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
-      else Reflect.deleteProperty(globalThis, name);
-    }
+    restoreGlobals();
+  }
+});
+
+test('the folder "+" offers the tool choice only when a Claude target is wired', async () => {
+  const dom = new Window({ url: 'http://localhost' });
+  const restoreGlobals = installWindowGlobals(dom);
+  const { createRoot } = await import('react-dom/client');
+  const container = document.createElement('div');
+  document.body.append(container);
+  const root = createRoot(container);
+  let draftCalls = 0;
+  const render = (withClaude: boolean) => root.render(
+    <I18nProvider><SessionSidebarFolderItem
+      folder={{ id: 'folder', name: 'Folder', createdAt: 1, sessionIds: [] }}
+      sessions={[]} activityNodes={[]} notifyOnSubtasks={false}
+      isCollapsed={false} renderBody={false}
+      onToggle={() => undefined} onRename={() => undefined} onDelete={() => undefined}
+      onNewSession={() => { draftCalls += 1; }}
+      onNewClaudeSession={withClaude ? () => undefined : undefined}
+    /></I18nProvider>,
+  );
+  const clickAdd = async () => {
+    const button = container.querySelector<HTMLButtonElement>('button[aria-label="New session in Folder"]');
+    expect(button).not.toBeNull();
+    await act(async () => { button?.click(); });
+  };
+  try {
+    await act(async () => render(true));
+    // A wired Claude target turns the "+" into the two-entry menu: the click
+    // opens it instead of jumping straight to the opencode draft.
+    expect(container.querySelector('[aria-haspopup="menu"]')).not.toBeNull();
+    await clickAdd();
+    expect(draftCalls).toBe(0);
+
+    await act(async () => render(false));
+    expect(container.querySelector('[aria-haspopup="menu"]')).toBeNull();
+    await clickAdd();
+    expect(draftCalls).toBe(1);
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+    await dom.happyDOM.abort();
+    restoreGlobals();
   }
 });

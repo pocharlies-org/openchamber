@@ -73,7 +73,12 @@ import {
   registerServerStatusRoutes,
 } from './lib/opencode/core-routes.js';
 import { registerOpenChamberRoutes } from './lib/opencode/openchamber-routes.js';
+import { registerForkUpdateRoutes } from './lib/fork-update/routes.js';
 import { createServerUtilsRuntime } from './lib/opencode/server-utils-runtime.js';
+import { createClaudeSurface, isClaudeSessionId } from './lib/claude/routes.js';
+import { createCompanyFolderAutoFile } from './lib/session-folders/auto-file.js';
+import { createLiveSessionRegistry } from './lib/claude/live-sessions.js';
+import { createRemoteAttachments } from './lib/claude/remote-attach.js';
 import { createStaticRoutesRuntime } from './lib/opencode/static-routes-runtime.js';
 import { createSettingsRuntime } from './lib/opencode/settings-runtime.js';
 import { createOpenCodeResolutionRuntime } from './lib/opencode/opencode-resolution-runtime.js';
@@ -144,6 +149,7 @@ import { createManagedConfigRuntime } from './lib/opencode/managed-config-file.j
 import { createOpenChamberSessionService } from './lib/openchamber-sessions/routes.js';
 import { createSessionMetadataStore, createOpenCodeSessionMetadata } from './lib/openchamber-sessions/session-metadata-store.js';
 import { createOpenCodeClient } from './lib/openchamber-sessions/opencode-client.js';
+import { createEngineSessionMetadata } from './lib/openchamber-sessions/engine-metadata-store.js';
 import { createScheduledTaskService } from './lib/scheduled-tasks/service.js';
 import { createOpenChamberControlService } from './lib/openchamber-control/service.js';
 import { createPluginNotificationEmitter } from './lib/notifications/emit-route.js';
@@ -539,8 +545,18 @@ const broadcastOpenChamberUiEvent = createGlobalUiEventBroadcaster({
  * metadata. The store merge-patches it there and migrates what older
  * OpenChamber versions kept in `sessions-metadata.json`.
  */
+// A Claude Code session has no metadata of its own: OpenChamber keeps it here.
+const engineSessionMetadata = createEngineSessionMetadata({
+  dataDir: OPENCHAMBER_DATA_DIR,
+  owns: isClaudeSessionId,
+});
+void engineSessionMetadata.load().catch((error) => {
+  console.warn('[openchamber-sessions] engine session metadata unavailable:', error?.message ?? error);
+});
+
 const sessionMetadataStore = createSessionMetadataStore({
   dataDir: OPENCHAMBER_DATA_DIR,
+  engineMetadata: engineSessionMetadata,
   // Called, not captured: the OpenCode URL and auth helpers are declared
   // further down and only ever used once a request arrives.
   openCode: {
@@ -553,16 +569,27 @@ const readStoredSessionMetadata = (sessionID) => sessionMetadataStore.get(sessio
 
 const persistSessionMetadataPatch = async (sessionID, patch, { directory = '' } = {}) => {
   const metadata = await sessionMetadataStore.setSessionMetadata(sessionID, patch, { directory });
-  // The full merged object, so a client that missed an earlier patch does not
-  // have to reconstruct it.
-  broadcastOpenChamberUiEvent({
-    type: 'openchamber:session-metadata',
-    properties: { sessionID, metadata },
-  });
+  if (isClaudeSessionId(sessionID)) {
+    // The UI replaces a session's metadata with what it is sent; a Claude
+    // session's record carries the engine's own fields too, so the surface
+    // announces all of it. Called, not captured: it is created further down.
+    void Promise.resolve()
+      .then(() => claudeSurface.announceSession(sessionID))
+      .catch((error) => console.warn('[claude-backend] could not announce session metadata:', error?.message ?? error));
+  } else {
+    // The full merged object, so a client that missed an earlier patch does not
+    // have to reconstruct it.
+    broadcastOpenChamberUiEvent({
+      type: 'openchamber:session-metadata',
+      properties: { sessionID, metadata },
+    });
+  }
   // The write itself arms the goal loop: it is the authoritative signal and
   // does not depend on the event stream being connected.
   // Called, not captured: the runtime is declared further down.
-  if (patch?.openchamber && 'goal' in patch.openchamber) {
+  // Goals drive continuation prompts through OpenCode; an engine of its own
+  // (Claude Code) does not run them, so its sessions never arm the loop.
+  if (patch?.openchamber && 'goal' in patch.openchamber && !isClaudeSessionId(sessionID)) {
     void Promise.resolve(sessionGoalRuntime.notifyGoalChanged(sessionID, directory, metadata))
       .catch((error) => console.warn('[session-goal] could not arm after a goal change:', error?.message ?? error));
   }
@@ -1075,6 +1102,16 @@ const messageQueueRuntime = createMessageQueueRuntime({
   broadcastGlobalUiEvent: broadcastOpenChamberUiEvent,
   resolveAutoSelection: (send) => routingRuntime.resolveAutoSelection(send),
   onPromptSent: (sessionId) => sessionRuntime.markUserMessageSent(sessionId),
+  // Claude Code sessions are delivered through their own engine. Read at
+  // dispatch time: the Claude surface is created further down, and a restored
+  // queue may tick before it exists (then it is simply not there yet).
+  getEngineTransport: () => {
+    try {
+      return claudeSurface?.queueTransport ?? null;
+    } catch {
+      return null;
+    }
+  },
   dataDir: OPENCHAMBER_DATA_DIR,
 });
 messageQueueRuntime.start();
@@ -1208,6 +1245,84 @@ const processForwardedServerEvent = (payload, emitSyntheticEvent) => {
 };
 
 
+const claudeSurface = createClaudeSurface({
+  crypto,
+  fsPromises: fs.promises,
+  // The sidebar groups a session under a registered project (settings.json);
+  // a Claude transcript is attributed to the project that contains it.
+  readProjects: async () => {
+    const settings = await readSettingsFromDisk();
+    return (Array.isArray(settings?.projects) ? settings.projects : [])
+      .map((project, index) => ({
+        id: typeof project?.id === 'string' && project.id ? project.id : `project-${index}`,
+        worktree: typeof project?.path === 'string' ? project.path.trim().replace(/\/$/, '') : '',
+      }))
+      .filter((project) => project.worktree);
+  },
+  // OpenChamber's own settings, so its Defaults for a Claude session (model,
+  // thinking level, mode) outrank Claude Code's ~/.claude/settings.json.
+  readAppSettings: async () => readSettingsFromDisk(),
+  // Archive state and titles staged before a session's first turn: Claude Code
+  // owns the transcripts, OpenChamber owns this overlay.
+  overlayFilePath: path.join(OPENCHAMBER_DATA_DIR, 'claude-sessions.json'),
+  // Archiving from the UI writes OpenChamber's archive store; read lazily, the
+  // store is created with the session service further down.
+  getArchivedSessions: () => openChamberSessionService.archiveStore.getAll(),
+  // OpenChamber's own per-session metadata (pins, /btw links, knowledge
+  // cursor) for Claude sessions, laid over each record this surface serves.
+  getStoredMetadata: async (publicId) => engineSessionMetadata.read(publicId),
+  peekStoredMetadata: (publicId) => engineSessionMetadata.peek(publicId),
+  forgetStoredMetadata: (publicId) => engineSessionMetadata.remove(publicId),
+  // Opt-in: link every Claude process OpenChamber starts to claude.ai / the
+  // Claude app. The base URL override is for hosts whose settings route the
+  // CLI through a local proxy, which Remote Control refuses.
+  // Claude Code's own registry of running CLI processes: a session live in
+  // one of them is followed read-only and must be taken over to be written.
+  liveRegistry: createLiveSessionRegistry({
+    fsPromises: fs.promises,
+    sessionsDir: path.join(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'), 'sessions'),
+  }),
+  // A session live elsewhere and linked to claude.ai is written through its
+  // Remote Control bridge, as Claude Desktop does, with the CLI's own login.
+  remoteAttach: createRemoteAttachments({
+    readAccessToken: async () => {
+      const credentials = path.join(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'), '.credentials.json');
+      try {
+        return JSON.parse(await fs.promises.readFile(credentials, 'utf8'))?.claudeAiOauth?.accessToken || '';
+      } catch {
+        return '';
+      }
+    },
+  }),
+  remoteControl: {
+    enabled: ['1', 'true'].includes(String(process.env.OPENCHAMBER_CLAUDE_REMOTE_CONTROL || '').toLowerCase()),
+    baseUrl: process.env.OPENCHAMBER_CLAUDE_BASE_URL?.trim() || undefined,
+  },
+  // A session set to auto-accept answers Claude Code's permission prompts too,
+  // through the same safety net: the auto-accept runtime only watches
+  // OpenCode's stream, and the UI hides requests of an auto-accepting session.
+  isAutoAccepting: (sessionId, directory) => permissionAutoAcceptRuntime.isSessionAutoAccepting(sessionId, directory),
+  evaluatePermission: (permission, directory) => routingRuntime.evaluatePermission(permission, directory),
+  publishEvent: ({ payload, directory, eventId }) => {
+    broadcastGlobalUiEvent(payload, {
+      ...(directory ? { directory } : {}),
+      ...(typeof eventId === 'string' ? { eventId } : {}),
+    });
+    // The queue drains on a session's idle status. OpenCode's reach it through
+    // the event hub; a Claude session's are these, in the same wire shape, so
+    // they go through the same translation to the same consumer.
+    for (const translated of translateWireEvent(payload)) messageQueueRuntime.processPayload(translated);
+  },
+  // Files a `metadata.company` session into the "Compañía" folder on the list
+  // read, so the grouping is server-authoritative and identical across Claude
+  // Desktop, VS Code and the web (see lib/session-folders/auto-file.js).
+  companyFolderAutoFile: createCompanyFolderAutoFile({
+    fsPromises: fs.promises,
+    path,
+    foldersFilePath: path.join(OPENCHAMBER_DATA_DIR, 'sessions-directories.json'),
+  }),
+});
+
 const serverUtilsRuntime = createServerUtilsRuntime({
   // Read lazily: the archive store is created with the session service further
   // down, while the proxy is registered later still.
@@ -1221,6 +1336,7 @@ const serverUtilsRuntime = createServerUtilsRuntime({
   os,
   path,
   process,
+  claudeSurface,
   openCodeReadyGraceMs: OPEN_CODE_READY_GRACE_MS,
   longRequestTimeoutMs: LONG_REQUEST_TIMEOUT_MS,
   getRuntime: () => ({
@@ -1302,6 +1418,7 @@ const bootstrapRuntime = createBootstrapRuntime({
   registerTtsRoutes,
   registerNotificationRoutes,
   registerOpenChamberRoutes,
+  registerForkUpdateRoutes,
   registerAgentToolRoutes: (app, options) => options.agentToolRuntime.registerRoutes(app, options.express),
   express,
 });

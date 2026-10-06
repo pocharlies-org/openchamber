@@ -43,16 +43,20 @@ import { registerBulkArchiveEchoes, releaseBulkArchiveEchoes } from "./bulk-arch
 import { getRuntimeKey } from "@/lib/runtime-switch"
 import { isRelayModeActive } from "@/lib/relay/runtime-tunnel"
 import { getErrorStatus, isAmbiguousSendFailure } from "./send-failure-classification"
+import { markPermissionAlreadyResolved } from "./permission-reply-classification"
 import { getStaleRunningToolMessageID } from "./materialization"
 import { promoteRestoredSessionOrdering } from "./session-ordering"
 import { normalizePath } from "@/lib/pathNormalization"
 import { mergeMessages } from "./optimistic"
 import { messagesBefore, messagesFrom } from "./message-ordering"
 import { deleteChatDirectory } from "@/lib/chatDirectories"
+import { streamMetrics } from "./stream-metrics"
 import { createChatDraftIdentity } from "@/lib/chatDraftPersistence"
 import { cancelSessionTitleGeneration } from "./session-title-generation"
 import { recordSessionActionFailure } from "./session-action-failures"
 import { applyForkInheritance } from "@/lib/sessionForkInheritance"
+import { engineInfoForSession } from "@/stores/useEngineStore"
+import { EngineUnsupportedError } from "@/lib/sessionEngine"
 import { getSessionGoal } from "@/lib/sessionGoalMetadata"
 import { fetchGoalObjectiveContent, writeGoalObjectiveFile } from "@/lib/goalObjectiveFiles"
 
@@ -993,6 +997,58 @@ export async function createSession(
     console.error("[session-actions] createSession failed", error)
     return null
   }
+}
+
+/**
+ * Creates a Claude Code session through the Claude surface of the server.
+ *
+ * The server intercepts `POST /api/session` when the body carries
+ * `metadata.backend === "claude"` (lib/claude/routes.js) and answers with a
+ * `ses_ccc…` session that has no transcript yet: the first prompt spawns the
+ * live `claude` process under this directory, and with
+ * OPENCHAMBER_CLAUDE_REMOTE_CONTROL=1 that process links to claude.ai.
+ */
+/**
+ * What the first turn of a new Claude session runs on, picked where the
+ * session is created. `model` is a Claude catalog id (`opus`, a full model id),
+ * `effort` a thinking level (`low`…`max`), `mode` a permission mode
+ * (`default`, `acceptEdits`, `plan`, `auto`, `bypassPermissions`). The server
+ * keeps only the values this host offers; anything left out falls through to
+ * OpenChamber's defaults for Claude, then to Claude Code's own settings.
+ */
+export type ClaudeSessionSelection = { model?: string; effort?: string; mode?: string }
+
+const claudeSelectionMetadata = (selection?: ClaudeSessionSelection): Metadata | undefined => {
+  if (!selection) return undefined
+  const picked = Object.fromEntries(
+    Object.entries(selection).filter(([, value]) => typeof value === "string" && value.trim().length > 0),
+  )
+  return Object.keys(picked).length > 0 ? picked as Metadata : undefined
+}
+
+export async function createClaudeSession(
+  directory?: string | null,
+  selection?: ClaudeSessionSelection,
+): Promise<Session | null> {
+  const claude = claudeSelectionMetadata(selection)
+  return createSession(undefined, directory, claude ? { backend: "claude", claude } : { backend: "claude" })
+}
+
+/**
+ * A new Claude session, asked from anywhere: where the new-session dialog is
+ * mounted it picks the model, thinking level and mode first; a surface without
+ * it (no dialog mounted to answer) creates the session on this host's defaults
+ * rather than dropping the click.
+ */
+export function requestNewClaudeSession(
+  directory?: string | null,
+  onCreated?: (session: Session | null) => void,
+): void {
+  if (!directory) return
+  if (sessionEvents.requestNewClaudeSession({ directory, onCreated })) return
+  void createClaudeSession(directory).then((session) => {
+    onCreated?.(session)
+  })
 }
 
 /**
@@ -2060,6 +2116,18 @@ export async function optimisticSend(input: {
     },
   })
 
+  streamMetrics.begin({
+    runtimeKey: input.runtimeKey ?? getRuntimeKey(),
+    directory: targetDirectory ?? "",
+    sessionId: input.sessionId,
+    turnId: messageID,
+    userMessageId: messageID,
+    // v2: the user message carries no model; label the metric with the model the
+    // session last answered with (the assistant message will confirm it).
+    providerId: getSessionLastAssistantModel(input.sessionId)?.providerID,
+    modelId: getSessionLastAssistantModel(input.sessionId)?.modelID,
+  })
+
   try {
     assertRuntimeUnchanged()
     await input.send(messageID, context)
@@ -2081,6 +2149,12 @@ export async function optimisticSend(input: {
       }
       return
     }
+
+    streamMetrics.finish({
+      runtimeKey: input.runtimeKey ?? getRuntimeKey(),
+      directory: targetDirectory ?? "",
+      sessionId: input.sessionId,
+    }, "error")
 
     // The rollback below makes the user's message disappear with no other
     // trace, and the composer intentionally stays silent for transport-level
@@ -2211,6 +2285,7 @@ export async function abortCurrentOperation(sessionId: string): Promise<void> {
   const { directory } = dirStoreForSession(sessionId)
   try {
     await opencodeClient.abortSession(sessionId, directory)
+    streamMetrics.finish({ runtimeKey: getRuntimeKey(), directory: directory ?? "", sessionId }, "cancelled")
   } catch (error) {
     console.error("[session-actions] abort failed", error)
   }
@@ -2220,19 +2295,46 @@ export async function abortCurrentOperation(sessionId: string): Promise<void> {
 // Permissions
 // ---------------------------------------------------------------------------
 
+/**
+ * Answer one pending permission request.
+ *
+ * A 404 here is ambiguous — the request may be gone server-side (the step was
+ * interrupted, or the service restarted) or the reply may have reached a
+ * per-directory instance that never owned it. The two need opposite answers, so
+ * the not-found branch confirms with the server before touching local state:
+ * a confirmed-gone request is dropped from the store and rethrown tagged, which
+ * lets the card retire itself and tell the user why. Anything else keeps the
+ * card up for a retry. See ./permission-reply-classification.
+ */
 export async function respondToPermission(
   sessionId: string,
   requestId: string,
   response: "once" | "always" | "reject",
   directoryOverride?: string,
+  /** What the agent should do instead (a refusal) or change (a plan sent back). */
+  message?: string,
 ): Promise<void> {
   await waitForConnectionOrThrow()
   const directory = directoryOverride
     || resolveDirectoryForBlockingRequest("permission", sessionId, requestId)
     || getSessionDirectory(sessionId)
     || dir()
-  if (await opencodeClient.replyToPermission(sessionId, requestId, response, { directory }) !== true) {
-    throw new Error("Permission reply failed")
+  const note = message?.trim() ? message.trim() : undefined
+  try {
+    if (await opencodeClient.replyToPermission(sessionId, requestId, response, { directory, message: note }) !== true) {
+      throw new Error("Permission reply failed")
+    }
+  } catch (error) {
+    if (!isPermissionRequestNotFoundError(error)) throw error
+    // Server-confirmed 404 is the only evidence we have that the request is
+    // gone; "unknown" (no V2 endpoint, network failure) must never clear a card
+    // that may still be answerable.
+    const state = await opencodeClient.fetchPermission(sessionId, requestId, directory || undefined)
+    if (state.state !== "resolved") throw error
+    removePermissionRequestFromChildStores(sessionId, requestId)
+    throw markPermissionAlreadyResolved(
+      error instanceof Error ? error : new Error("Permission reply failed: request no longer pending"),
+    )
   }
 }
 
@@ -2453,6 +2555,10 @@ export async function dismissOpenFormsForSession(sessionId: string): Promise<boo
 export async function revertToMessage(sessionId: string, messageId: string): Promise<void> {
   const { store, directory } = dirStoreForSession(sessionId)
   const state = store.getState()
+  // Backstop for a path that still reaches here for an engine without revert
+  // (the UI hides it): refused before the optimistic marker is set.
+  const engine = engineInfoForSession(state.session.find((candidate) => candidate.id === sessionId) ?? { id: sessionId })
+  if (!engine.capabilities.revert) throw new EngineUnsupportedError(engine, "revert")
 
   const localTarget = state.message[sessionId]?.find((message) => message.id === messageId)
   const targetMessage = localTarget

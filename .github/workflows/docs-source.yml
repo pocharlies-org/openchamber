@@ -21,7 +21,7 @@ permissions:
 
 jobs:
   validate-and-package:
-    runs-on: ubuntu-latest
+    runs-on: arc-k8s
     outputs:
       archive_name: ${{ steps.archive.outputs.archive_name }}
     steps:

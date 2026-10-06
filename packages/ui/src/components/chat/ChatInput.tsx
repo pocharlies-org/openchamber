@@ -1,3 +1,4 @@
+import { describeEngineRefusal } from '@/lib/engineErrors';
 import React from 'react';
 import { formatChangeRequestReference } from '@/lib/source-control/identity';
 import { ComposerDictation } from '@/components/dictation/ComposerDictation';
@@ -26,6 +27,10 @@ import * as sessionActions from '@/sync/session-actions';
 // composer must not pay for the guest bridge before an extension is installed.
 const GuestAttachDialog = React.lazy(() => import('@/components/layout/GuestAttachDialog').then((module) => ({ default: module.GuestAttachDialog })));
 import type { AttachIssueRequest } from '@openchamber/sdk';
+import { useSession } from "@/sync/sync-context";
+import { getClaudeLiveState } from '@/lib/claudeSessionMetadata';
+import { useSessionEngine } from '@/hooks/useSessionEngine';
+import { takeOverClaudeSession } from '@/lib/claudeTakeOver';
 import { getInlineCommentDraftKey, useInlineCommentDraftStore, type InlineCommentDraft, type InlineCommentDraftTarget } from '@/stores/useInlineCommentDraftStore';
 import { useSnippetsStore } from '@/stores/useSnippetsStore';
 import { renderMagicPrompt } from '@/lib/magicPrompts';
@@ -51,12 +56,15 @@ import { lazyWithChunkRecovery } from '@/lib/chunkLoadRecovery';
 import type { ToolPopupContent } from './message/types';
 import { QueuedMessageChips } from './QueuedMessageChips';
 import { AutoReviewBanner } from './AutoReviewBanner';
+import { ClaudeLiveSessionBanner } from './ClaudeLiveSessionBanner';
 import type { FileMentionHandle } from './FileMentionAutocomplete';
 import type { CommandAutocompleteHandle, CommandInfo } from './CommandAutocomplete';
 import type { SkillAutocompleteHandle } from './SkillAutocomplete';
 import type { SnippetAutocompleteHandle } from './SnippetAutocomplete';
 import { cn } from "@/lib/utils";
 import { ModelControls } from './ModelControls';
+import { ClaudeModelControls } from './ClaudeModelControls';
+import { focusChatInput } from './composer/editor/dom';
 import { parseAgentMentions } from '@/lib/messages/agentMentions';
 import { CONTEXT_METADATA_KEY, draftFromContextPayload } from '@/lib/messages/contextParts';
 import { shouldSubmitEnter } from './composer/keyboardPolicy';
@@ -446,6 +454,13 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     const currentSessionDirectoryForSync = useSessionUIStore(
         React.useCallback((s) => currentSessionId ? s.getDirectoryForSession(currentSessionId) : null, [currentSessionId]),
     );
+    // A Claude session open in another process with no claude.ai link cannot
+    // be written from here (409): sending offers to take it over first.
+    const claudeLiveElsewhere = getClaudeLiveState(
+        useSession(currentSessionId, currentSessionDirectoryForSync ?? currentDirectory ?? undefined),
+    ).liveElsewhere;
+    // The engine that owns this session decides the model picker (see sessionEngine.ts).
+    const sessionEngine = useSessionEngine(currentSessionId, currentSessionDirectoryForSync ?? currentDirectory ?? undefined);
     // btw mode: the CURRENT session's metadata links an active btw fork and
     // the panel is expanded, so this composer's sends route to the fork
     // instead of the main session. Collapsed keeps the fork alive (chip stays
@@ -465,7 +480,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     const isBtwPanelVisible = Boolean((btwPanel.btwSessionId && btwPanel.btwDirectory) || btwPanel.creating || btwPanel.pending);
     const immediateBtwSubmitRef = React.useRef<{ identity: ChatDraftIdentity; text: string } | null>(null);
     const draftCaretModeRef = React.useRef({ btw: isBtwActive, atEnd: isBtwActive });
-    const inputMode = isBtwActive ? 'normal' : storedInputMode;
+    // A session whose engine has no shell (Claude Code) is always in normal mode.
+    const inputMode = isBtwActive || !sessionEngine.capabilities.shell ? 'normal' : storedInputMode;
     // A session promoted out of `/btw` keeps the boundary instructions in its
     // transcript — there is no way to delete a message part — so it has to say
     // they no longer apply.
@@ -624,6 +640,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     }, [getLargeTextPasteScope]);
     const { expanded: persistedExpandedInput, setExpanded: setExpandedInput } = useChatColumnExpandedInput();
     const isExpandedInput = !isBtwActive && persistedExpandedInput;
+    const setTimelineDialogOpen = useUIStore((state) => state.setTimelineDialogOpen);
+    const setClaudeAccountDialogOpen = useUIStore((state) => state.setClaudeAccountDialogOpen);
     const { git: runtimeGit, vscode: vscodeApi, linear: runtimeLinear } = useRuntimeAPIs();
     const cycleAgentShortcutOverride = useUIStore((state) => state.shortcutOverrides.cycle_agent);
     const cycleAgentShortcut = React.useMemo(() => (
@@ -804,7 +822,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     const availableSkills = useSkillsStore((s) => selectSkillsForDirectory(s, currentDirectory));
     const knownSlashNames = React.useMemo(() => {
         const names = new Set<string>([
-            'init', 'review', 'undo', 'redo', 'timeline', 'compact', 'fork', 'btw', 'summary', 'workspace-review', 'plan-feature', 'craft-goal', 'schedule-task', 'catch-up', 'debug', 'weigh', 'explore',
+            'init', 'review', 'undo', 'redo', 'timeline', 'compact', 'fork', 'btw', 'summary', 'login', 'workspace-review', 'plan-feature', 'craft-goal', 'schedule-task', 'catch-up', 'debug', 'weigh', 'explore',
         ]);
         if (!isMobile && !isVSCodeRuntime()) names.add('handoff-review');
         for (const command of availableCommands) names.add(command.name.toLowerCase());
@@ -1187,6 +1205,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     const { phase: currentSessionPhase } = useSessionActivity(currentSessionId, currentSessionDirectoryForSync ?? currentDirectory ?? undefined);
     const { phase: btwSessionPhase } = useSessionActivity(btwSessionId, btwDirectory ?? undefined);
     const sessionPhase = isBtwActive ? btwSessionPhase : currentSessionPhase;
+
     const autoReviewRunning = useAutoReviewStore(React.useCallback((state) => {
         if (!currentSessionId) return false;
         const run = state.runsByOriginalSessionID[currentSessionId];
@@ -1298,7 +1317,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
 
         // A local or extension command is run, not queued: the queue delivers
         // text to the model, and `/compact`, `/btw`, or `/task` mean nothing there.
-        if (planLocalSlashCommand(inputSnapshot.message, inputMode, hasDrafts, true)
+        if (planLocalSlashCommand(inputSnapshot.message, inputMode, hasDrafts, true, sessionEngine.capabilities)
             || routeGuestSlashCommand(inputSnapshot.message, inputMode, guestCommands)) {
             void handleSubmitRef.current();
             return;
@@ -1407,7 +1426,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             return;
         }
         recordLinkedReferences(queueSessionId, queueTarget.directory, linked);
-    }, [getCurrentInputSnapshot, currentSessionId, messageQueueTarget, inputMode, hasDrafts, guestCommands, attachedFiles, sanitizeAttachmentsForSend, prepareDocumentMentions, extractInlineFileMentions, agents, currentDirectory, consumePendingSyntheticParts, mailboxTarget, inlineDraftTarget, consumeDrafts, linkedReferences, scrollToLatest, clearAttachedFiles, chatDraftIdentity, isMobile, isMobileCommentOpen, addToQueue, currentProviderId, currentModelId, currentAgentName, currentVariant, t]);
+    }, [getCurrentInputSnapshot, currentSessionId, messageQueueTarget, inputMode, hasDrafts, sessionEngine.capabilities, guestCommands, attachedFiles, sanitizeAttachmentsForSend, prepareDocumentMentions, extractInlineFileMentions, agents, currentDirectory, consumePendingSyntheticParts, mailboxTarget, inlineDraftTarget, consumeDrafts, linkedReferences, scrollToLatest, clearAttachedFiles, chatDraftIdentity, isMobile, isMobileCommentOpen, addToQueue, currentProviderId, currentModelId, currentAgentName, currentVariant, t]);
 
     /** Put the context a queued message was captured with back on the composer chips. */
     const restoreQueuedContext = React.useCallback((context: readonly QueuedContextPart[]) => {
@@ -1512,6 +1531,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     }, []);
 
     const getSubmitErrorMessage = (error: unknown, fallback: string) => {
+        const refusal = describeEngineRefusal(error, t);
+        if (refusal) return refusal;
         const message = error instanceof Error ? error.message : '';
         return message.toLowerCase().includes('runtime changed')
             ? t('chat.chatInput.toast.messageSendFailed')
@@ -1542,6 +1563,36 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 hasContent: options.presetText.trim().length > 0 || attachedFiles.length > 0 || hasDrafts || (!isBtwActive && hasLinkedReferences),
             }
             : getCurrentInputSnapshot();
+        // Held by another process that OpenChamber cannot reach (no claude.ai
+        // link): nothing is sent and the prompt stays in the composer; the
+        // toast takes the session over and then sends it.
+        if (!queuedOnly && currentSessionId && claudeLiveElsewhere && !claudeLiveElsewhere.attachable) {
+            const sessionIdToTake = currentSessionId;
+            const directoryToTake = currentSessionDirectoryForSync ?? currentDirectory ?? null;
+            // A dictated or preset prompt never went through the composer: it
+            // is put there now, so a take-over that is never confirmed loses
+            // nothing, and the retry sends it from there (and clears it).
+            const presetText = options?.presetText;
+            if (presetText != null) setMessage(presetText);
+            const retryOptions = presetText != null ? { ...options, presetText: undefined } : options;
+            toast.warning(t('chat.claudeLive.toast.sendNeedsTakeOver'), {
+                description: t('chat.claudeLive.description'),
+                action: {
+                    label: t('chat.claudeLive.actions.takeOverAndSend'),
+                    onClick: () => {
+                        void (async () => {
+                            if (!await takeOverClaudeSession(sessionIdToTake, directoryToTake)) {
+                                toast.error(t('chat.claudeLive.toast.takeOverFailed'));
+                                return;
+                            }
+                            await handleSubmitRef.current(retryOptions);
+                        })();
+                    },
+                },
+            });
+            return;
+        }
+
         if (queuedOnly && autoReviewRunning) {
             return;
         }
@@ -1558,7 +1609,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         // the prompt it produces. A command the composer cannot run here is not
         // a local command at all and goes out as typed.
         let commandPlan = !queuedOnly && inputSnapshot.hasContent
-            ? planLocalSlashCommand(inputSnapshot.message, inputMode, hasDrafts, Boolean(currentSessionId))
+            ? planLocalSlashCommand(inputSnapshot.message, inputMode, hasDrafts, Boolean(currentSessionId), sessionEngine.capabilities)
             : null;
         if (commandPlan?.kind === 'prompt') {
             const magicCommand = findMagicPromptCommand(commandPlan.command.name);
@@ -1722,6 +1773,10 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                     openTimelineDialog();
                 } else if (actionName === 'handoff-review') {
                     setReviewDialogOpen(true);
+                } else if (actionName === 'login') {
+                    // Claude Code's own sign-in, run by the server: a driven process
+                    // answers `/login` with "isn't available in this environment".
+                    setClaudeAccountDialogOpen(true);
                 } else if (actionName === 'fork') {
                     const forkOutcome = await runForkCommand(currentSessionId, commandPlan.command.argument, {
                         // The fork branches the main session, so it keeps that session's
@@ -2175,7 +2230,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 return;
             }
 
-            toast.error(rawMessage || t('chat.chatInput.toast.messageSendFailed'));
+            toast.error(describeEngineRefusal(error, t) ?? (rawMessage || t('chat.chatInput.toast.messageSendFailed')));
         });
 
         if (!isMobile) {
@@ -2291,7 +2346,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         // Enter shell mode before CodeMirror inserts the trigger. Keeping the
         // document unchanged also keeps the caret at the start for the first
         // command character.
-        if (!isBtwActive && inputMode === 'normal' && e.key === '!') {
+        // An engine without a shell (Claude Code) never enters shell mode: `!` is text.
+        if (!isBtwActive && sessionEngine.capabilities.shell && inputMode === 'normal' && e.key === '!') {
             const selection = composerRef.current?.getSelection();
             if (selection?.start === 0 && selection.end === 0) {
                 e.preventDefault();
@@ -2616,7 +2672,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         // Mobile keyboards and paste may update the document without a usable
         // keydown, so consume the trigger in the same editor transaction rather
         // than moving the caret in a later frame against stale text.
-        if (!isBtwActive && inputMode === 'normal' && value.startsWith('!')) {
+        if (!isBtwActive && sessionEngine.capabilities.shell && inputMode === 'normal' && value.startsWith('!')) {
             const shellCommand = value.slice(1);
             const nextCursor = Math.max(0, selection.start - 1);
             setInputMode('shell');
@@ -3743,12 +3799,22 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         // and mic icons above them; the buttons drop their own padding so the
         // row alone owns the inset.
         <div className="flex items-center justify-between gap-x-2 px-3.5 pb-2 pt-0.5">
-            <MemoMobileModelButton onOpenModel={() => handleOpenMobilePanel('model')} className="min-w-0 px-0" />
-            <MemoMobileAgentButton
-                onOpenAgentPanel={handleOpenAgentPanel}
-                onCycleAgent={handleCycleAgent}
-                className="flex-shrink-0 px-0"
-            />
+            {currentSessionId && sessionEngine.ownModelCatalog ? (
+                <ClaudeModelControls
+                    className="flex-1 justify-start"
+                    sessionId={currentSessionId}
+                    directory={currentSessionDirectoryForSync ?? currentDirectory ?? undefined}
+                />
+            ) : (
+                <>
+                    <MemoMobileModelButton onOpenModel={() => handleOpenMobilePanel('model')} className="min-w-0 px-0" />
+                    <MemoMobileAgentButton
+                        onOpenAgentPanel={handleOpenAgentPanel}
+                        onCycleAgent={handleCycleAgent}
+                        className="flex-shrink-0 px-0"
+                    />
+                </>
+            )}
         </div>
     ) : null;
 
@@ -3903,6 +3969,10 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                     and returns unchanged when the comment exits. */}
                 {!mobileCommentActive ? (<>
                 <AutoReviewBanner />
+                <ClaudeLiveSessionBanner
+                    sessionId={currentSessionId}
+                    directory={currentSessionDirectoryForSync ?? currentDirectory ?? null}
+                />
                 {hasDrafts ? (
                     <ComposerContextChips
                         draftTarget={inlineDraftTarget}
@@ -4184,6 +4254,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                         isVSCode={isVSCode}
                         sessionId={currentSessionId}
                         directory={currentSessionDirectoryForSync ?? currentDirectory}
+                        runtimeKey={activeRuntimeKey}
                         newSessionDraftOpen={newSessionDraftOpen}
                         messageLength={message.length}
                         radius={chatInputRadius}

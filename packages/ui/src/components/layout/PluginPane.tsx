@@ -9,6 +9,7 @@ import {
   GUEST_POPOVER_HEIGHT_MAX,
   guestFileScope,
   type AttachIssueRequest,
+  type ComposerStatusSnapshot,
   type GuestHostSurface,
   type GuestItem,
   type GuestPopoverClosedEvent,
@@ -28,6 +29,7 @@ import { copyTextToClipboard } from '@/lib/clipboard';
 import { useI18n } from '@/lib/i18n';
 import {
   answerGuestMessage,
+  buildComposerStatusMessage,
   buildConnectionMessage,
   buildDirectoryMessage,
   buildItemMessage,
@@ -122,6 +124,12 @@ type PluginPaneProps = {
   isActive?: () => boolean;
   onPopoverClosed?: (event: GuestPopoverClosedEvent) => void;
   onPopoverActivity?: (active: boolean) => void;
+  /**
+   * The composer-status snapshot the host computed for this guest's
+   * `contributes.composerStatus` contribution. Every change is pushed to the
+   * frame as a `composer-status` message; `null` pushes nothing.
+   */
+  composerStatus?: { contributionId: string; snapshot: ComposerStatusSnapshot } | null;
 };
 
 // Sandboxed frames without allow-same-origin have an opaque origin.
@@ -169,6 +177,7 @@ export const PluginPane: React.FC<PluginPaneProps> = ({
   isActive,
   onPopoverClosed,
   onPopoverActivity,
+  composerStatus,
 }) => {
   const { t, locale } = useI18n();
   const { currentTheme } = useThemeSystem();
@@ -304,6 +313,7 @@ export const PluginPane: React.FC<PluginPaneProps> = ({
       : surface === 'page' ? guest.pageEntry ?? null
         : surface === 'status' ? guest.statusEntry ?? null
         : surface === 'file' ? fileEditorEntry
+        : surface === 'composer' ? guest.entry ?? null
         : surface === 'dialog' && guest.attachEntry ? guest.attachEntry : guest.entry ?? null
     : null);
   const { src, srcDoc, status: frameStatus, recoverExpiredNavigation, acknowledgeHandshake } = useGuestFrameUrl({
@@ -424,6 +434,9 @@ export const PluginPane: React.FC<PluginPaneProps> = ({
     resolveWaitersRef.current.clear();
   }, [frameKey, src, srcDoc]);
 
+  const composerStatusRef = React.useRef(composerStatus);
+  composerStatusRef.current = composerStatus;
+
   const pushHostState = React.useCallback(() => {
     postToGuest(buildReadyMessage(readyRef.current));
     postToGuest(buildDirectoryMessage(directoryRef.current || null));
@@ -431,6 +444,14 @@ export const PluginPane: React.FC<PluginPaneProps> = ({
     postToGuest(buildConnectionMessage(readyRef.current.connection));
     postToGuest(buildSettingsMessage(readyRef.current.settings));
     postToGuest(buildItemMessage(readyRef.current.item));
+    // A frame that mounts after the last snapshot change catches up here, at
+    // the handshake, exactly like the session snapshot does.
+    if (composerStatusRef.current) {
+      postToGuest(buildComposerStatusMessage(
+        composerStatusRef.current.contributionId,
+        composerStatusRef.current.snapshot,
+      ));
+    }
   }, [postToGuest]);
 
   const clearPopoverCloseTimer = React.useCallback(() => {
@@ -918,6 +939,14 @@ export const PluginPane: React.FC<PluginPaneProps> = ({
     }));
   }, [currentSessionId, lifecyclePhase, postToGuest]);
 
+  // The composer-status snapshot the surface computed for this pane's
+  // contribution; pushed on every change, like the session and lifecycle
+  // pushes. A frame that mounts later catches up in `pushHostState`.
+  React.useEffect(() => {
+    if (!composerStatus) return;
+    postToGuest(buildComposerStatusMessage(composerStatus.contributionId, composerStatus.snapshot));
+  }, [composerStatus, postToGuest]);
+
   // A persisted plugin tab renders before the catalog answers. Silence until
   // it does; an uninstalled guest's tabs are closed by the effect above.
   if (!guest && catalogStatus !== 'ready' && catalogStatus !== 'error') {
@@ -947,8 +976,8 @@ export const PluginPane: React.FC<PluginPaneProps> = ({
       sandbox="allow-scripts"
       className={cn(
         'h-full w-full min-h-0 min-w-0 border-0 overflow-hidden',
-        // The attach window and the Work Status card draw their own chrome behind the page.
-        surface === 'dialog' || surface === 'status' || surface === 'popover' ? 'bg-transparent' : 'bg-[var(--surface-background)]',
+        // The attach window, the Work Status card and the composer footer draw their own chrome behind the page.
+        surface === 'dialog' || surface === 'status' || surface === 'popover' || surface === 'composer' ? 'bg-transparent' : 'bg-[var(--surface-background)]',
       )}
       onLoad={() => {
         if (!popoverHost && !popover) closeActivePopover('owner');

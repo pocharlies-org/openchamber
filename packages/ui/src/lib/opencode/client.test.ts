@@ -814,3 +814,21 @@ describe("sendCommand context", () => {
     expect(requests.at(-1)?.body).toMatchObject({ name: "review", text: "src" })
   })
 })
+
+describe('UnsupportedOperationError from an engine', () => {
+  test('keeps which engine refused which operation, with a 400 status', async () => {
+    const { normalizeOpencodeError, isUnsupportedOperation } = await import('./client');
+    const body = Object.assign(new Error('Claude Code sessions do not support shell'), {
+      _tag: 'UnsupportedOperationError',
+      message: 'Claude Code sessions do not support shell',
+      engine: 'claude',
+      operation: 'shell',
+    });
+    const error = normalizeOpencodeError('session.shell', body);
+    expect(error.status).toBe(400);
+    expect(error.tag).toBe('UnsupportedOperationError');
+    expect(error.unsupported).toEqual({ engine: 'claude', operation: 'shell' });
+    expect(isUnsupportedOperation(error)).toBe(true);
+    expect(isUnsupportedOperation(normalizeOpencodeError('session.get', { _tag: 'SessionNotFoundError', message: 'x' }))).toBe(false);
+  });
+});

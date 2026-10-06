@@ -28,6 +28,7 @@ import type { TrackedItem } from '@/lib/trackedItems/model';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import type { SessionTreeItemProps } from '../sessions/SessionTreeItem';
 import { useArchivedAutoFolders } from '../folders/useArchivedAutoFolders';
+import { useCompanyAutoFolders } from '../folders/useCompanyAutoFolders';
 import { ProjectSessionSelectionEffect } from '../projects/useProjectSessionSelection';
 import type { WorktreeMetadata } from '@/types/worktree';
 import { buildActiveSessionNode, useRecentSessionCollection, useSessionProjectCollection } from './sessionCollection';
@@ -50,6 +51,7 @@ import { useExpandedParents } from '../sessions/useExpandedParents';
 import { getChatsRootForHome, getChatsRootFromDirectory, isChatDirectoryPath } from '@/lib/chatDirectories';
 import { isCapacitorApp } from '@/lib/platform';
 import { deriveRecentActivitySections, deriveTimelineActivityItems, sessionTreeMatchesSidebarQuery } from '../recent/activitySections';
+import { isCompanySession } from '../folders/companySessionFlag';
 import { resolveSidebarSessionLocations } from '../recent/sessionLocation';
 import { buildSessionSidebarRowModel } from '../sessionSidebarRowModel';
 import { useSidebarGroupStatus } from './useSidebarGroupStatus';
@@ -342,6 +344,16 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
     createFolder,
     addSessionToFolder,
   });
+  useCompanyAutoFolders({
+    enabled: true,
+    normalizedProjects: topology.projects,
+    ownership,
+    isSessionsLoading: view.isSessionsLoading,
+    hasAuthoritativeGlobalSessions: collection.hasAuthoritativeGlobalSessions,
+    foldersMap,
+    createFolder,
+    addSessionToFolder,
+  });
   const { sourceControl } = useRuntimeAPIs();
   const ensurePrStatusEntry = useGitHubPrStatusStore((state) => state.ensureEntry);
   const setPrStatusParams = useGitHubPrStatusStore((state) => state.setParams);
@@ -400,7 +412,9 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
   const timelineItems = React.useMemo(() => {
     if (!timelineMode) return EMPTY_TIMELINE_ITEMS;
     const rootIds = new Set(collection.rootSessions.map((session) => session.id));
-    const sessions = collection.orderedSessions.filter((session) => rootIds.has(session.id) && !session.time?.archived);
+    const sessions = collection.orderedSessions.filter((session) => (
+      rootIds.has(session.id) && !session.time?.archived && !isCompanySession(session)
+    ));
     const badgeScopesBySessionId = new Map<string, ReturnType<typeof selectBlockingBadgeSessionScopes>>();
     const locations = resolveSidebarSessionLocations({
       sessions,

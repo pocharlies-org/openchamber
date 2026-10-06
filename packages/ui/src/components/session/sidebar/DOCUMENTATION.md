@@ -96,6 +96,19 @@ timeline never shows Recent. VS Code excludes worktrees and managed
 Chats, while retaining its workspace-scoped grouped list and inline archived
 buckets.
 
+The optional tool filter (opencode, Claude Code) narrows both partitions
+together, never one of them. `buildSidebarSessionStructure` applies it after the
+directory filter, so the project tree, the Chats section, the roots and every
+count read the same list. The header reads the filter and its own availability
+from `useSessionSourceFilterStore`; the collection writes availability back from
+the pre-filter list, because measuring the filtered list would hide the control
+as soon as someone used it. The mobile sheet keeps its own local filter state
+and applies it at the same point, before `partitionSidebarSessions`.
+
+Directory demand always includes known project roots and worktrees. Visibility
+only changes priority. Row mounts must not start bootstrap work. Selection and
+activity subscriptions stay session-scoped so a structural list update does not
+make every row observe unrelated streaming updates.
 Worktree groups inside a project follow `worktreeSortOrder` (profile setting
 `sidebarWorktreeSortOrder`, default `manual`). `recent` floats worktrees by session activity, so
 they move while sessions run. `manual` and `a-z` never read activity: both start
@@ -246,6 +259,12 @@ renders `projects`.
   row menu hides `Move to folder`. Their archive/delete actions still
   cover the full subtree, because `collectSessionSubtreeIds` resolves
   descendants from the global cache at action time.
+- The mobile sheet's timeline (`apps/MobileTimelineList.tsx`) keeps that flat
+  lifecycle order but says each project once per consecutive run: a sticky band
+  carries the project icon and label, and each row carries title, status, time
+  and branch. A run is a consecutive stretch only — `groupTimelineRunsByProject`
+  never re-sorts a session, so a project that reappears lower down opens a
+  second band.
 - `worktreeIndex.ts` is the shared exact worktree index (normalized keys,
   project-root exclusion, first-wins dedupe) for Recent/Timeline, project
   grouping, and the session switcher. `recent/sessionLocation.ts` is the single
