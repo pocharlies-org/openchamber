@@ -30,13 +30,19 @@ permissions:
 
 jobs:
   create-release:
-    runs-on: ubuntu-latest
+    # DGX-516: job Linux genérico → arc-k8s (skill ci-runners-arc); node+bun vía el composite.
+    runs-on: arc-k8s
     outputs:
       release_id: ${{ steps.create_release.outputs.id }}
       release_upload_url: ${{ steps.create_release.outputs.upload_url }}
       version: ${{ steps.get_version.outputs.version }}
+      product_name: ${{ steps.get_version.outputs.product_name }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: ./.github/actions/setup-node-bun
+        with:
+          bun: 'false'
 
       - name: Get version
         id: get_version
@@ -49,16 +55,20 @@ jobs:
           elif [[ "$RELEASE_REF" == refs/tags/* ]]; then
             echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
           else
-            echo "version=0.0.0-dev" >> "$GITHUB_OUTPUT"
+            echo "version=$(node -p "require('./packages/web/package.json').version")" >> "$GITHUB_OUTPUT"
           fi
+          # DGX-516: the fork ships under its own product name (electron-builder
+          # productName, rebrand DGX-514); artifact names and the release title follow it.
+          echo "product_name=$(node -p "require('./packages/electron/package.json').build.productName")" >> "$GITHUB_OUTPUT"
 
       - name: Extract changelog for release
         id: release_notes
         env:
           VERSION: ${{ steps.get_version.outputs.version }}
+          PRODUCT_NAME: ${{ steps.get_version.outputs.product_name }}
         run: |
           title=$(node scripts/changelog/release-notes.mjs "$VERSION" artifacts/release-notes.md)
-          echo "name=OpenChamber v$VERSION: $title" >> "$GITHUB_OUTPUT"
+          echo "name=$PRODUCT_NAME v$VERSION: $title" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
         id: create_release
@@ -76,18 +86,14 @@ jobs:
   publish-npm:
     needs: create-release
     if: ${{ github.event.inputs.finish_published_release != 'true' }}
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    # DGX-516: job Linux genérico → arc-k8s (skill ci-runners-arc).
+    runs-on: arc-k8s
+    env:
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Setup bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-
-      - name: Setup Node.js
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
-        with:
-          node-version: '22'
-          registry-url: 'https://registry.npmjs.org'
+      - uses: ./.github/actions/setup-node-bun
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -99,8 +105,12 @@ jobs:
       # `workspace:*` link from @openchamber/web to @openchamber/sdk is
       # rewritten to the released version. npm leaves it in place and the
       # published tarball then fails to install.
+      # DGX-516: the fork has no npm token of its own yet (the @openchamber/*
+      # scope belongs to upstream; see the architect question in DGX-516).
+      # Publishing stays skipped while NPM_TOKEN is absent — the release must
+      # not depend on a decision that has not been made.
       - name: Publish SDK to npm
-        if: ${{ github.event.inputs.dry_run != 'true' }}
+        if: ${{ github.event.inputs.dry_run != 'true' && env.NPM_TOKEN != '' }}
         working-directory: packages/sdk
         run: bun publish --access public
         env:
@@ -120,14 +130,22 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish to npm
-        if: ${{ github.event.inputs.dry_run != 'true' }}
+        if: ${{ github.event.inputs.dry_run != 'true' && env.NPM_TOKEN != '' }}
         working-directory: packages/web
         run: bun publish --access public
         env:
           NPM_CONFIG_TOKEN: ${{ secrets.NPM_TOKEN }}
 
+      - name: Note skipped npm publish
+        if: ${{ env.NPM_TOKEN == '' }}
+        run: echo "::notice::NPM_TOKEN not configured; npm publish skipped (DGX-516, pending the package-scope decision)."
+
   build-desktop-electron-macos:
     needs: create-release
+    # 2026-10-07 devops · hosted macOS: firma y notarización Apple requieren
+    # macOS real; no hay hardware mac en el clúster (skill ci-runners-arc).
+    # Repo público: minutos hosted sin coste. Vuelve a self-hosted solo si la
+    # org monta un pool macOS.
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -136,7 +154,7 @@ jobs:
           - target: aarch64-apple-darwin
             arch: arm64
             platform: darwin-aarch64
-            runner: blacksmith-6vcpu-macos-26
+            runner: macos-26
           - target: x86_64-apple-darwin
             arch: x64
             platform: darwin-x86_64
@@ -281,6 +299,9 @@ jobs:
     if: ${{ github.event.inputs.finish_published_release != 'true' }}
     # windows-latest currently resolves to a runner with Visual Studio 18,
     # which this electron/node-gyp stack does not detect correctly.
+    # 2026-10-07 devops · hosted Windows: empaquetado NSIS con toolchain MSVC;
+    # no hay Windows en el clúster (skill ci-runners-arc). Repo público: sin
+    # coste. Vuelve a self-hosted solo si la org monta un pool Windows.
     runs-on: windows-2022
     strategy:
       fail-fast: false
@@ -374,16 +395,21 @@ jobs:
   build-desktop-electron-linux:
     needs: create-release
     if: ${{ github.event.inputs.finish_published_release != 'true' }}
+    # DGX-516: x64 → arc-k8s (job Linux genérico, skill ci-runners-arc; la
+    # imagen no trae toolchain nativo y se instala abajo). arm64 → hosted:
+    # 2026-10-07 devops · no hay pool arm64 en arc-k8s (nodeSelector amd64,
+    # medido 02-10-2026). Repo público: minutos hosted sin coste. Vuelve a
+    # arc-k8s cuando exista pool arm64.
     strategy:
       fail-fast: false
       matrix:
         include:
-          - runner: blacksmith-4vcpu-ubuntu-2404
+          - runner: arc-k8s
             arch: x64
             host_arch: x86_64
             artifact_arch: x86_64
             manifest: latest-linux.yml
-          - runner: blacksmith-4vcpu-ubuntu-2404-arm
+          - runner: ubuntu-24.04-arm
             arch: arm64
             host_arch: aarch64
             artifact_arch: arm64
@@ -392,13 +418,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Setup bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      - uses: ./.github/actions/setup-node-bun
 
-      - name: Setup Node.js
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
-        with:
-          node-version: '22'
+      - name: Install native build toolchain
+        run: sudo apt-get update && sudo apt-get install -y build-essential
 
       - name: Verify native Linux architecture
         env:
@@ -437,6 +460,8 @@ jobs:
         working-directory: packages/electron
         env:
           OPENCHAMBER_TARGET_ARCH: ${{ matrix.arch }}
+          # arc-k8s runners have no FUSE; appimagetool then packs via extract-and-run.
+          APPIMAGE_EXTRACT_AND_RUN: '1'
         run: |
           set -euo pipefail
           bun run build:web-assets
@@ -456,7 +481,9 @@ jobs:
           MANIFEST: ${{ matrix.manifest }}
         run: |
           set -euo pipefail
-          APPIMAGE="dist/OpenChamber-${VERSION}-linux-${ARTIFACT_ARCH}.AppImage"
+          # DGX-516: the file is named after electron-builder's productName
+          # (AgentChamber after the rebrand), so locate it by pattern.
+          APPIMAGE=$(ls dist/*-"${VERSION}"-linux-"${ARTIFACT_ARCH}".AppImage)
           node ./scripts/verify-update-manifest.mjs "dist/${MANIFEST}" "$APPIMAGE" "$VERSION"
 
       - name: Upload validated Linux release files
@@ -464,16 +491,21 @@ jobs:
         with:
           name: linux-release-${{ matrix.arch }}
           path: |
-            packages/electron/dist/OpenChamber-${{ needs.create-release.outputs.version }}-linux-${{ matrix.artifact_arch }}.AppImage
+            packages/electron/dist/*.AppImage
             packages/electron/dist/${{ matrix.manifest }}
           if-no-files-found: error
           retention-days: 1
 
   publish-electron-linux:
     needs: [create-release, build-desktop-electron-linux]
-    runs-on: ubuntu-latest
+    # DGX-516: job Linux genérico → arc-k8s (skill ci-runners-arc).
+    runs-on: arc-k8s
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: ./.github/actions/setup-node-bun
+        with:
+          bun: 'false'
 
       - name: Download x64 Linux release files
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -492,13 +524,14 @@ jobs:
           VERSION: ${{ needs.create-release.outputs.version }}
         run: |
           set -euo pipefail
+          # DGX-516: AppImage files carry electron-builder's productName, not a literal.
           node packages/electron/scripts/verify-update-manifest.mjs \
             artifacts/x64/latest-linux.yml \
-            "artifacts/x64/OpenChamber-${VERSION}-linux-x86_64.AppImage" \
+            "$(ls artifacts/x64/*-"${VERSION}"-linux-x86_64.AppImage)" \
             "$VERSION"
           node packages/electron/scripts/verify-update-manifest.mjs \
             artifacts/arm64/latest-linux-arm64.yml \
-            "artifacts/arm64/OpenChamber-${VERSION}-linux-arm64.AppImage" \
+            "$(ls artifacts/arm64/*-"${VERSION}"-linux-arm64.AppImage)" \
             "$VERSION"
 
       - name: Upload Linux AppImages and manifests to release
@@ -507,9 +540,9 @@ jobs:
         with:
           tag_name: v${{ needs.create-release.outputs.version }}
           files: |
-            artifacts/x64/OpenChamber-${{ needs.create-release.outputs.version }}-linux-x86_64.AppImage
+            artifacts/x64/*.AppImage
             artifacts/x64/latest-linux.yml
-            artifacts/arm64/OpenChamber-${{ needs.create-release.outputs.version }}-linux-arm64.AppImage
+            artifacts/arm64/*.AppImage
             artifacts/arm64/latest-linux-arm64.yml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -517,14 +550,14 @@ jobs:
   combine-electron-manifests:
     needs: [create-release, build-desktop-electron-macos, build-desktop-electron-windows]
     if: ${{ !cancelled() && needs.create-release.result == 'success' }}
-    runs-on: ubuntu-latest
+    # DGX-516: job Linux genérico → arc-k8s (skill ci-runners-arc).
+    runs-on: arc-k8s
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Setup Node.js
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+      - uses: ./.github/actions/setup-node-bun
         with:
-          node-version: '22'
+          bun: 'false'
 
       - name: Download per-arch update manifests
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -567,25 +600,33 @@ jobs:
     needs: [create-release, build-desktop-electron-macos, build-desktop-electron-windows, build-desktop-electron-linux, publish-electron-linux, publish-npm, combine-electron-manifests, mobile-release]
     # Jobs a finishing run skips count as done; any failure still stops the release.
     if: ${{ !cancelled() && !failure() }}
-    runs-on: ubuntu-latest
+    # DGX-516: job Linux genérico → arc-k8s (skill ci-runners-arc).
+    runs-on: arc-k8s
     env:
       DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
       DISCORD_UPDATE_ROLE_ID: ${{ secrets.DISCORD_UPDATE_ROLE_ID }}
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: ./.github/actions/setup-node-bun
+        with:
+          bun: 'false'
+
       - name: Verify final Linux release asset inventory
         if: ${{ github.event.inputs.dry_run != 'true' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPOSITORY: ${{ github.repository }}
           VERSION: ${{ needs.create-release.outputs.version }}
+          PRODUCT_NAME: ${{ needs.create-release.outputs.product_name }}
         run: |
           node - <<'NODE'
           (async () => {
-          const { REPOSITORY: repo, VERSION: version, GITHUB_TOKEN: token } = process.env;
+          const { REPOSITORY: repo, VERSION: version, GITHUB_TOKEN: token, PRODUCT_NAME: product } = process.env;
           const expected = [
-            `OpenChamber-${version}-linux-x86_64.AppImage`,
+            `${product}-${version}-linux-x86_64.AppImage`,
             'latest-linux.yml',
-            `OpenChamber-${version}-linux-arm64.AppImage`,
+            `${product}-${version}-linux-arm64.AppImage`,
             'latest-linux-arm64.yml',
           ];
           const response = await fetch(`https://api.github.com/repos/${repo}/releases/tags/v${version}`, {
