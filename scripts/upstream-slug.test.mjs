@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { execSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
 // The fork must never check, download or link to upstream's releases. Upstream's repo is
@@ -20,7 +21,7 @@ test('no update, release or link surface points at upstream openchamber/opencham
   const hits = [];
   for (const file of files) {
     if (ALLOWED[file]) continue;
-    const text = execSync(`cat ${file}`, { encoding: 'utf8' });
+    const text = readFileSync(file, 'utf8');
     text.split('\n').forEach((line, i) => {
       if (UPSTREAM.test(line) && !ISSUE_REFERENCE.test(line)) hits.push(`${file}:${i + 1}: ${line.trim()}`);
     });
