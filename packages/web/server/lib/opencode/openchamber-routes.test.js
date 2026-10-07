@@ -83,7 +83,11 @@ beforeEach(() => {
   packageManager.detectPackageManagerDetails.mockReturnValue({
     packageManager: 'npm',
   });
-  packageManager.getUpdateCommand.mockReturnValue('npm install -g @openchamber/web@latest');
+  // In the fork getUpdateCommand always throws: the build is not installed
+  // from npm. Tests that exercise the restart machinery override this locally.
+  packageManager.getUpdateCommand.mockImplementation(() => {
+    throw new Error('This build is not installed from npm. Update it from the GitHub Release assets, following docs/release-promotion.md');
+  });
 });
 
 afterEach(() => {
@@ -218,6 +222,19 @@ describe('OpenChamber desktop host update route', () => {
 });
 
 describe('OpenChamber foreground update route', () => {
+  it('refuses to install the fork from npm and starts nothing', async () => {
+    const { app } = createApp({ environment: { INVOCATION_ID: 'systemd-invocation' } });
+
+    const response = await request(app)
+      .post('/api/openchamber/update-install')
+      .expect(400);
+
+    expect(response.body.error).toContain('not installed from npm');
+    expect(response.body.error).toContain('docs/release-promotion.md');
+    expect(childProcess.spawn).not.toHaveBeenCalled();
+    expect(childProcess.spawnSync).not.toHaveBeenCalled();
+  });
+
   it('marks an available update as blocked when the foreground server has no service manager', async () => {
     const { app } = createApp();
 
@@ -248,6 +265,7 @@ describe('OpenChamber foreground update route', () => {
   });
 
   it('rejects a foreground update when the server is not owned by systemd', async () => {
+    packageManager.getUpdateCommand.mockReturnValue('openchamber update');
     const { app } = createApp();
 
     await request(app)
@@ -260,6 +278,7 @@ describe('OpenChamber foreground update route', () => {
   });
 
   it('rejects an unsafe systemd unit override before starting an update job', async () => {
+    packageManager.getUpdateCommand.mockReturnValue('openchamber update');
     const { app } = createApp({
       environment: {
         INVOCATION_ID: 'systemd-invocation',
@@ -278,6 +297,7 @@ describe('OpenChamber foreground update route', () => {
 
   it('queues the install in a transient systemd unit and returns its job identifier', async () => {
     vi.spyOn(Date, 'now').mockReturnValue(1_700_000_000_000);
+    packageManager.getUpdateCommand.mockReturnValue('openchamber update');
     childProcess.spawnSync.mockReturnValue({ status: 0, stdout: '', stderr: '' });
     const { app } = createApp({
       environment: {
@@ -308,7 +328,7 @@ describe('OpenChamber foreground update route', () => {
       '--setenv=PATH=/home/syu/.npm-global/bin:/usr/bin:/bin',
       '/bin/sh',
       '-c',
-      "set -eu\nnpm install -g @openchamber/web@latest\nsystemctl --user restart 'openchamber@wsl.service'",
+      "set -eu\nopenchamber update\nsystemctl --user restart 'openchamber@wsl.service'",
     ], {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -317,6 +337,7 @@ describe('OpenChamber foreground update route', () => {
   });
 
   it('rejects foreground update on macOS when launchd plist does not exist', async () => {
+    packageManager.getUpdateCommand.mockReturnValue('openchamber update');
     const { app } = createApp({
       platform: 'darwin',
       storedOptions: { launchMode: 'foreground' },
@@ -334,6 +355,7 @@ describe('OpenChamber foreground update route', () => {
   });
 
   it('rejects foreground update on macOS when the plist exists but the server was not started by launchd', async () => {
+    packageManager.getUpdateCommand.mockReturnValue('openchamber update');
     const { app } = createApp({
       platform: 'darwin',
       storedOptions: { launchMode: 'foreground' },
@@ -348,6 +370,7 @@ describe('OpenChamber foreground update route', () => {
   });
 
   it('allows foreground update on macOS when launchd plist exists and invokes launchd restart command', async () => {
+    packageManager.getUpdateCommand.mockReturnValue('openchamber update');
     const { app } = createApp({
       platform: 'darwin',
       environment: { XPC_SERVICE_NAME: 'dev.openchamber.web' },
@@ -384,6 +407,7 @@ describe('OpenChamber foreground update route', () => {
   });
 
   it('allows daemon update on macOS without launchd plist and invokes CLI restart command', async () => {
+    packageManager.getUpdateCommand.mockReturnValue('openchamber update');
     const { app } = createApp({
       platform: 'darwin',
       storedOptions: { launchMode: 'daemon', port: 7897 },
@@ -419,6 +443,7 @@ describe('OpenChamber foreground update route', () => {
   });
 
   it('allows daemon update on macOS with launchd plist present and still invokes CLI restart command', async () => {
+    packageManager.getUpdateCommand.mockReturnValue('openchamber update');
     const { app } = createApp({
       platform: 'darwin',
       storedOptions: { launchMode: 'daemon', port: 7897 },
@@ -456,6 +481,7 @@ describe('OpenChamber foreground update route', () => {
 
 describe('OpenChamber web update route on Windows', () => {
   it('runs the install-and-restart script from a batch file instead of a cmd.exe /c argument', async () => {
+    packageManager.getUpdateCommand.mockReturnValue('openchamber update');
     const { app, dependencies } = createApp({
       platform: 'win32',
       execPath: 'C:\\Program Files\\nodejs\\node.exe',
@@ -480,7 +506,7 @@ describe('OpenChamber web update route on Windows', () => {
     // The UI password is never part of the script or its log.
     expect(script).not.toContain('pa%');
     // A .cmd shim (npm, pnpm, yarn) must be `call`ed or the script ends there.
-    expect(lines).toContain('call npm install -g @openchamber/web@latest');
+    expect(lines).toContain('call openchamber update');
     expect(lines).toContain('ping -n 3 127.0.0.1 >nul');
     expect(lines.some((line) => line.startsWith('timeout '))).toBe(false);
     expect(lines).toContain('if %ERRORLEVEL% EQU 0 (');
@@ -505,6 +531,7 @@ describe('OpenChamber web update route on Windows', () => {
   });
 
   it('answers 500 and keeps the server up when the batch file cannot be written', async () => {
+    packageManager.getUpdateCommand.mockReturnValue('openchamber update');
     const { app, dependencies } = createApp({ platform: 'win32', storedOptions: { launchMode: 'daemon', port: 7897 } });
     dependencies.fs.writeFileSync.mockImplementation(() => { throw new Error('EACCES'); });
     vi.spyOn(console, 'log').mockImplementation(() => {});

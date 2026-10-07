@@ -484,15 +484,6 @@ function resolvePackageManagerCommand(pm) {
   return pm;
 }
 
-function quoteCommand(command) {
-  if (!command) return command;
-  if (!/\s/.test(command)) return command;
-  if (process.platform === 'win32') {
-    return `"${command.replace(/"/g, '""')}"`;
-  }
-  return `'${command.replace(/'/g, "'\\''")}'`;
-}
-
 function isCommandAvailable(command) {
   try {
     const result = spawnSync(command, ['--version'], {
@@ -574,18 +565,14 @@ function normalizeTargetVersion(value) {
 }
 
 /**
- * Get the update command for the detected package manager.
- * When an exact target version is given, it is pinned in the spec instead of
- * re-resolving the `latest` dist-tag at install time: the update check and the
- * package manager see different metadata, and dist-tag resolution can lag the
- * check behind a fresh release (stale packument cache, pnpm minimumReleaseAge).
+ * The seam every install path (CLI `openchamber update`, the update-install
+ * route) builds its command through. In this fork it always throws: callers
+ * must treat the throw as "installation is not possible here".
  */
-export function getUpdateCommand(pm = detectPackageManager(), options = {}) {
-  // Every install path (CLI `openchamber update`, the update-install route)
-  // builds its command here, so this is where the fork refuses: the fork is
-  // not published to npm, and `npm install -g @openchamber/web` pulls
-  // upstream over this build (measured 2026-09-15). Install from the release
-  // assets per docs/release-promotion.md.
+export function getUpdateCommand() {
+  // The fork is not published to npm, and `npm install -g @openchamber/web`
+  // pulls upstream over this build (measured 2026-09-15). Install from the
+  // release assets per docs/release-promotion.md.
   throw new Error(
     `This build is not installed from npm. Update it from the GitHub Release assets of ${GITHUB_RELEASES_URL}, following docs/release-promotion.md`,
   );
