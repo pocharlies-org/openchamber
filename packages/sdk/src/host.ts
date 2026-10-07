@@ -422,6 +422,9 @@ export const connectHost = (options: HostClientOptions = {}): HostClient => {
 
     if (message.type === 'popover-closed') {
       emit(popoverClosedListeners, message.payload);
+      return;
+    }
+
     if (message.type === 'composer-status') {
       lastComposerStatus.set(message.payload.contributionId, message.payload.snapshot);
       for (const listener of composerStatusListeners) {

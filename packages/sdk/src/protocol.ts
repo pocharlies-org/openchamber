@@ -341,6 +341,8 @@ export const hostMessageSchema = z.union([
     payload: guestStatusControlEventSchema,
   }),
   z.object({ ...envelope, type: z.literal('popover-closed'), payload: guestPopoverClosedEventSchema }),
+  z.object({
+    ...envelope,
     type: z.literal('composer-status'),
     payload: z.object({
       contributionId: z.string().min(1).max(128),
