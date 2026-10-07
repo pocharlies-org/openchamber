@@ -2,12 +2,13 @@
 # One path per line (never a pattern). A "# why:" line gives the reason for every path below it.
 # scripts/brand-allowlist.test.mjs fails if this list grows past the reviewed total, if a path no longer
 # mentions openchamber (remove it), or if a file outside the list mentions it.
-# reviewed-total: 641
+# reviewed-total: 679
 
 # why: Tests and fixtures: they assert the contract identifiers below, or feed legacy names on purpose.
 packages/electron/linux-app-discovery.test.mjs
 packages/electron/linux-autostart.test.mjs
 packages/electron/opencode-cwd.test.mjs
+packages/electron/packaged-ui-routing.test.mjs
 packages/electron/scripts/ensure-electron.test.mjs
 packages/electron/scripts/finalize-latest-yml.test.mjs
 packages/electron/scripts/stage-ui-plugin-manifests.test.mjs
@@ -34,6 +35,7 @@ packages/ui/src/components/chat/composer/state/__tests__/useDictationOrigin.test
 packages/ui/src/components/chat/composer/submit/__tests__/slashCommands.test.ts
 packages/ui/src/components/chat/fileRefClickGuard.test.ts
 packages/ui/src/components/chat/lib/turns/liveActivity.test.ts
+packages/ui/src/components/chat/markdown/decorate.test.ts
 packages/ui/src/components/chat/markdown/markdown-worker.hang.test.ts
 packages/ui/src/components/chat/markdown/markdownCore.test.ts
 packages/ui/src/components/chat/markdown/markdownDocumentHtml.test.ts
@@ -48,24 +50,25 @@ packages/ui/src/components/chat/work-status/WorkStatusTelemetrySection.test.tsx
 packages/ui/src/components/layout/GuestHosts.test.tsx
 packages/ui/src/components/layout/ProjectActionsButton.test.tsx
 packages/ui/src/components/layout/__tests__/contextPanelEscapeClosesTerminal.test.ts
-packages/ui/src/components/layout/__tests__/issue-2815-sessionChatIframesMountAllTabs.test.ts
 packages/ui/src/components/layout/__tests__/issue-3175-browserCaptureRevealsPanel.test.ts
-packages/ui/src/components/layout/contextPanelEmbeddedChat.test.ts
 packages/ui/src/components/projects/SharedTrustConfirmDialog.test.tsx
 packages/ui/src/components/providers/ThemeProvider.test.tsx
 packages/ui/src/components/sections/extensions/builtins.test.tsx
 packages/ui/src/components/sections/integrations/thirdPartyPlugins.test.ts
 packages/ui/src/components/sections/openchamber/DefaultsSettings.test.tsx
+packages/ui/src/components/sections/openchamber/ManagedSshCredentials.test.tsx
 packages/ui/src/components/sections/openchamber/OpenChamberVisualSettings.test.tsx
 packages/ui/src/components/sections/projects/ProjectActionsSection.test.tsx
+packages/ui/src/components/sections/providers/custom-provider-form.test.ts
 packages/ui/src/components/session/NewWorktreeDialog.behavior.test.tsx
 packages/ui/src/components/session/sidebar/list/sessionCollection.test.ts
 packages/ui/src/components/session/sidebar/list/useSessionListSync.test.tsx
 packages/ui/src/components/session/sidebar/projects/useSessionSidebarSections.test.tsx
 packages/ui/src/components/session/sidebar/sessions/sessionNodeItemUtils.test.ts
+packages/ui/src/components/session/useExistingRepositorySummary.test.ts
 packages/ui/src/components/update/OpenCodeCompatibilityGate.test.tsx
+packages/ui/src/components/views/git/useGitOperationRecovery.test.ts
 packages/ui/src/components/views/usage/usageStatsModel.test.ts
-packages/ui/src/contexts/ThemeSystemContext.test.ts
 packages/ui/src/contexts/content-cache-owner.test.ts
 packages/ui/src/hooks/useAgentColors.test.tsx
 packages/ui/src/hooks/useProjectActionsContext.test.ts
@@ -73,10 +76,12 @@ packages/ui/src/hooks/useProjectContextOwner.test.ts
 packages/ui/src/hooks/useQueuedMessageAutoSend.test.ts
 packages/ui/src/hooks/useTraySync.test.tsx
 packages/ui/src/hooks/useWebNotificationStream.test.tsx
+packages/ui/src/lib/boundGitNetworkOperation.test.ts
 packages/ui/src/lib/browser/annotationOverlay.test.ts
 packages/ui/src/lib/browser/annotationSession.test.ts
 packages/ui/src/lib/browser/controlClient.test.ts
 packages/ui/src/lib/browser/devTunnel.test.ts
+packages/ui/src/lib/browser/url.test.ts
 packages/ui/src/lib/btw.test.ts
 packages/ui/src/lib/chatDirectories.test.ts
 packages/ui/src/lib/chatDraftPersistence.test.ts
@@ -97,8 +102,10 @@ packages/ui/src/lib/guests/relay-document.test.ts
 packages/ui/src/lib/guests/run-action.test.ts
 packages/ui/src/lib/guests/sdk-examples.test.ts
 packages/ui/src/lib/guests/start-session.integration.test.ts
+packages/ui/src/lib/guests/status-controls.test.ts
 packages/ui/src/lib/guests/toast.test.tsx
 packages/ui/src/lib/guests/tool-presentation.test.ts
+packages/ui/src/lib/i18n/messages.test.ts
 packages/ui/src/lib/linearSessionStatus.test.ts
 packages/ui/src/lib/linearStartSession.test.ts
 packages/ui/src/lib/linkedIssues.test.ts
@@ -109,6 +116,7 @@ packages/ui/src/lib/multirun/identity.test.ts
 packages/ui/src/lib/openchamberConfig.test.ts
 packages/ui/src/lib/openchamberEvents.test.ts
 packages/ui/src/lib/opencode/client.test.ts
+packages/ui/src/lib/opencode/dispatched-session.test.ts
 packages/ui/src/lib/opencode/events.test.ts
 packages/ui/src/lib/opencode/tools.test.ts
 packages/ui/src/lib/path-utils.test.ts
@@ -129,6 +137,9 @@ packages/ui/src/lib/sessionWorkMetadata.test.ts
 packages/ui/src/lib/settings/search.test.ts
 packages/ui/src/lib/sharedTrustConfirmation.test.ts
 packages/ui/src/lib/shortcuts/schema.test.ts
+packages/ui/src/lib/source-control/changeRequestReference.test.ts
+packages/ui/src/lib/source-control/issueReference.test.ts
+packages/ui/src/lib/source-control/repositoryProviderMemory.test.ts
 packages/ui/src/lib/spaces/space-repair.test.ts
 packages/ui/src/lib/spaces/spaces-api.test.ts
 packages/ui/src/lib/startupDiagnostics.test.ts
@@ -160,6 +171,7 @@ packages/ui/src/sync/__tests__/event-pipeline-resume.test.js
 packages/ui/src/sync/__tests__/issue-1637-2270.test.ts
 packages/ui/src/sync/__tests__/issue-2039.test.ts
 packages/ui/src/sync/__tests__/issue-2404.test.ts
+packages/ui/src/sync/__tests__/location-release.test.ts
 packages/ui/src/sync/__tests__/session-switch-resync.test.ts
 packages/ui/src/sync/__tests__/sync-context-session-events.test.ts
 packages/ui/src/sync/attachment-files.test.ts
@@ -168,6 +180,7 @@ packages/ui/src/sync/event-pipeline.test.ts
 packages/ui/src/sync/persist-cache.test.ts
 packages/ui/src/sync/sanitize.test.ts
 packages/ui/src/sync/session-actions.test.ts
+packages/ui/src/sync/session-blocking-request-counts.test.tsx
 packages/ui/src/sync/session-cache-retention.test.ts
 packages/ui/src/sync/session-message-loader.test.ts
 packages/ui/src/sync/session-retention.test.ts
@@ -184,12 +197,14 @@ packages/ui/src/components/chat/composer/DOCUMENTATION.md
 packages/ui/src/components/chat/message/parts/DOCUMENTATION.md
 packages/ui/src/components/chat/work-status/DOCUMENTATION.md
 packages/ui/src/components/icon/README.md
+packages/ui/src/components/sections/DOCUMENTATION.md
 packages/ui/src/components/session/project-context/DOCUMENTATION.md
 packages/ui/src/components/session/sidebar/DOCUMENTATION.md
 packages/ui/src/components/views/files/DOCUMENTATION.md
 packages/ui/src/lib/ghostty/DOCUMENTATION.md
 packages/ui/src/lib/multirun/DOCUMENTATION.md
 packages/ui/src/lib/settings/DOCUMENTATION.md
+packages/ui/src/lib/source-control/DOCUMENTATION.md
 packages/ui/src/lib/surfaces/DOCUMENTATION.md
 packages/ui/src/lib/theme/DOCUMENTATION.md
 packages/ui/src/stores/DOCUMENTATION.md
@@ -200,6 +215,9 @@ packages/mobile/android/app/build.gradle
 packages/mobile/android/app/google-services.json
 packages/mobile/android/app/src/main/java/com/openchamber/app/FileSharePlugin.java
 packages/mobile/android/app/src/main/java/com/openchamber/app/MainActivity.java
+packages/mobile/android/app/src/main/java/com/openchamber/app/PushKeyPlugin.java
+packages/mobile/android/app/src/main/java/com/openchamber/app/PushSealKey.java
+packages/mobile/android/app/src/main/java/com/openchamber/app/SealedPushMessagingService.java
 packages/mobile/android/app/src/main/res/values/strings.xml
 packages/mobile/ios/App/App.xcodeproj/project.pbxproj
 packages/mobile/ios/App/App.xcodeproj/xcshareddata/xcschemes/OpenChamberWidget.xcscheme
@@ -266,10 +284,12 @@ packages/electron/early-startup.mjs
 packages/electron/entry.mjs
 packages/electron/linux-autostart.mjs
 packages/electron/main.mjs
+packages/electron/menu-locales.mjs
 packages/electron/opencode-cwd.mjs
 packages/electron/package.json
 packages/electron/preload.mjs
 packages/electron/relay-dev-tunnel.mjs
+packages/electron/remote-page-policy.mjs
 packages/electron/resources/ui-plugins/openchamber-stream-metrics/openchamber.ui-plugin.json
 packages/electron/scripts/bundle-main.mjs
 packages/electron/scripts/electron-dev.mjs
@@ -294,6 +314,7 @@ packages/ui/src/App.tsx
 packages/ui/src/apps/AppEffects.tsx
 packages/ui/src/apps/ElectronMiniChatApp.tsx
 packages/ui/src/apps/MobileApp.tsx
+packages/ui/src/apps/MobileChangesSurface.tsx
 packages/ui/src/apps/MobileConnectionWelcome.tsx
 packages/ui/src/apps/MobileQrScannerOverlay.tsx
 packages/ui/src/apps/MobileSessionsSheet.tsx
@@ -324,6 +345,7 @@ packages/ui/src/components/chat/SessionSuggestionChip.tsx
 packages/ui/src/components/chat/appLinkInteractions.ts
 packages/ui/src/components/chat/btw/useBtwPanelState.ts
 packages/ui/src/components/chat/composer/attachments/dataTransfer.ts
+packages/ui/src/components/chat/composer/composerReferences.ts
 packages/ui/src/components/chat/composer/editor/theme.ts
 packages/ui/src/components/chat/composer/submit/buildOutgoingMessage.ts
 packages/ui/src/components/chat/composer/submit/slashCommands.ts
@@ -348,6 +370,7 @@ packages/ui/src/components/chat/message/parts/GuestToolTable.tsx
 packages/ui/src/components/chat/message/parts/ToolPart.tsx
 packages/ui/src/components/chat/message/parts/toolPresentation.tsx
 packages/ui/src/components/chat/useDraftStarters.ts
+packages/ui/src/components/chat/work-status/StatusHeaderControls.tsx
 packages/ui/src/components/chat/work-status/WorkStatusExtensionSection.tsx
 packages/ui/src/components/desktop/OpenInAppButton.tsx
 packages/ui/src/components/desktop/WindowsWindowControls.tsx
@@ -362,7 +385,6 @@ packages/ui/src/components/layout/PluginPane.tsx
 packages/ui/src/components/layout/ProjectActionsButton.tsx
 packages/ui/src/components/layout/SidebarFilesTree.tsx
 packages/ui/src/components/layout/VSCodeLayout.tsx
-packages/ui/src/components/layout/contextPanelEmbeddedChat.ts
 packages/ui/src/components/mini-chat/MiniChatLayout.tsx
 packages/ui/src/components/model-picker/ModelPickerList.tsx
 packages/ui/src/components/onboarding/ChooserScreen.tsx
@@ -376,6 +398,7 @@ packages/ui/src/components/sections/classification/ClassificationProvidersPage.t
 packages/ui/src/components/sections/classification/JevAccessNote.tsx
 packages/ui/src/components/sections/extensions/ExtensionsPage.tsx
 packages/ui/src/components/sections/extensions/GuestApprovalDialog.tsx
+packages/ui/src/components/sections/git-identities/GitIdentityEditorDialog.tsx
 packages/ui/src/components/sections/git-identities/GitPage.tsx
 packages/ui/src/components/sections/integrations/CatalogExtensionsSection.tsx
 packages/ui/src/components/sections/integrations/GitHubIntegration.tsx
@@ -391,6 +414,7 @@ packages/ui/src/components/sections/openchamber/GitSettings.tsx
 packages/ui/src/components/sections/openchamber/InstanceServiceUrls.tsx
 packages/ui/src/components/sections/openchamber/IsolatedSpacesSettings.tsx
 packages/ui/src/components/sections/openchamber/KeyboardShortcutsSettings.tsx
+packages/ui/src/components/sections/openchamber/MergedWorktreeCleanupSettings.tsx
 packages/ui/src/components/sections/openchamber/MessageSearchSettings.tsx
 packages/ui/src/components/sections/openchamber/NotificationSettings.tsx
 packages/ui/src/components/sections/openchamber/OpenChamberPage.tsx
@@ -398,6 +422,7 @@ packages/ui/src/components/sections/openchamber/OpenChamberToolsSettings.tsx
 packages/ui/src/components/sections/openchamber/OpenChamberVisualSettings.tsx
 packages/ui/src/components/sections/openchamber/OpenCodeCliSettings.tsx
 packages/ui/src/components/sections/openchamber/PasskeySettings.tsx
+packages/ui/src/components/sections/openchamber/RepositoryBindingEditors.tsx
 packages/ui/src/components/sections/openchamber/SessionGoalCheckerField.tsx
 packages/ui/src/components/sections/openchamber/SessionRetentionSettings.tsx
 packages/ui/src/components/sections/openchamber/SessionWarmingCheckbox.tsx
@@ -420,12 +445,12 @@ packages/ui/src/components/sections/providers/custom-provider-form.ts
 packages/ui/src/components/sections/remote-instances/RemoteInstancesPage.tsx
 packages/ui/src/components/sections/shared/SettingsLegacyFormatNote.tsx
 packages/ui/src/components/sections/usage/QuotaCredentials.tsx
-packages/ui/src/components/session/GitHubIssuePickerDialog.tsx
 packages/ui/src/components/session/NewClaudeSessionDialog.tsx
 packages/ui/src/components/session/NewWorktreeDialog.tsx
 packages/ui/src/components/session/ScheduledTasksDialog.tsx
 packages/ui/src/components/session/SessionSidebar.tsx
 packages/ui/src/components/session/project-context/useProjectTodoSend.ts
+packages/ui/src/components/session/sidebar/list/SessionProjectCollection.tsx
 packages/ui/src/components/session/sidebar/list/useSessionListSync.ts
 packages/ui/src/components/session/sidebar/sessions/SessionNodeItem.tsx
 packages/ui/src/components/session/sidebar/sessions/sessionOwnership.ts
@@ -448,13 +473,13 @@ packages/ui/src/components/views/PlanView.tsx
 packages/ui/src/components/views/SettingsView.tsx
 packages/ui/src/components/views/WorktreesView.tsx
 packages/ui/src/components/views/files/GuestFileEditor.tsx
+packages/ui/src/components/views/git/GitOperationStatus.tsx
 packages/ui/src/components/views/git/IntegrateCommitsSection.tsx
 packages/ui/src/components/views/git/recentBranches.ts
 packages/ui/src/components/views/usage/UsageStatsView.tsx
 packages/ui/src/components/views/walkthrough/WalkthroughView.tsx
 packages/ui/src/contexts/ThemeSystemContext.tsx
 packages/ui/src/contexts/runtimeAPIRegistry.ts
-packages/ui/src/contexts/theme-embedded-bootstrap.ts
 packages/ui/src/contexts/theme-storage.ts
 packages/ui/src/hooks/useAgentMemorySync.ts
 packages/ui/src/hooks/useBrowserProviderSync.ts
@@ -462,6 +487,7 @@ packages/ui/src/hooks/useGuestSurfaces.ts
 packages/ui/src/hooks/useKeyboardShortcuts.ts
 packages/ui/src/hooks/useLocalTTS.ts
 packages/ui/src/hooks/useMenuActions.ts
+packages/ui/src/hooks/useMergedWorktreeCleanup.ts
 packages/ui/src/hooks/useMiniChatKeyboardShortcuts.ts
 packages/ui/src/hooks/useProjectActionsContext.ts
 packages/ui/src/hooks/usePwaManifestSync.ts
@@ -478,7 +504,9 @@ packages/ui/src/lib/brand.ts
 packages/ui/src/lib/browser/annotationOverlay.ts
 packages/ui/src/lib/browser/controlClient.ts
 packages/ui/src/lib/browser/devTunnel.ts
+packages/ui/src/lib/browser/hostCapability.ts
 packages/ui/src/lib/browser/overlayTheme.ts
+packages/ui/src/lib/browser/url.ts
 packages/ui/src/lib/btw.ts
 packages/ui/src/lib/chatDirectories.ts
 packages/ui/src/lib/chatDraftPersistence.ts
@@ -503,6 +531,8 @@ packages/ui/src/lib/guests/actions.ts
 packages/ui/src/lib/guests/browser-providers.ts
 packages/ui/src/lib/guests/capabilities.ts
 packages/ui/src/lib/guests/commands.ts
+packages/ui/src/lib/guests/device-storage-records.ts
+packages/ui/src/lib/guests/device-storage.ts
 packages/ui/src/lib/guests/dialog-store.ts
 packages/ui/src/lib/guests/file-editor-channel.ts
 packages/ui/src/lib/guests/file-editors.ts
@@ -516,12 +546,14 @@ packages/ui/src/lib/guests/item-store.ts
 packages/ui/src/lib/guests/oauth.ts
 packages/ui/src/lib/guests/open-commit.ts
 packages/ui/src/lib/guests/parse.ts
+packages/ui/src/lib/guests/popovers.ts
 packages/ui/src/lib/guests/relay-document.ts
 packages/ui/src/lib/guests/resolve.ts
 packages/ui/src/lib/guests/run-action.ts
 packages/ui/src/lib/guests/run-command.ts
 packages/ui/src/lib/guests/service.ts
 packages/ui/src/lib/guests/start-session.ts
+packages/ui/src/lib/guests/status-controls.ts
 packages/ui/src/lib/guests/storage.ts
 packages/ui/src/lib/guests/surface-client.ts
 packages/ui/src/lib/guests/surfaces.ts
@@ -550,6 +582,7 @@ packages/ui/src/lib/openchamberConfig.ts
 packages/ui/src/lib/openchamberEvents.ts
 packages/ui/src/lib/opencode/background-shell.ts
 packages/ui/src/lib/opencode/client.ts
+packages/ui/src/lib/opencode/dispatched-session.ts
 packages/ui/src/lib/opencode/events.ts
 packages/ui/src/lib/opencode/model.ts
 packages/ui/src/lib/opencode/projection.ts
@@ -592,6 +625,9 @@ packages/ui/src/lib/sharedTrustConfirmation.ts
 packages/ui/src/lib/shiki/sanitizeTemplateCallGrammar.ts
 packages/ui/src/lib/shortcuts/config.ts
 packages/ui/src/lib/smallModelRequest.ts
+packages/ui/src/lib/source-control/git-operation-recovery.ts
+packages/ui/src/lib/source-control/identity.ts
+packages/ui/src/lib/source-control/repositoryProviderMemory.ts
 packages/ui/src/lib/spaces/space-setup.ts
 packages/ui/src/lib/spaces/spaces-api.ts
 packages/ui/src/lib/spaces/spaces-store.ts
@@ -600,6 +636,7 @@ packages/ui/src/lib/surfaces/registry.ts
 packages/ui/src/lib/theme/vscode/adapter.ts
 packages/ui/src/lib/theme/vscode/import.ts
 packages/ui/src/lib/toolHelpers.ts
+packages/ui/src/lib/trackedItems/interest.ts
 packages/ui/src/lib/typographyWatcher.ts
 packages/ui/src/lib/uiPlugins.ts
 packages/ui/src/lib/url.ts
@@ -632,6 +669,7 @@ packages/ui/src/stores/useProjectContextStore.ts
 packages/ui/src/stores/useProjectsStore.ts
 packages/ui/src/stores/useQuotaStore.ts
 packages/ui/src/stores/useSmallModelStore.ts
+packages/ui/src/stores/useTrackedItemsStore.ts
 packages/ui/src/stores/useUIPluginsStore.ts
 packages/ui/src/stores/useUIStore.ts
 packages/ui/src/stores/useUpdateStore.ts
