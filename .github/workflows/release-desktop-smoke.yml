@@ -44,6 +44,7 @@ permissions:
 
 jobs:
   build-macos-electron:
+    environment: release # DGX-515: firma Apple tras aprobación manual (revisores: config del repo)
     if: ${{ inputs.build_macos }}
     name: Build macOS Electron (${{ matrix.arch }})
     # 2026-10-07 devops · hosted macOS: xcodebuild/firma Apple requieren macOS

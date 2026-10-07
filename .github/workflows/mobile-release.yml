@@ -116,9 +116,10 @@ jobs:
   android-release:
     name: Android signed release
     if: inputs.build_android
-    # DGX-516: job Linux genérico → arc-k8s (skill ci-runners-arc); el JDK se
-    # baja con actions/setup-java.
-    runs-on: arc-k8s
+    environment: release # DGX-515: keystore Android tras aprobación manual (revisores: config del repo)
+    # DGX-516: job con secretos de firma, no va en arc-k8s (runners propios solo
+    # CI sin secretos); hosted ubuntu por dispatch/tag, público: sin coste.
+    runs-on: ubuntu-24.04
     needs: resolve-version
     permissions:
       contents: write
@@ -192,11 +193,13 @@ jobs:
   ios-testflight:
     name: iOS TestFlight upload
     if: inputs.build_ios
+    # Apple signing/ASC credentials live only in this protected environment,
+    # which requires manual approval before the job starts.
+    environment: testflight
     # 2026-10-07 devops · hosted macOS: xcodebuild + firma Apple requieren
     # macOS real; no hay hardware mac en el clúster (skill ci-runners-arc).
-    # Repo público: minutos hosted sin coste. Secreto solo tras el
-    # environment protegido que declaran #112/#113. Vuelve a self-hosted
-    # cuando la org monte un pool macOS.
+    # Repo público: minutos hosted sin coste. Vuelve a self-hosted cuando la
+    # org monte un pool macOS.
     runs-on: macos-26
     needs: resolve-version
     env:

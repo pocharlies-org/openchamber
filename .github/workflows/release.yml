@@ -86,8 +86,10 @@ jobs:
   publish-npm:
     needs: create-release
     if: ${{ github.event.inputs.finish_published_release != 'true' }}
-    # DGX-516: job Linux genérico → arc-k8s (skill ci-runners-arc).
-    runs-on: arc-k8s
+    environment: release # DGX-515: NPM_TOKEN y token del sitio tras aprobación manual
+    # DGX-516: job con secretos, no va en arc-k8s (runners propios solo CI sin
+    # secretos); hosted ubuntu por tag/dispatch, público: sin coste.
+    runs-on: ubuntu-24.04
     env:
       NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
@@ -142,6 +144,7 @@ jobs:
 
   build-desktop-electron-macos:
     needs: create-release
+    environment: release # DGX-515: firma Apple tras aprobación manual (revisores: config del repo)
     # 2026-10-07 devops · hosted macOS: firma y notarización Apple requieren
     # macOS real; no hay hardware mac en el clúster (skill ci-runners-arc).
     # Repo público: minutos hosted sin coste. Vuelve a self-hosted solo si la
@@ -600,8 +603,9 @@ jobs:
     needs: [create-release, build-desktop-electron-macos, build-desktop-electron-windows, build-desktop-electron-linux, publish-electron-linux, publish-npm, combine-electron-manifests, mobile-release]
     # Jobs a finishing run skips count as done; any failure still stops the release.
     if: ${{ !cancelled() && !failure() }}
-    # DGX-516: job Linux genérico → arc-k8s (skill ci-runners-arc).
-    runs-on: arc-k8s
+    environment: release # DGX-515: publica la release y avisa a Discord tras aprobación manual
+    # DGX-516: secretos (Discord, token del sitio) → hosted, no arc-k8s.
+    runs-on: ubuntu-24.04
     env:
       DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
       DISCORD_UPDATE_ROLE_ID: ${{ secrets.DISCORD_UPDATE_ROLE_ID }}

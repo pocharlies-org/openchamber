@@ -11,8 +11,9 @@ permissions:
 
 jobs:
   publish:
-    # DGX-516: job Linux genérico → arc-k8s (skill ci-runners-arc).
-    runs-on: arc-k8s
+    environment: release # DGX-515: VSCE_PAT y OVSX_PAT tras aprobación manual
+    # DGX-516: publica la extensión (VSCE_PAT/OVSX_PAT) → hosted, no arc-k8s.
+    runs-on: ubuntu-24.04
     env:
       VSCE_PAT: ${{ secrets.VSCE_PAT }}
       OVSX_PAT: ${{ secrets.OVSX_PAT }}

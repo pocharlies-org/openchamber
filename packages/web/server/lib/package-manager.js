@@ -1,58 +1,25 @@
 import { spawnSync } from 'child_process';
-import crypto from 'crypto';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { fetchUpdateNotes } from './changelog/update-notes.js';
-import { isEnterpriseMode } from './enterprise-mode.js';
-
-import { resolveNpmRegistryRequest } from './opencode/npm-registry-config.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const PACKAGE_NAME = '@openchamber/web';
 const PACKAGE_PATH_SEGMENTS = PACKAGE_NAME.split('/');
-const GITHUB_RELEASES_URL = 'https://github.com/openchamber/openchamber/releases';
-const GITHUB_RELEASES_API_URL = 'https://api.github.com/repos/openchamber/openchamber/releases';
+// The fork publishes its own releases and they are the only update source:
+// there is no @openchamber/web package for the fork, and npm would report
+// upstream (measured 2026-09-15: an npm-based update installed upstream over
+// this build in production). See docs/release-promotion.md.
+const GITHUB_RELEASES_URL = 'https://github.com/pocharlies-org/openchamber/releases';
+const GITHUB_RELEASES_API_URL = 'https://api.github.com/repos/pocharlies-org/openchamber/releases';
 let cachedDetectedPm = null;
 
 function getSpawnSyncBaseOptions() {
   return process.platform === 'win32' ? { windowsHide: true } : {};
-}
-const UPDATE_CHECK_URL = process.env.OPENCHAMBER_UPDATE_API_URL || 'https://api.openchamber.dev/v1/update/check';
-
-function getOpenChamberConfigDir() {
-  if (process.platform === 'win32') {
-    const appData = process.env.APPDATA;
-    if (appData) return path.join(appData, 'openchamber');
-  }
-
-  return path.join(os.homedir(), '.config', 'openchamber');
-}
-
-function sanitizeInstallScope(scope) {
-  if (scope === 'desktop-electron' || scope === 'vscode' || scope === 'web' || scope === 'mobile-capacitor') return scope;
-  return 'web';
-}
-
-function getOrCreateInstallId(scope = 'web') {
-  const configDir = getOpenChamberConfigDir();
-  const normalizedScope = sanitizeInstallScope(scope);
-  const idPath = path.join(configDir, `install-id-${normalizedScope}`);
-
-  try {
-    const existing = fs.readFileSync(idPath, 'utf8').trim();
-    if (existing) return existing;
-  } catch {
-    // Generate new id.
-  }
-
-  const installId = crypto.randomUUID();
-  fs.mkdirSync(configDir, { recursive: true });
-  fs.writeFileSync(idPath, `${installId}\n`, { encoding: 'utf8', mode: 0o600 });
-  return installId;
 }
 
 function mapPlatform(value) {
@@ -62,30 +29,14 @@ function mapPlatform(value) {
   return 'web';
 }
 
-function mapArch(value) {
-  if (value === 'arm64' || value === 'aarch64') return 'arm64';
-  if (value === 'x64' || value === 'amd64') return 'x64';
-  return 'unknown';
-}
-
 function normalizeAppType(value) {
   if (value === 'web' || value === 'desktop-electron' || value === 'vscode' || value === 'mobile-capacitor') return value;
   return 'web';
 }
 
-function normalizeDeviceClass(value) {
-  if (value === 'mobile' || value === 'tablet' || value === 'desktop' || value === 'unknown') return value;
-  return 'unknown';
-}
-
 function normalizePlatform(value) {
   if (value === 'macos' || value === 'windows' || value === 'linux' || value === 'web' || value === 'android' || value === 'ios') return value;
   return mapPlatform(process.platform);
-}
-
-function normalizeArch(value) {
-  if (value === 'arm64' || value === 'x64' || value === 'unknown') return value;
-  return mapArch(process.arch);
 }
 
 async function resolveAndroidApkUrl(version, candidateUrl) {
@@ -119,73 +70,6 @@ async function resolveAndroidApkUrl(version, candidateUrl) {
     return (canonicalAsset || apkAssets[0])?.browser_download_url;
   } catch {
     return undefined;
-  }
-}
-
-async function checkForUpdatesFromApi(currentVersion, options = {}) {
-  try {
-    const appType = normalizeAppType(options.appType);
-    const hostPlatform = mapPlatform(process.platform);
-    const hostArch = mapArch(process.arch);
-    const shouldTrustClientPlatform = appType === 'desktop-electron' || appType === 'vscode' || appType === 'mobile-capacitor';
-    const platform = shouldTrustClientPlatform ? normalizePlatform(options.platform) : hostPlatform;
-    const arch = shouldTrustClientPlatform ? normalizeArch(options.arch) : hostArch;
-    // Enterprise mode keeps the update check (security fixes must reach the
-    // company) but never reports usage, whatever the client asked for.
-    const reportUsage = options.reportUsage !== false && !isEnterpriseMode();
-    const payload = {
-      appType,
-      deviceClass: normalizeDeviceClass(options.deviceClass),
-      platform,
-      arch,
-      channel: 'stable',
-      currentVersion,
-      installId: reportUsage ? (options.installId || getOrCreateInstallId(appType)) : undefined,
-      instanceMode: options.instanceMode || 'unknown',
-      reportUsage,
-    };
-
-    const response = await fetch(UPDATE_CHECK_URL, {
-      method: 'POST',
-      headers: {
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(10000),
-    });
-
-    if (!response.ok) return null;
-    const data = await response.json();
-    if (typeof data?.latestVersion !== 'string') return null;
-
-    const versionComparison = compareVersions(data.latestVersion, currentVersion);
-    if (versionComparison < 0) return null;
-
-    const releaseUrl = `${GITHUB_RELEASES_URL}/tag/v${data.latestVersion}`;
-    const downloadUrl = typeof data.downloadUrl === 'string'
-      ? data.downloadUrl
-      : typeof data.download?.url === 'string'
-        ? data.download.url
-        : undefined;
-    const updateAvailable = Boolean(data.updateAvailable) && versionComparison > 0;
-    const mobileDownloadUrl = updateAvailable && appType === 'mobile-capacitor' && platform === 'android'
-      ? await resolveAndroidApkUrl(data.latestVersion, downloadUrl)
-      : undefined;
-    return {
-      available: updateAvailable,
-      version: data.latestVersion,
-      currentVersion,
-      body: typeof data.releaseNotes === 'string' ? data.releaseNotes : undefined,
-      releaseUrl: typeof data.releaseNotesUrl === 'string' ? data.releaseNotesUrl : releaseUrl,
-      downloadUrl: mobileDownloadUrl,
-      nextSuggestedCheckInSec:
-        typeof data.nextSuggestedCheckInSec === 'number' && Number.isFinite(data.nextSuggestedCheckInSec)
-          ? data.nextSuggestedCheckInSec
-          : undefined,
-    };
-  } catch {
-    return null;
   }
 }
 
@@ -697,22 +581,14 @@ function normalizeTargetVersion(value) {
  * check behind a fresh release (stale packument cache, pnpm minimumReleaseAge).
  */
 export function getUpdateCommand(pm = detectPackageManager(), options = {}) {
-  const targetVersion = normalizeTargetVersion(options.targetVersion);
-  if (options.targetVersion != null && !targetVersion) {
-    throw new Error(`Invalid target version for update: ${String(options.targetVersion)}`);
-  }
-  const versionSpec = targetVersion ? `@${targetVersion}` : '@latest';
-  const pmCommand = quoteCommand(resolvePackageManagerCommand(pm));
-  switch (pm) {
-    case 'pnpm':
-      return `${pmCommand} add -g ${PACKAGE_NAME}${versionSpec}`;
-    case 'yarn':
-      return `${pmCommand} global add ${PACKAGE_NAME}${versionSpec}`;
-    case 'bun':
-      return `${pmCommand} add -g ${PACKAGE_NAME}${versionSpec}`;
-    default:
-      return `${pmCommand} install -g ${PACKAGE_NAME}${versionSpec}`;
-  }
+  // Every install path (CLI `openchamber update`, the update-install route)
+  // builds its command here, so this is where the fork refuses: the fork is
+  // not published to npm, and `npm install -g @openchamber/web` pulls
+  // upstream over this build (measured 2026-09-15). Install from the release
+  // assets per docs/release-promotion.md.
+  throw new Error(
+    `This build is not installed from npm. Update it from the GitHub Release assets of ${GITHUB_RELEASES_URL}, following docs/release-promotion.md`,
+  );
 }
 
 /**
@@ -729,22 +605,27 @@ export function getCurrentVersion() {
 }
 
 /**
- * Fetch latest version from npm registry
+ * The fork's newest published release, read from its GitHub Releases API.
+ * A prerelease tag is still a release the fork published, so `latest` is the
+ * honest answer; a tag that is not a version (a bad manual tag) is not.
  */
+export function parseLatestReleaseTag(payload) {
+  const tag = typeof payload?.tag_name === 'string' ? payload.tag_name.trim() : '';
+  const version = tag.replace(/^v/, '');
+  return /^\d+(\.\d+)*([-+][0-9A-Za-z.+-]+)?$/.test(version) ? version : null;
+}
+
 async function getLatestVersion() {
   try {
-    const request = resolveNpmRegistryRequest(PACKAGE_NAME);
-    const response = await fetch(request.url, {
-      headers: { Accept: 'application/json', ...request.headers },
+    const response = await fetch(`${GITHUB_RELEASES_API_URL}/latest`, {
+      headers: {
+        Accept: 'application/vnd.github+json',
+        'User-Agent': 'openchamber-update-check',
+      },
       signal: AbortSignal.timeout(10000),
     });
-
-    if (!response.ok) {
-      throw new Error(`Registry responded with ${response.status}`);
-    }
-
-    const data = await response.json();
-    return data['dist-tags']?.latest || null;
+    if (!response.ok) return null;
+    return parseLatestReleaseTag(await response.json());
   } catch (error) {
     return null;
   }
@@ -796,23 +677,6 @@ export async function checkForUpdates(options = {}) {
   const appType = normalizeAppType(options.appType);
   const platform = normalizePlatform(options.platform);
 
-  if (currentVersion !== 'unknown') {
-    const remote = await checkForUpdatesFromApi(currentVersion, options);
-    if (remote) {
-      if (remote.available && appType === 'web') {
-        const npmLatest = await getLatestVersion();
-        if (!npmLatest || compareVersions(npmLatest, remote.version) < 0) {
-          remote.available = false;
-        }
-      }
-      return {
-        ...remote,
-        packageManager: pm,
-        updateCommand: 'openchamber update',
-      };
-    }
-  }
-
   const latestVersion = await getLatestVersion();
 
   if (!latestVersion || currentVersion === 'unknown') {
@@ -841,8 +705,9 @@ export async function checkForUpdates(options = {}) {
     releaseUrl: `${GITHUB_RELEASES_URL}/tag/v${latestVersion}`,
     downloadUrl,
     packageManager: pm,
-    // Show our CLI command, not raw package manager command
-    updateCommand: 'openchamber update',
+    // The fork is not installed with a package manager command; the update
+    // dialog points at the promotion runbook instead of a command to paste.
+    updateCommand: 'see docs/release-promotion.md',
   };
 }
 
@@ -854,7 +719,12 @@ export async function checkForUpdates(options = {}) {
  * and the caller must not report success without the version matching.
  */
 export function executeUpdate(pm = detectPackageManager(), options = {}) {
-  const command = getUpdateCommand(pm, { targetVersion: options.targetVersion });
+  let command;
+  try {
+    command = getUpdateCommand(pm, { targetVersion: options.targetVersion });
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
   if (!options?.silent) {
     console.log(`Updating ${PACKAGE_NAME} using ${pm}...`);
     console.log(`Running: ${command}`);

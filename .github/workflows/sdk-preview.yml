@@ -21,8 +21,9 @@ concurrency:
 
 jobs:
   publish:
-    # DGX-516: job Linux genérico → arc-k8s (skill ci-runners-arc).
-    runs-on: arc-k8s
+    environment: release # DGX-515: NPM_TOKEN tras aprobación manual (revisores: config del repo)
+    # DGX-516: publica a npm (secreto) → hosted, no arc-k8s; público: sin coste.
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
