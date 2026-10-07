@@ -14,10 +14,10 @@ const writeElf = (filePath, architecture) => {
   fs.writeFileSync(filePath, header, { mode: 0o755 });
 };
 
-const createPayload = () => {
+const createPayload = (productName = 'OpenChamber') => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'openchamber-payload-test-'));
   fs.writeFileSync(path.join(root, 'openchamber.desktop'), [
-    '[Desktop Entry]', 'Name=OpenChamber', 'Exec=AppRun --no-sandbox %U', 'Icon=openchamber', 'StartupWMClass=openchamber', '',
+    `[Desktop Entry]`, `Name=${productName}`, 'Exec=AppRun --no-sandbox %U', 'Icon=openchamber', 'StartupWMClass=openchamber', '',
   ].join('\n'));
   writeElf(path.join(root, 'openchamber'), 'x64');
   writeElf(path.join(root, 'resources/opencode-cli/opencode'), 'x64');
@@ -51,11 +51,45 @@ test('verifies identity, version, and native payload architecture', () => {
       root,
       targetArchitecture: 'x64',
       expectedOpenCodeVersion: '1.17.18',
+      productName: 'OpenChamber',
       runCliVersion: () => '1.17.18',
     });
     assert.equal(result.nativeModuleCount, 2);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('desktop identity follows the product name, not a literal', () => {
+  // DGX-516: the fork rebrand renames productName; the check must accept the
+  // renamed desktop entry and still reject a mismatched one.
+  const renamed = createPayload('AgentChamber');
+  try {
+    const result = verifyExtractedPayload({
+      root: renamed,
+      targetArchitecture: 'x64',
+      expectedOpenCodeVersion: '1.17.18',
+      productName: 'AgentChamber',
+      runCliVersion: () => '1.17.18',
+    });
+    assert.equal(result.nativeModuleCount, 2);
+  } finally {
+    fs.rmSync(renamed, { recursive: true, force: true });
+  }
+  const mismatched = createPayload('SomethingElse');
+  try {
+    assert.throws(
+      () => verifyExtractedPayload({
+        root: mismatched,
+        targetArchitecture: 'x64',
+        expectedOpenCodeVersion: '1.17.18',
+        productName: 'AgentChamber',
+        runCliVersion: () => '1.17.18',
+      }),
+      /Desktop identity mismatch/,
+    );
+  } finally {
+    fs.rmSync(mismatched, { recursive: true, force: true });
   }
 });
 

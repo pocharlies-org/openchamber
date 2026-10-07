@@ -46,7 +46,10 @@ jobs:
   build-macos-electron:
     if: ${{ inputs.build_macos }}
     name: Build macOS Electron (${{ matrix.arch }})
-    runs-on: blacksmith-6vcpu-macos-26
+    # 2026-10-07 devops · hosted macOS: xcodebuild/firma Apple requieren macOS
+    # real; sin hardware mac en el clúster (skill ci-runners-arc). Solo
+    # workflow_dispatch. Repo público: sin coste.
+    runs-on: macos-26
     strategy:
       fail-fast: false
       matrix:
@@ -190,6 +193,8 @@ jobs:
     # Match the production release workflow. windows-latest currently resolves
     # to a runner with Visual Studio 18, which this Electron/node-gyp stack does
     # not detect correctly.
+    # 2026-10-07 devops · hosted Windows: toolchain MSVC/NSIS; sin Windows en
+    # el clúster (skill ci-runners-arc). Solo workflow_dispatch. Público: sin coste.
     runs-on: windows-2022
     strategy:
       fail-fast: false
@@ -285,12 +290,16 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: blacksmith-4vcpu-ubuntu-2404
+          # DGX-516: x64 → arc-k8s (skill ci-runners-arc; se instala toolchain
+          # nativo abajo). arm64 → hosted: 2026-10-07 devops · no hay pool
+          # arm64 en arc-k8s (medido 02-10-2026). Este smoke puede construir
+          # refs de otro repo, así que usa setup-* en vez del composite del fork.
+          - runner: arc-k8s
             arch: x64
             host_arch: x86_64
             artifact_arch: x86_64
             manifest: latest-linux.yml
-          - runner: blacksmith-4vcpu-ubuntu-2404-arm
+          - runner: ubuntu-24.04-arm
             arch: arm64
             host_arch: aarch64
             artifact_arch: arm64
@@ -310,6 +319,10 @@ jobs:
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: '22'
+
+      - name: Install native build toolchain (arc-k8s image lacks it)
+        if: matrix.runner == 'arc-k8s'
+        run: sudo apt-get update && sudo apt-get install -y build-essential
 
       - name: Verify native Linux architecture
         env:
@@ -367,7 +380,7 @@ jobs:
           MANIFEST: ${{ matrix.manifest }}
         run: |
           set -euo pipefail
-          APPIMAGE="dist/OpenChamber-${VERSION}-linux-${ARTIFACT_ARCH}.AppImage"
+          APPIMAGE=$(ls dist/*-"${VERSION}"-linux-"${ARTIFACT_ARCH}".AppImage)
           node ./scripts/verify-update-manifest.mjs "dist/${MANIFEST}" "$APPIMAGE" "$VERSION"
 
       - name: Upload Linux installable artifacts
@@ -375,7 +388,7 @@ jobs:
         with:
           name: desktop-release-smoke-linux-${{ matrix.arch }}
           path: |
-            packages/electron/dist/OpenChamber-${{ steps.versions.outputs.app }}-linux-${{ matrix.artifact_arch }}.AppImage
+            packages/electron/dist/*.AppImage
             packages/electron/dist/${{ matrix.manifest }}
           if-no-files-found: error
           retention-days: ${{ fromJSON(inputs.retention_days) }}

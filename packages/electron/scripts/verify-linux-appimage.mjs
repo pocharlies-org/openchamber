@@ -75,16 +75,22 @@ const defaultCliVersion = (binaryPath) => {
   return parseOpenCodeCliVersion(result.stdout);
 };
 
+// DGX-516: the desktop Name follows electron-builder's productName (the fork
+// rebrand renames it); the executable identity stays `openchamber` (contract:
+// the bin is not renamed).
+const defaultProductName = readJson(path.join(electronRoot, 'package.json')).build?.productName ?? 'OpenChamber';
+
 export const verifyExtractedPayload = ({
   root,
   targetArchitecture,
   expectedOpenCodeVersion,
+  productName = defaultProductName,
   runCliVersion = defaultCliVersion,
 }) => {
   const desktopPath = path.join(root, 'openchamber.desktop');
   if (!fs.existsSync(desktopPath)) throw new Error(`Missing desktop entry: ${desktopPath}`);
   const desktop = fs.readFileSync(desktopPath, 'utf8');
-  for (const entry of ['Name=OpenChamber', 'Icon=openchamber', 'StartupWMClass=openchamber']) {
+  for (const entry of [`Name=${productName}`, 'Icon=openchamber', 'StartupWMClass=openchamber']) {
     if (!desktop.split(/\r?\n/).includes(entry)) throw new Error(`Desktop identity mismatch: missing ${entry}`);
   }
   if (!/^Exec=AppRun(?:\s|$)/m.test(desktop)) throw new Error('Desktop identity mismatch: expected AppImage AppRun entrypoint');
@@ -115,10 +121,17 @@ export const verifyExtractedPayload = ({
 };
 
 const findAppImage = (version, architecture) => {
+  // DGX-516: the file is named after productName, which the fork rebrand
+  // changes; locate it by the version+arch part that never moves.
   const suffix = linuxAppImageArchSuffix(architecture);
-  const expected = path.join(electronRoot, 'dist', `OpenChamber-${version}-linux-${suffix}.AppImage`);
-  if (!fs.existsSync(expected)) throw new Error(`Linux AppImage not found: ${expected}`);
-  return expected;
+  const dist = path.join(electronRoot, 'dist');
+  const matches = fs.readdirSync(dist, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith(`-${version}-linux-${suffix}.AppImage`))
+    .map((entry) => path.join(dist, entry.name));
+  if (matches.length !== 1) {
+    throw new Error(`Expected exactly one Linux AppImage for ${version} (${suffix}), found ${matches.length}: ${matches.join(', ') || path.join(dist, `*-${version}-linux-${suffix}.AppImage`)}`);
+  }
+  return matches[0];
 };
 
 const extractAppImage = (appImagePath, destination) => {

@@ -2,9 +2,11 @@
  * HTTP surface for updating this fork through the pipeline.
  *
  * The dispatch route is the one that replaces `npm install`. It is gated on an
- * explicit confirmation in the body: a green pipeline ends in a deploy, so a
+ * explicit confirmation in the body: a dispatch starts a release build, so a
  * stray request — a prefetch, a scripted click, a link — must not be able to
- * roll production forward. UI visibility is not authorization.
+ * roll production forward. Publishing waits on the protected `release`
+ * environment and promotion on the runbook, so no run deploys by itself. UI
+ * visibility is not authorization.
  */
 import {
   dispatchForkUpdate,
@@ -27,7 +29,7 @@ export const registerForkUpdateRoutes = (app, dependencies = {}) => {
       return res.status(400).json({
         started: false,
         reason: 'confirmation-required',
-        error: 'Updating runs the fork pipeline and deploys when it turns green. Send confirm: true to proceed.',
+        error: 'Updating starts the fork release workflow. Publishing and promotion to this machine need their own approvals. Send confirm: true to proceed.',
       });
     }
 
