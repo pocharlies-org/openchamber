@@ -68,7 +68,10 @@ export function ArchiveView(): React.ReactNode {
 
   const sortedSessions = React.useMemo(() => {
     if (!open) return [];
-    return [...archivedSessions].sort((a, b) => (b.time?.archived ?? 0) - (a.time?.archived ?? 0));
+    // Subsessions are restored with their parent and never listed on their own.
+    return archivedSessions
+      .filter((session) => !session.parentID)
+      .sort((a, b) => (b.time?.archived ?? 0) - (a.time?.archived ?? 0));
   }, [archivedSessions, open]);
 
   // The tool filter narrows the list before the buckets and the search: the
@@ -303,7 +306,7 @@ export function ArchiveView(): React.ReactNode {
                         aria-label={t(SESSION_SOURCE_LABEL_KEYS.claude)}
                       />
                     ) : null}
-                    <span className="min-w-0 flex-1 truncate typography-ui-label text-foreground">
+                    <span dir="auto" className="min-w-0 flex-1 truncate text-left typography-ui-label text-foreground">
                       {session.title || t('sessions.sidebar.session.untitled')}
                     </span>
                     {normalizedQuery && directoryLabel ? (

@@ -100,6 +100,8 @@ var HOST_PUSH_TYPES = new Set([
   "composer-status",
   "resolve",
   "action",
+  "status-control-event",
+  "popover-closed",
   "file-open",
   "file-snapshot",
   "file-saved"

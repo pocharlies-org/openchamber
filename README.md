@@ -157,6 +157,8 @@ OpenChamber handles the rest of the workflow. You can decide what to try, keep t
 
 OpenChamber is an independent project and is not affiliated with the OpenCode team.
 
+OpenCode and Claude Code sessions run side by side; what each engine can and cannot do is in [`docs/agent-parity.md`](docs/agent-parity.md).
+
 ## Contributing
 
 Bug fixes and small improvements are welcome as PRs. Features and behavior changes start in an [Ideas discussion](https://github.com/openchamber/openchamber/discussions/categories/ideas) so we agree on the product side before anyone writes code. Read [CONTRIBUTING.md](./CONTRIBUTING.md) before opening a PR; it has the setup, the review contract, and what happens to large unplanned PRs. Documentation authoring guidance lives in [`packages/docs`](packages/docs/README.md).

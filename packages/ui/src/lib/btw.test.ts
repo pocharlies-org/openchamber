@@ -333,6 +333,44 @@ describe('startBtwSession', () => {
   });
 });
 
+describe('a main conversation and its side conversation live at once', () => {
+  test('a side question in flight neither switches nor blocks the main chat, and two parents keep separate sides', async () => {
+    const forkOf = new Map([['parent-1', 'fork-1'], ['parent-2', 'fork-2']]);
+    forkSessionImpl = (sessionId, options) => Promise.resolve(makeSession(forkOf.get(sessionId) ?? 'unknown', options?.directory ?? '/project'));
+    const sends: Array<{ text: unknown; target: unknown }> = [];
+    let releaseFirst: () => void = () => undefined;
+    sendMessageImpl = (...args) => {
+      sends.push({ text: args[0], target: args[9] });
+      // The first side question stays in flight until the test lets it finish.
+      return sends.length === 1 ? new Promise<void>((resolve) => { releaseFirst = resolve; }) : Promise.resolve();
+    };
+
+    const first = startBtwSession({ ...startInput, parentSessionId: 'parent-1', question: 'side of one' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    // Parent 1's side is being created; the main chat is untouched and parent 2 can start its own.
+    expect(useBtwStore.getState().byParent['parent-1']?.creating).toBe(true);
+    await startBtwSession({ ...startInput, parentSessionId: 'parent-2', question: 'side of two' });
+    expect(useBtwStore.getState().byParent['parent-2']?.creating).toBe(false);
+    releaseFirst();
+    await first;
+
+    expect(sends).toEqual([
+      { text: 'side of one', target: { sessionId: 'fork-1', directory: '/project' } },
+      { text: 'side of two', target: { sessionId: 'fork-2', directory: '/project' } },
+    ]);
+    // Neither side ever switched the selected (main) session.
+    expect(currentSessionSwitches).toEqual([]);
+    expect(metadataPatches.filter((patch) => patch.sessionId.startsWith('parent-')).map((patch) => [patch.sessionId, patch.result])).toEqual([
+      ['parent-1', { openchamber: { btwSessionID: 'fork-1' } }],
+      ['parent-2', { openchamber: { btwSessionID: 'fork-2' } }],
+    ]);
+
+    // Closing one side leaves the other intact.
+    await destroyBtwSession({ parentSessionId: 'parent-1', btwSessionId: 'fork-1', directory: '/project' });
+    expect(Object.keys(useBtwStore.getState().byParent)).toEqual(['parent-2']);
+  });
+});
+
 describe('destroyBtwSession', () => {
   const ref = { parentSessionId: 'parent-1', btwSessionId: 'fork-1', directory: '/project' };
 
