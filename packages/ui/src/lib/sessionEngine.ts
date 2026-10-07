@@ -75,6 +75,14 @@ export type SessionEngineInfo = {
   unansweredAfterMs: number;
 };
 
+/**
+ * The provider seam: what an agent engine is and can do. It is `SessionEngineInfo`, the client mirror of
+ * `ENGINES` (server/lib/engines/engines.js) — not a second registry. Adding an engine is one entry in `ENGINES`,
+ * one in `SESSION_ENGINE_INFO` and a `server/lib/<engine>/` module; docs/agent-parity.md gets its column and the
+ * `parity` tests keep the three in step. OpenCode and Claude Code are the only implementations.
+ */
+export type AgentProvider = SessionEngineInfo;
+
 const everything = Object.fromEntries(ENGINE_OPERATIONS.map((operation) => [operation, true])) as Record<EngineOperation, boolean>;
 
 const OPENCODE_CAPABILITIES: EngineCapabilities = {

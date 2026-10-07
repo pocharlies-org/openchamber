@@ -11,6 +11,7 @@ import type { ProjectRef } from '@/lib/worktrees/worktreeManager';
 import { createWorktreeWithDefaults, resolveRootTrackingRemote } from '@/lib/worktrees/worktreeCreate';
 import { waitForWorktreeBootstrap } from '@/lib/worktrees/worktreeBootstrap';
 import { getRootBranch } from '@/lib/worktrees/worktreeStatus';
+import { normalizePath as normalizePathImpl } from '@/lib/pathNormalization';
 import { checkIsGitRepository } from '@/lib/gitApi';
 import { useDirectoryStore } from './useDirectoryStore';
 import { useProjectsStore } from './useProjectsStore';
@@ -22,6 +23,7 @@ import { getRuntimeKey } from '@/lib/runtime-switch';
 import { RUN_LAUNCHER_ID } from '@/lib/multirun/launcher';
 import { multiRunVariantLabel } from '@/lib/multirun/runs';
 import { getSyncChildStores, registerSessionDirectory } from '@/sync/sync-refs';
+import { generateUuid } from '@/lib/uuid';
 
 export const toGitSafeSlug = (value: string): string => {
   return value
@@ -41,13 +43,7 @@ const generateWorktreeNameSeed = (groupSlug: string, modelSlug: string): string 
   return `${groupSlug}/${modelSlug}`;
 };
 
-const normalizePath = (value: string): string => {
-  const replaced = value.replace(/\\/g, '/');
-  if (replaced === '/') {
-    return '/';
-  }
-  return replaced.length > 1 ? replaced.replace(/\/+$/, '') : replaced;
-};
+const normalizePath = (value: string | null | undefined): string => normalizePathImpl(value) ?? '';
 
 export const registerMultiRunSession = (session: Session, directory: string): Session => {
   const normalizedDirectory = normalizePath(directory);
@@ -137,7 +133,7 @@ const resolveActiveProject = (): ProjectRef | null => {
 
   const currentDirectory = useDirectoryStore.getState().currentDirectory ?? null;
   if (currentDirectory && currentDirectory.trim().length > 0) {
-    const normalized = currentDirectory.replace(/\\/g, '/').replace(/\/+$/, '') || currentDirectory;
+    const normalized = normalizePath(currentDirectory) || currentDirectory;
     return { id: `path:${normalized}`, path: normalized };
   }
 
@@ -210,7 +206,7 @@ export const useMultiRunStore = create<MultiRunStore>()(
           const shouldIsolateRuns = isGit && params.isolateRuns !== false;
 
           const groupSlug = toGitSafeSlug(groupName) || 'multi-run';
-          const membershipGroup: MultiRunMembership['group'] = { kind: 'id', id: crypto.randomUUID() };
+          const membershipGroup: MultiRunMembership['group'] = { kind: 'id', id: generateUuid() };
           const rootBranch = shouldIsolateRuns ? await getRootBranch(directory) : undefined;
           assertCurrent();
           const rootTrackingRemote = shouldIsolateRuns ? await resolveRootTrackingRemote(directory) : null;
