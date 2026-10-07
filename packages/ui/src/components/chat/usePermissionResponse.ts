@@ -1,19 +1,27 @@
 import React from 'react';
 import type { PermissionReply, PermissionRequest } from '@/types/permission';
-import { useSessionUIStore } from '@/sync/session-ui-store';
+import { useChatColumnActions, useChatSessionSelection } from './chatColumnSession';
 import { useSessions } from '@/sync/sync-context';
 import { isPermissionAlreadyResolvedError } from '@/sync/permission-reply-classification';
 import * as sessionActions from '@/sync/session-actions';
 import { useI18n } from '@/lib/i18n';
 import { toast } from '@/components/ui';
 
-// Newest pending card owns the keyboard; older cards wait their turn.
-const activePermissionCardIds: string[] = [];
+type ColumnKind = 'main' | 'pinned';
+
+// Newest pending card of a chat owns that chat's keyboard; older cards wait
+// their turn. With a chat pinned in the side panel, each chat answers only the
+// keys pressed inside it (anywhere else counts as the main chat).
+const activePermissionCards: Array<{ id: string; column: ColumnKind }> = [];
+
+const columnOfEvent = (event: KeyboardEvent): ColumnKind => (
+  event.target instanceof Element && event.target.closest('[data-chat-column="pinned"]') ? 'pinned' : 'main'
+);
 
 /** The request was raised by a child of the session the user is looking at. */
 export const usePermissionFromSubagent = (permission: PermissionRequest): boolean => {
-  const sessions = useSessions();
-  const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
+  const { sessionId: currentSessionId, directory: currentSessionDirectory } = useChatSessionSelection();
+  const sessions = useSessions(currentSessionDirectory ?? undefined);
   return React.useMemo(() => {
     if (!currentSessionId || permission.sessionID === currentSessionId) return false;
     const sourceSession = sessions.find((session) => session.id === permission.sessionID);
@@ -30,6 +38,7 @@ export const usePermissionResponse = (
   permission: PermissionRequest,
   onResponse?: (response: PermissionReply) => void,
 ) => {
+  const column: ColumnKind = useChatColumnActions().pinned ? 'pinned' : 'main';
   const { t } = useI18n();
   const [isResponding, setIsResponding] = React.useState(false);
   const [hasResponded, setHasResponded] = React.useState(false);
@@ -67,9 +76,15 @@ export const usePermissionResponse = (
 
   React.useEffect(() => {
     if (hasResponded) return;
-    activePermissionCardIds.push(permission.id);
+    const card = { id: permission.id, column };
+    activePermissionCards.push(card);
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (activePermissionCardIds.at(-1) !== permission.id) return;
+      const target = columnOfEvent(event);
+      let owner: typeof card | undefined;
+      for (const entry of activePermissionCards) {
+        if (entry.column === target) owner = entry;
+      }
+      if (owner !== card) return;
       if (!event.altKey || event.metaKey || event.ctrlKey) return;
       const response = event.key === 'Enter'
         ? (event.shiftKey ? 'always' as const : 'once' as const)
@@ -84,10 +99,10 @@ export const usePermissionResponse = (
     window.addEventListener('keydown', handleKeyDown, true);
     return () => {
       window.removeEventListener('keydown', handleKeyDown, true);
-      const index = activePermissionCardIds.lastIndexOf(permission.id);
-      if (index !== -1) activePermissionCardIds.splice(index, 1);
+      const index = activePermissionCards.lastIndexOf(card);
+      if (index !== -1) activePermissionCards.splice(index, 1);
     };
-  }, [hasResponded, permission.id]);
+  }, [column, hasResponded, permission.id]);
 
   return { isResponding, hasResponded, respond };
 };

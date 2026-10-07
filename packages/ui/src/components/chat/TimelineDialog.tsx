@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useSessionMessageRecords } from '@/sync/sync-context';
+import { useChatSessionSelection } from './chatColumnSession';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Icon } from "@/components/icon/Icon";
 import { getCurrentIntlLocale, useI18n } from '@/lib/i18n';
@@ -40,8 +41,8 @@ export const TimelineDialog: React.FC<TimelineDialogProps> = ({
     onLoadEarlier,
 }) => {
     const { t } = useI18n();
-    const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
-    const messages = useSessionMessageRecords(currentSessionId ?? '');
+    const { sessionId: currentSessionId, directory: currentSessionDirectory } = useChatSessionSelection();
+    const messages = useSessionMessageRecords(currentSessionId ?? '', currentSessionDirectory ?? undefined);
     // A Claude Code session has no revert: the timeline only offers what its engine can do.
     const canRevert = useSessionEngineById(currentSessionId).capabilities.revert;
     const revertToMessage = useSessionUIStore((state) => state.revertToMessage);

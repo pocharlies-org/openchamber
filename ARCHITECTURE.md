@@ -22,7 +22,7 @@ Un producto, un servidor, varios clientes. Todos hablan con el mismo servidor No
 ## 2. Dependencias, en los dos sentidos
 
 **Del fork hacia fuera**
-- `openchamber/openchamber` (upstream): fuente de tags (`v2.1.0` hoy). Sync por `upstream-sync.yml` (a crear en DGX-517).
+- `openchamber/openchamber` (upstream): fuente de tags (`v2.1.0` hoy). Sync por `.github/workflows/upstream-sync.yml` + `docs/upstream-sync.md` (existe en `main`, DGX-517).
 - `@opencode/client` (OpenCode 2.x): único acceso a OpenCode desde la UI, vía `opencodeClient` (`packages/ui/src/lib/opencode/`); las formas de wire no salen de ahí. No se toca `../opencode`.
 - Claude Code CLI + Agent SDK (`listSessions`, transcript store) en el x86.
 - Apple (App Store Connect/TestFlight) y Android keystore para móvil; credenciales **solo** en GitHub `environment` protegido (hoy 0 secretos Apple; Request IT abierta).
@@ -31,7 +31,7 @@ Un producto, un servidor, varios clientes. Todos hablan con el mismo servidor No
 - **`~/.local/openchamber`** (la compañía y el visor lo consumen): `releases/<id>/` (instalación de `@openchamber/web`), symlinks `current` y `beta`, `.anterior`, `.lock`, `backups/`. Binario `current/bin/openchamber → ../lib/node_modules/@openchamber/web/bin/cli.js`. Quien publica una release actualiza el symlink; el rebrand **no** renombra ni mueve estas rutas ni el bin `openchamber` ni sus puertos. Un cambio de ruta/bin = entrada nueva junto a la vieja.
 - **Ids de sesión**: `ses_ccc…` (sesión Claude) y `ses_ccs…` (subagente Claude); el prefijo es solo fallback, manda `metadata.backend` (`server/lib/claude/v2-wire.js`). No cambian.
 - **Filing de Compañía**: `server/lib/claude/company-sessions.js` (`isCompanyClaudeSession`: patrones anclados a los prompts de despacho, cwd bajo `compania/` o `startupcompany/employees/`) estampa `metadata.company = true`; `server/lib/session-folders/auto-file.js` (`COMPANY_FOLDER_NAME = 'Compañía'`) escribe la carpeta en `sessions-directories.json` (`OPENCHAMBER_DATA_DIR`); la UI lo lee solo por `isCompanySession` (`packages/ui/src/components/session/sidebar/folders/companySessionFlag.ts`). Una sola regla; el hook de navegador `useCompanyAutoFolders` es legado. Los prompts de despacho de la compañía (`jira-epic-trigger`, supervisor, tech-lead) son un contrato implícito: cambiar sus aperturas rompe el filing.
-- API HTTP `/api/session*`, `/api/engines`, `/api/claude/*`: la consumen UI, compañía y visor.
+- API HTTP `/api/session*`, `/api/engines`, `/api/claude/*`: la consumen UI, compañía y visor. La superficie Claude consumida son `POST /api/session/:id/prompt` y `POST /api/session/:id/interrupt` (`server/lib/claude/routes.js`) — no `/prompt_async` ni `/abort`, que no existen aquí.
 
 ## 3. Motores de sesión (el seam de proveedor)
 
@@ -40,7 +40,7 @@ Ya existe y es la abstracción canónica; **no se crea otra**:
 - Cliente: `packages/ui/src/lib/sessionEngine.ts` — `SessionEngine = 'opencode' | 'claude'`, `SESSION_ENGINE_INFO`, `useSessionEngine`, `EngineUnsupportedError`; tabla de respaldo que refleja la del servidor.
 - Un motor no soportado responde con `UnsupportedOperationError` tipado, nunca reenvía al otro motor.
 
-Dos adaptadores reales (OpenCode, Claude) → seam legítimo. Añadir Codex = una entrada nueva en `ENGINES` + tabla del cliente + módulo `server/lib/<motor>/` con su ruta; sin tocar la UI salvo copy. Hoy `git grep -il codex` solo toca docs.
+Dos adaptadores reales (OpenCode, Claude) → seam legítimo. Añadir Codex = una entrada nueva en `ENGINES` + tabla del cliente + módulo `server/lib/<motor>/` con su ruta; sin tocar la UI salvo copy. No hay motor Codex: `ENGINES` no tiene entrada `codex` ni existe `server/lib/codex/`; lo que queda de `codex` es lectura de cuota (`fetchCodexQuota`), no ejecución.
 
 ## 4. Stack
 
@@ -80,17 +80,19 @@ Marca (tras DGX-514): `scripts/brand-allowlist.txt` (referencias históricas per
 | Tipos | `bun run type-check` |
 | Lint | `bun run lint`, `bun run lint:anti-slop` |
 | Changelog | `bun run changelog:check` |
+| Sync de upstream | `node --test scripts/upstream-sync.test.mjs` |
+| Guarda de workflows (llega con #112) | `node --test scripts/check-workflow-guard.test.mjs` |
 
 La suite web tiene fallos heredados de upstream; la puerta de PR del fork usa `vitest --changed` en web y suite completa en ui (ver `fork-pr-checks.yml`).
 
 ## 8. CI/CD y despliegue
 
-- **Regla de la org**: CI genérico en runners **ARC `arc-k8s`** (skill `ci-runners-arc`); la imagen no trae node ni bun (se instalan con checksum, patrón en `.github/workflows/fork-pr-checks.yml`). `ubuntu-latest`/`macos-*`/`windows-*` solo con motivo escrito en el workflow (firmar iOS/mac y empaquetar Windows requieren SO propio; repo público = minutos hosted gratis) y **nunca** con secretos en eventos de PR.
+- **Regla de la org**: CI genérico en runners **ARC `arc-k8s`** (skill `ci-runners-arc`); la imagen no trae node ni bun (se instalan con checksum, patrón en `.github/workflows/fork-pr-checks.yml`). `ubuntu-latest`/`macos-*`/`windows-*` solo con motivo escrito en el workflow (firmar iOS/mac y empaquetar Windows requieren SO propio; repo público = minutos hosted gratis) y **nunca** con secretos en eventos de PR. El paso node+bun canónico es el composite `.github/actions/setup-node-bun` (lo usan `fork-pr-checks.yml` y `upstream-sync.yml`); `release.yml`, `mobile-release.yml`, `sdk-preview.yml`, `vscode-extension.yml` y `mobile-ci.yml` aún llevan etiquetas `blacksmith-*` heredadas (seguimiento DGX-516).
 - **Repo público + runners de casa = ejecución remota por PR externa.** Guarda (DGX-515): 0 `runs-on: self-hosted|macbook|x86` en `pull_request`; 0 `pull_request_target` con secretos; todo job con secretos o runner propio tras `environment` con aprobación manual; aprobación obligatoria de workflows de colaboradores externos en la config del repo; un check automatizado con test de fixture que falla si reaparece.
 - Workflows de upstream (bots `pr-review`, `pr-intake`, `label-merge-conflict`, `issue-intake`, `oc-review`…) usan secretos de upstream (`OC_REVIEW_APP_*`, `ZHIPU_API_KEY`) y `pull_request_target`: se eliminan del fork (commit de la pila), no se editan línea a línea.
-- **Troncos hoy (medido 2026-10-06)**: `main` (d67dcca2) es un espejo del `main` de upstream; la línea propia vive en `build/v2.0.1-metrics` (127 commits por delante de `main`) y la pila rebasada sobre v2.1.0 en `stack-v2.1.0` (ce23059867, 364 commits por delante de `main`, contiene `v2.1.0`). Tras DGX-517 `main` pasa a ser la línea propia (PR de la pila a `main`, sin `--force` a ramas compartidas). Hasta entonces `fork-pr-checks.yml` apunta a `build/v2.0.1-metrics` y **debe repuntarse a `main`** al fusionar la pila. El repo no es GitOps: no hay ArgoCD; PR contra `main`, nunca push directo.
+- **Troncos hoy (medido 2026-10-06, tras DGX-517)**: `main` es la línea propia — la pila v2.1.0 se fusionó en `main` por la PR 111, y `fork-pr-checks.yml` apunta a `main`. La pila ya no es una rama viva: `stack-v2.1.0` (`build/v2.1.0-metrics`, ce23059867) queda solo como historia. Antes de eso `main` era espejo del de upstream y la línea propia vivía en `build/v2.0.1-metrics`. El repo no es GitOps: no hay ArgoCD; PR contra `main`, nunca push directo.
 - Release hoy: el workflow de build vive fuera, en `openchamber-build-pocharlies` (privado, runner del MacBook), que publica `releases/<id>` en `~/.local/openchamber`. DGX-516 lo sustituye por `release.yml`/`mobile-release.yml` del fork y lo retira. `current` solo cambia por paso explícito de la release.
-- Sync de upstream (`upstream-sync.yml`, DGX-517): `schedule` + `workflow_dispatch(dry_run)`, `arc-k8s`, rebase/cherry-pick de la pila propia sobre el último tag, run en `failure` si hay conflicto, issue con ficheros en conflicto y lista de commits propios. Ojo: `GITHUB_TOKEN` **no puede empujar cambios a `.github/workflows/`**; si el tag nuevo toca workflows, o el push va con un token de GitHub App en `environment: upstream-sync` (aprobación manual) o el run publica el reporte y deja el push a mano. Decidirlo por escrito en `docs/upstream-sync.md`.
+- Sync de upstream (`upstream-sync.yml` + `docs/upstream-sync.md`, DGX-517): `schedule` + `workflow_dispatch(dry_run)`, `arc-k8s`, rebase/cherry-pick de la pila propia sobre el último tag, run en `failure` si hay conflicto, issue con ficheros en conflicto y lista de commits propios. `GITHUB_TOKEN` **no puede empujar cambios a `.github/workflows/`**: la decisión (escrita en `docs/upstream-sync.md`) es **solo-reporte cuando el tag toca `.github/workflows`** — el run publica el reporte y el push queda a mano. Un token de GitHub App en `environment: upstream-sync` (aprobación manual) para empujar también esos casos queda como mejora.
 
 ## 9. Decisiones y trampas
 
