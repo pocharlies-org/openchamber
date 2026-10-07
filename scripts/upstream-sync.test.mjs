@@ -176,6 +176,29 @@ describe('upstream-sync', () => {
     git(fork, 'merge-base', '--is-ancestor', 'refs/upstream/tags/v1.2.0', result.branch);
   });
 
+  it('with 189 carried commits (merge-commit PR), the next sync carries each own commit once (no original plus copy)', () => {
+    const edits = Array.from({ length: 189 }, (_, i) => [`own/f-${i}.txt`, `${i}\n`, `own: ${i}`]);
+    const { upstream, fork } = makeFixture('trailers', { ownEdits: edits });
+    const first = runSync({ repoDir: fork, upstreamUrl: upstream });
+    assert.equal(first.applied.length, 189);
+    const trailers = git(fork, 'log', '--format=%B', `refs/upstream/tags/v1.1.0..${first.branch}`).match(/\(cherry picked from commit [0-9a-f]{40}\)/g);
+    assert.equal(trailers.length, 189);
+    git(fork, 'checkout', '-q', 'main');
+    git(fork, 'merge', '-q', '--no-ff', first.branch, '-m', `Merge pull request #1 from fork/${first.branch}`);
+    git(fork, 'update-ref', 'refs/remotes/origin/main', 'main');
+    commit(fork, 'own/new.txt', 'n\n', 'own: new after sync');
+    git(fork, 'update-ref', 'refs/remotes/origin/main', 'main');
+    commit(upstream, 'a.txt', 'one\nTWO upstream\nthree\nfour\n', 'upstream: edit four');
+    git(upstream, 'tag', 'v1.2.0');
+    const second = runSync({ repoDir: fork, upstreamUrl: upstream });
+    assert.equal(second.status, 'clean');
+    // the stack is rebuilt on the new tag: the 189 copies + the new commit; the 189 originals are recognised by their trailers and dropped
+    const subjects = second.applied.map((c) => c.replace(/^\S+ /, '')); // abbrev hash length grows with the repo
+    assert.equal(subjects.length, 190);
+    assert.equal(new Set(subjects).size, 190);
+    assert.equal(subjects.at(-1), 'own: new after sync');
+  });
+
   it('flags a tag that changes workflows so the run does not push', () => {
     const { upstream, fork } = makeFixture('wf', { ownEdits: clean, upstreamWorkflow: true });
     const result = runSync({ repoDir: fork, upstreamUrl: upstream });
