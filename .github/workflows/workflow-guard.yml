@@ -47,7 +47,11 @@ jobs:
           node --test scripts/check-workflow-guard.test.mjs
 
       - name: gitleaks (árbol e historial)
-        # Binario oficial con checksum; la imagen de arc-k8s no lo trae.
+        # Binario oficial con checksum; la imagen de arc-k8s no lo trae. Los
+        # DOS modos importan: `detect` recorre el historial pero salta los
+        # diffs de merge (lo que entra fusionado solo se ve en modo árbol), y
+        # `--no-git` no ve el historial. La config del repo (.gitleaks.toml,
+        # useDefault=true) se aplica en ambos.
         run: |
           set -euo pipefail
           version=8.30.1
@@ -58,3 +62,4 @@ jobs:
           echo "${expected}  ${archive}" | sha256sum --check --strict
           tar xzf "$archive" -C "$RUNNER_TEMP" gitleaks
           "$RUNNER_TEMP/gitleaks" detect --source . --no-banner --redact
+          "$RUNNER_TEMP/gitleaks" detect --source . --no-git --redact

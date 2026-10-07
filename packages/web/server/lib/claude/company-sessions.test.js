@@ -47,9 +47,9 @@ describe('isCompanyClaudeSession', () => {
   });
 
   it('accepts a maker worktree by its cwd even when the title is a summary', () => {
-    expect(isCompanyClaudeSession({ cwd: '/home/dibanez/compania/dev/SC-1327', summary: 'arreglar composer' })).toBe(true);
-    expect(isCompanyClaudeSession({ cwd: '/home/dibanez/startupcompany/employees/cto-office', summary: 'despacho del cto' })).toBe(true);
-    expect(isCompanyClaudeSession({ cwd: '/home/dibanez/k8s', summary: 'compania algo' })).toBe(false);
+    expect(isCompanyClaudeSession({ cwd: '/home/user/compania/dev/SC-1327', summary: 'arreglar composer' })).toBe(true);
+    expect(isCompanyClaudeSession({ cwd: '/home/user/startupcompany/employees/cto-office', summary: 'despacho del cto' })).toBe(true);
+    expect(isCompanyClaudeSession({ cwd: '/home/user/k8s', summary: 'compania algo' })).toBe(false);
   });
 
   it('rejects human sessions, including ones that merely mention a ticket', () => {
