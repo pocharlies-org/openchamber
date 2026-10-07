@@ -225,7 +225,7 @@
         return {
           name: appName,
           short_name: shortName,
-          description: 'Web interface companion for OpenCode AI coding agent',
+          description: 'One workspace for your AI coding agents: Claude and OpenCode',
           id: `${baseUrl}/`,
           start_url: `${baseUrl}/`,
           scope: `${baseUrl}/`,
@@ -233,7 +233,7 @@
           display_override: ['window-controls-overlay'],
           ...(manifestOrientation ? { orientation: manifestOrientation } : {}),
           background_color: '#151313',
-          theme_color: '#edb449',
+          theme_color: '#ee4f0c',
           icons: [
             { src: `${baseUrl}/pwa-192.png`, sizes: '192x192', type: 'image/png', purpose: 'any' },
             { src: `${baseUrl}/pwa-512.png`, sizes: '512x512', type: 'image/png', purpose: 'any' },
