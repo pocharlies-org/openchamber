@@ -1,5 +1,5 @@
 /**
- * Talks to the build pipeline that owns this fork.
+ * Talks to the release pipeline that owns this fork.
  *
  * WHY THIS EXISTS. The update button used to run the package manager's install
  * command, which pulls `@openchamber/web` from npm. That is upstream: it has no
@@ -8,31 +8,25 @@
  * 1.22.0 build to upstream 1.23.2 and every Claude session vanished from the
  * session list while the transcripts stayed on disk.
  *
- * So an update here is not a download. It is a request to the pipeline to
- * rebase our stack onto upstream, run the gates, and deploy only if they turn
- * green. This module is the only place that knows the pipeline's coordinates.
+ * So an update here is not a download. It is a request to the pipeline to build
+ * the fork trunk and publish it. Since DGX-516 the pipeline is the fork's own
+ * `release.yml` (the retired `openchamber-build-pocharlies` repo is gone).
+ * Publishing and promoting are not part of the run: they sit behind the
+ * protected `release` environment and the promotion runbook
+ * (`docs/release-promotion.md`), so one click cannot roll production forward on
+ * its own. This module is the only place that knows the pipeline's coordinates.
  */
 import { getGitHubAuth, isGhCliDisabled } from '../github/auth.js';
 import { getGhCliToken } from '../github/gh-cli-credential.js';
 
-export const PIPELINE_REPO = 'pocharlies-org/openchamber-build-pocharlies';
+export const PIPELINE_REPO = 'pocharlies-org/openchamber';
 
-/**
- * `build-todo` is the workflow that already exists and already does the whole
- * thing: build from one commit, install the candidate on the canary, run
- * Playwright against it, and promote only if that turns green -- inside the
- * 03:00-07:00 window, because promoting restarts the service and cuts live
- * sessions. Rebasing our stack onto upstream is a separate step that needs a
- * credential this pipeline does not have, so the button drives what exists
- * rather than a workflow that does not.
- */
-export const FORK_UPDATE_WORKFLOW = 'build-todo.yml';
+/** The fork's release workflow. An empty dispatch builds the trunk's current
+ *  package.json version; publishing waits on the protected environment. */
+export const FORK_UPDATE_WORKFLOW = 'release.yml';
 
 /** Branch of the pipeline repo the workflow runs from (not the app ref it builds). */
 export const PIPELINE_REF = 'main';
-
-/** The fork trunk the pipeline builds and promotes. */
-export const APP_TRUNK = 'build/v2.0.1-metrics';
 
 const DISPATCH_URL = `https://api.github.com/repos/${PIPELINE_REPO}/actions/workflows/${FORK_UPDATE_WORKFLOW}/dispatches`;
 const RUNS_URL = `https://api.github.com/repos/${PIPELINE_REPO}/actions/runs`;
@@ -156,22 +150,17 @@ export const dispatchForkUpdate = async (input = {}) => {
     return { started: false, reason: 'no-credential' };
   }
 
-  const ref = readString(input.ref);
-  const surfaces = readString(input.surfaces) || 'web';
-  const inputs = {
-    ref: ref || APP_TRUNK,
-    surfaces,
-    // The button means "update me", and an update that stops before promoting
-    // leaves the user on the version they already had.
-    desplegar: input.desplegar === false ? 'false' : 'true',
-  };
+  // `release.yml` takes no inputs for the common case: an empty dispatch
+  // builds the run's own ref at its current package.json version. A caller
+  // that names a ref gets the workflow running from that branch instead.
+  const ref = readString(input.ref) || PIPELINE_REF;
 
   let response;
   try {
     response = await githubFetch(fetchImpl, DISPATCH_URL, token, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ref: PIPELINE_REF, inputs }),
+      body: JSON.stringify({ ref, inputs: {} }),
     });
   } catch (error) {
     return { started: false, reason: 'unreachable', detail: error?.message || String(error) };

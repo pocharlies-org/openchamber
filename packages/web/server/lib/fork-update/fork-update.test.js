@@ -86,16 +86,31 @@ describe('dispatchForkUpdate', () => {
     expect(result).toEqual({ started: true });
   });
 
-  it('runs the workflow from the pipeline repo and builds the fork trunk', async () => {
+  it("dispatches the fork's release workflow from the trunk with no inputs", async () => {
+    let url;
     let sent;
     await dispatchForkUpdate({
       tokenOverride: 'tok',
+      fetchImpl: async (_url, init) => { url = _url; sent = JSON.parse(init.body); return emptyResponse(204); },
+    });
+
+    // DGX-516: the pipeline is the fork's own release.yml; an empty dispatch
+    // builds the run's ref at its current package.json version.
+    expect(url).toContain('pocharlies-org/openchamber/actions/workflows/release.yml/dispatches');
+    expect(sent.ref).toBe('main');
+    expect(sent.inputs).toEqual({});
+  });
+
+  it('routes a named ref to the workflow ref, not to an input', async () => {
+    let sent;
+    await dispatchForkUpdate({
+      tokenOverride: 'tok',
+      ref: 'feature/x',
       fetchImpl: async (_url, init) => { sent = JSON.parse(init.body); return emptyResponse(204); },
     });
 
-    // The top-level ref is a branch of the pipeline repo; the app ref travels as an input.
-    expect(sent.ref).toBe('main');
-    expect(sent.inputs.ref).toBe('build/v2.0.1-metrics');
+    expect(sent.ref).toBe('feature/x');
+    expect(sent.inputs).toEqual({});
   });
 
   it('labels an expired credential instead of reporting a generic failure', async () => {
