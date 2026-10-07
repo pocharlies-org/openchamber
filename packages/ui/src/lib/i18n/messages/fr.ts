@@ -2106,7 +2106,6 @@ export const dict = {
   'chat.statusRow.tasksTitle': 'Tâches',
   'chat.statusRow.modelStatus': '{model} · {status}',
   'chat.statusRow.summary.activeLeft': '{active} actif · {left} restant',
-  'chat.statusRow.aborted': 'Avorté',
   'chat.cacheTimer.expired': 'expired',
   'chat.cacheTimer.tooltip': 'Last response {ago} ago · prompt cache ({ttl}) expires in {left}',
   'chat.cacheTimer.tooltipExpired': 'Last response {ago} ago · prompt cache ({ttl}) expired: the next turn re-writes the whole context',
