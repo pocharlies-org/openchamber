@@ -8,6 +8,11 @@
 # comprobada una a una el 2026-10-07 contra el árbol y el historial del fork.
 # Lo que no esté aquí se trata como secreto real: `PARA SECURITY:` y ticket de
 # rotación; nunca una entrada nueva sin ese visto bueno.
+#
+# La clasificación como públicos de los GOCSPX, la API key de Firebase y los
+# client ids OAuth está PENDIENTE de security (SC-2056, abierta): toda la lista
+# es provisional y se cambia al veredicto de security cuando llegue, nunca
+# antes.
 
 title = "AgentChamber fork allowlist"
 
@@ -43,12 +48,15 @@ regexes = [
   # DEFAULT_LINEAR_CLIENT_ID (linear/auth.js, ya fuera del árbol): OAuth client
   # id — público por diseño, viaja en la URL de autorización.
   '''^91bbe26a69a2c8568d3683f1e01e776c$''',
-  # Client id OAuth de Claude Code / OpenCode (commit histórico 40be85a5, ya
-  # fuera del árbol): `CLAUDE_OAUTH_CLIENT_ID` — identificador público de un
-  # cliente OAuth de app instalada (RFC 8252, flujo PKCE): viaja en la URL de
-  # autorización y va embebido en el binario; el propio código upstream lo
-  # documenta «not a secret». Clasificación de públicos confirmada por
-  # security en la Request SC-2056 (nota del tech-lead), no definitiva.
+  # Client id OAuth de Claude Code / OpenCode (`CLAUDE_OAUTH_CLIENT_ID`): no
+  # está en el árbol ni en el historial de esta rama; gitleaks lo detecta con
+  # la regla `generic-api-key` en los commits 40be85a535 y 07738aa192 del ref
+  # publicado feat/pin-vscode-cloud-env-3a0b (gitleaks recorre todos los refs
+  # del repo). Identificador público de un cliente OAuth de app instalada
+  # (RFC 8252, flujo PKCE): viaja en la URL de autorización y va embebido en el
+  # binario; el propio código lo documenta «not a secret». Clasificación de
+  # público PENDIENTE de security (SC-2056, abierta): entrada provisional
+  # hasta su veredicto.
   '''^9d1c250a-e61b-44d9-88ed-5944d1962f5e$''',
   # Fixtures de test heredados de upstream (packages/web/server/lib/spaces/** y
   # company-office/webhook/receiver.test.js): claves falsas fijas escritas a
