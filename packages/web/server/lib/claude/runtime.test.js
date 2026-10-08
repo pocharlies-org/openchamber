@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import nodeCrypto from 'crypto';
+import v8 from 'node:v8';
+import vm from 'node:vm';
 
 import { createClaudeBackendRuntime, recordFingerprint } from './runtime.js';
 
@@ -291,6 +293,51 @@ describe('claude backend listSessions', () => {
     expect(peak).toBeLessThanOrEqual(8);
     // Same `lastModified` everywhere: the list keeps the order the SDK gave.
     expect(sessions.map((session) => session.title)).toEqual(infos.map((info) => `title of ${info.sessionId}`));
+  });
+
+  it('does not keep the transcript windows its fields were sliced from', async () => {
+    // The SDK reads 64 KB from each end of every transcript and returns its
+    // fields as substrings of them; V8 keeps the parent of a substring alive.
+    // A real heap measure: `gc` is not exposed to the worker, so ask V8 for it.
+    v8.setFlagsFromString('--expose-gc');
+    const collect = vm.runInNewContext('gc');
+    const heapUsed = () => {
+      collect();
+      collect();
+      return process.memoryUsage().heapUsed;
+    };
+    const SESSIONS = 300;
+    const WINDOW = 64 * 1024;
+    const sliceOf = (parent, part) => {
+      const at = parent.indexOf(part);
+      return parent.slice(at, at + part.length);
+    };
+    const makeInfos = () => Array.from({ length: SESSIONS }, (_, index) => {
+      const head = `${index}|00000000-0000-4000-8000-${String(index).padStart(12, '0')}|/repo/project/long/path-${index}|feature/branch-number-${index}|${'h'.repeat(WINDOW)}`;
+      const tail = `${index}|summary of session number ${index}|${'t'.repeat(WINDOW)}`;
+      return sessionInfo({
+        sessionId: sliceOf(head, `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`),
+        cwd: sliceOf(head, `/repo/project/long/path-${index}`),
+        gitBranch: sliceOf(head, `feature/branch-number-${index}`),
+        summary: sliceOf(tail, `summary of session number ${index}`),
+        customTitle: '',
+      });
+    });
+
+    const baseline = heapUsed();
+    let infos = makeInfos();
+    // A plain function: a `vi.fn` keeps every value it returned.
+    const { runtime } = createRuntime({ sdk: makeSdk({ listSessions: async () => infos }) });
+    const listed = await runtime.listSessions();
+    expect(listed).toHaveLength(SESSIONS);
+    expect(listed.find((session) => session.directory === '/repo/project/long/path-7').title).toBe('summary of session number 7');
+    infos = null;
+
+    // 300 x 2 x 64 KB = ~38 MB held by the substrings before the fix; under 1 MB after.
+    const retainedMb = (heapUsed() - baseline) / 1024 / 1024;
+    expect(retainedMb, 'MB still held after the list').toBeLessThan(8);
+    // The cache still serves the list it kept.
+    expect(await runtime.listSessions()).toHaveLength(SESSIONS);
   });
 
   it('maps SDK session info to harness sessions', async () => {

@@ -171,6 +171,12 @@ const transcriptExists = async (sdk, sessionId, directory) => {
   }
 };
 
+// The SDK reads the head and tail (64 KB each) of every transcript as strings
+// and hands out its fields as substrings of them; V8 keeps a substring's whole
+// parent alive, so the list cache retained ~2.6 GB for 5,000 sessions (DGX-671).
+// A copy of its own lets the parent go.
+const ownString = (value) => (typeof value === 'string' ? Buffer.from(value, 'utf8').toString('utf8') : value);
+
 const clampText = (value, max) => {
   const text = typeof value === 'string' ? value.trim() : '';
   if (!text) return '';
@@ -620,13 +626,16 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
   };
 
   const buildSessionFromInfo = async (info, fallbackDirectory) => {
+    // Also the cache keys below: a Map key that is a substring keeps its parent.
+    const sessionId = ownString(info.sessionId);
+    const cwd = ownString(info.cwd);
     let title = deriveClaudeTitle(info);
     // A generated VS Code name stamped as the newest custom title is not the
     // session's title: the one the conversation earned sits in an earlier
     // record, and when there is none, the `ai-title` below gets its say — the
     // stamp is no more a title than the Remote Control placeholder was.
     const generated = isClaudeGeneratedName(info?.customTitle);
-    const real = generated ? await realCustomTitleOf(info.sessionId, info.cwd || fallbackDirectory || undefined) : '';
+    const real = generated ? await realCustomTitleOf(sessionId, cwd || fallbackDirectory || undefined) : '';
     if (real) {
       title = clampText(real, 120);
     } else if (generated || isClaudeTitlePlaceholder(title) || !hasClaudeExplicitTitle(info)) {
@@ -634,7 +643,7 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
       // `ai-title`, the first prompt says what the session is about. Not the
       // SDK's `summary` — that is its display title, the stamp again.
       if (generated) {
-        const prompt = info.firstPrompt || await firstPromptOf(info.sessionId, info.cwd || fallbackDirectory || undefined);
+        const prompt = info.firstPrompt || await firstPromptOf(sessionId, cwd || fallbackDirectory || undefined);
         title = deriveClaudeTitle({ firstPrompt: prompt });
       }
       // VS Code names a session by its `custom-title` first and the `ai-title`
@@ -645,17 +654,18 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
       // the transcript's `ai-title` decides, and the two views agree. Without
       // one (a session with no turns yet) the fallback stays, honest about
       // being untitled.
-      const ai = await aiTitleOf(info.sessionId, info.cwd || fallbackDirectory || undefined);
+      const ai = await aiTitleOf(sessionId, cwd || fallbackDirectory || undefined);
       if (ai) title = clampText(ai, 120);
     }
     return buildSession({
-      sessionId: info.sessionId,
-      directory: info.cwd || fallbackDirectory || '',
-      title,
+      sessionId,
+      directory: cwd || fallbackDirectory || '',
+      // Clamped first: `buildSession` would slice the copy of a longer title again.
+      title: ownString(clampText(title, 120)),
       createdAt: info.createdAt ?? info.lastModified,
       updatedAt: info.lastModified,
       metadata: {
-        ...(info.gitBranch ? { gitBranch: info.gitBranch } : {}),
+        ...(info.gitBranch ? { gitBranch: ownString(info.gitBranch) } : {}),
         // The sidebar files these into the "Compañía" folder automatically.
         ...(isCompanyClaudeSession(info) ? { company: true } : {}),
       },
