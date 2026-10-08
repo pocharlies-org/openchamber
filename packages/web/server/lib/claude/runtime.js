@@ -10,6 +10,7 @@
  * Exposed to OpenChamber through the OpenCode-shaped session routes in `routes.js`.
  */
 
+import { createHash } from 'node:crypto';
 import os from 'os';
 import path from 'path';
 import { mapClaudeSessionMessages, deriveClaudeTitle, isClaudeTitlePlaceholder, isClaudeGeneratedName, hasClaudeExplicitTitle, findForkCut, findPromptUuid } from './claude-transcript.js';
@@ -22,6 +23,9 @@ import { isCompanyClaudeSession } from './company-sessions.js';
 const BACKEND_ID = 'claude';
 const PROVIDER_ID = 'claude';
 const LIST_CACHE_TTL_MS = 15_000;
+// A cold list reads the transcript of every session; this many at once keeps
+// the work (and the memory it holds) bounded however many sessions exist.
+const LIST_SCAN_CONCURRENCY = 8;
 // Listing reads the head of every transcript (~5 s for 1,600 of them). Past
 // the TTL a list younger than this is still served while a fresh read runs in
 // the background: the UI lists several directories at once and would otherwise
@@ -33,6 +37,9 @@ const DEFAULT_LIVE_POLL_MS = 2000;
 // A session whose messages were read this recently is being looked at: its
 // transcript is followed while another process writes it.
 const LIVE_FOLLOW_WINDOW_MS = 15 * 60 * 1000;
+// A live writer nobody is looking at has no transcript read at all: at most
+// this often per session its list row is rebuilt, and only if it changed.
+const LIVE_ROW_REFRESH_MS = 30_000;
 // A session nobody touched in this long counts as archived, as
 // opencode-archive-prune does for OpenCode's: nothing archives the transcripts
 // VS Code, Desktop and `claude -p` leave behind, and they were 1,600 on 25-09.
@@ -40,6 +47,30 @@ const DEFAULT_AUTO_ARCHIVE_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_MODE_ID = 'default';
 const DEFAULT_EFFORT_ID = 'high';
 const SDK_IMPORT_PATH = '@anthropic-ai/claude-agent-sdk';
+
+/** `fn` over `items`, at most `limit` at a time; results in the order of `items`. */
+const mapWithConcurrency = async (items, limit, fn) => {
+  const results = new Array(items.length);
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < items.length) {
+      const index = cursor++;
+      results[index] = await fn(items[index], index);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+};
+
+/**
+ * What a followed session remembers of a record it already published, to tell
+ * later whether it changed: its length and a hash, not the record (a transcript
+ * of 70 MB would otherwise be held twice). A change fingerprint, not security.
+ */
+export const recordFingerprint = (record) => {
+  const json = JSON.stringify(record);
+  return `${json.length}:${createHash('sha1').update(json).digest('base64')}`;
+};
 
 /** A fork named a record the transcript does not have (a stale view, or another session's id). */
 export class ClaudeForkPointNotFoundError extends Error {
@@ -253,6 +284,7 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     toPublicId = (id) => id,
     livePollMs = DEFAULT_LIVE_POLL_MS,
     liveFollowWindowMs = LIVE_FOLLOW_WINDOW_MS,
+    liveRowRefreshMs = LIVE_ROW_REFRESH_MS,
     // 0 turns automatic archiving off.
     autoArchiveAfterMs = DEFAULT_AUTO_ARCHIVE_AFTER_MS,
     // OpenChamber's auto-accept policy and routing safety net
@@ -298,7 +330,10 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
   };
   /** Map<sessionId, owner>: sessions live in a process that is not ours. */
   let foreignOwners = new Map();
-  /** Map<sessionId, { directory, readAt, lastModified, sent: Map<recordId, json> }> */
+  /**
+   * Map<sessionId, { directory, readAt, lastModified, sent: Map<recordId, fingerprint>, auto?, checkedAt? }>.
+   * `auto`: a live foreign writer nobody has opened (no view, no `sent`).
+   */
   const followed = new Map();
   let livePollTimer = null;
 
@@ -701,9 +736,11 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
           listRequest.dir = directory;
         }
         const infos = await sdk.listSessions(listRequest);
-        const scanned = await Promise.all((Array.isArray(infos) ? infos : [])
-          .filter((info) => info && typeof info.sessionId === 'string')
-          .map((info) => buildSessionFromInfo(info, directory)));
+        const scanned = await mapWithConcurrency(
+          (Array.isArray(infos) ? infos : []).filter((info) => info && typeof info.sessionId === 'string'),
+          LIST_SCAN_CONCURRENCY,
+          (info) => buildSessionFromInfo(info, directory),
+        );
         if (generation === listGeneration) {
           const at = staleness === listStaleness ? Date.now() : Date.now() - LIST_CACHE_TTL_MS;
           listCache.set(cacheKey, { at, sessions: scanned });
@@ -831,21 +868,56 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     }
   };
 
-  const recordJson = (record) => JSON.stringify(record);
-
+  /**
+   * A view read the transcript: from here on the session is followed in full
+   * (its changes are published as records), even if it began as an `auto` one.
+   */
   const rememberFollowed = (sessionId, directory, records) => {
-    const entry = followed.get(sessionId) || { directory, lastModified: null, sent: new Map() };
+    const entry = followed.get(sessionId) || { directory, lastModified: null };
     entry.directory = directory;
     entry.readAt = Date.now();
-    entry.sent = new Map(records.map((record) => [record.info.id, recordJson(record)]));
+    entry.auto = false;
+    entry.sent = new Map(records.map((record) => [record.info.id, recordFingerprint(record)]));
     followed.set(sessionId, entry);
   };
 
+  /** The list row of a session, rebuilt from its SDK info and published. */
+  const publishRow = async (info, directory) => {
+    const session = await buildSessionFromInfo(info, directory);
+    if (session) emitSessionUpdate('session.updated', withLiveState(withArchiveState(session)));
+  };
+
   /**
-   * Re-read a transcript another process is writing and publish only the
-   * records that changed since the last read, as the live stream of an owned
-   * session would have. Record ids are stable across reads, so the front end
-   * updates in place.
+   * A live foreign writer nobody has opened: its transcript is not read (tens
+   * of MB parsed whole, for every writer every poll, is what filled the heap),
+   * only its list row follows it. `getSessionInfo` is asked at most once per
+   * `liveRowRefreshMs` per session — and that clock runs even when the SDK
+   * throws, so a failing call cannot become a retry every poll. The one
+   * exception is the last look once the writer is gone (`final`).
+   */
+  const refreshLiveRow = async (sdk, sessionId, entry, { final }) => {
+    const now = Date.now();
+    if (!final && entry.checkedAt !== undefined && now - entry.checkedAt < liveRowRefreshMs) return;
+    entry.checkedAt = now;
+    let info;
+    try {
+      info = await sdk.getSessionInfo?.(sessionId, entry.directory ? { dir: entry.directory } : {});
+    } catch {
+      return;
+    }
+    const lastModified = info?.lastModified ?? null;
+    if (lastModified === null || lastModified === entry.lastModified) return;
+    // First sight: the list just gave this row, only note where the transcript is.
+    const first = entry.lastModified === null;
+    entry.lastModified = lastModified;
+    if (!first) await publishRow(info, entry.directory);
+  };
+
+  /**
+   * Re-read a transcript another process is writing, which a view is showing,
+   * and publish only the records that changed since the last read, as the live
+   * stream of an owned session would have. Record ids are stable across reads,
+   * so the front end updates in place.
    */
   const refreshFollowed = async (sdk, sessionId, entry) => {
     let info;
@@ -861,28 +933,17 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
     if (first && entry.sent.size > 0) return;
     const records = await getMessages({ sessionID: sessionId, directory: entry.directory, internal: true });
     const directory = entry.directory;
-    const refreshRow = async () => {
-      const session = await buildSessionFromInfo(info, directory);
-      if (session) emitSessionUpdate('session.updated', withLiveState(withArchiveState(session)));
-    };
-    // A follow opened by the live-writer lease below: no view waits on its
-    // history, so the first read only seeds the diff base.
-    if (first && entry.auto) {
-      entry.sent = new Map(records.map((record) => [record.info.id, recordJson(record)]));
-      await refreshRow();
-      return;
-    }
     let flushed = 0;
     for (const record of records) {
-      const json = recordJson(record);
-      if (entry.sent.get(record.info.id) === json) continue;
-      entry.sent.set(record.info.id, json);
+      const fingerprint = recordFingerprint(record);
+      if (entry.sent.get(record.info.id) === fingerprint) continue;
+      entry.sent.set(record.info.id, fingerprint);
       emitRecordEvents(directory, record);
       flushed += 1;
     }
     // The list row (title, time.updated, company flag) moves with the
     // transcript; without this the sidebar keeps the row as it was listed.
-    if (flushed > 0) await refreshRow();
+    if (flushed > 0) await publishRow(info, directory);
   };
 
   const readOwners = () => liveRegistry.read({ ignoreParentPid: selfPid });
@@ -962,7 +1023,8 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
       // that just exited, for its last lines) needs the transcript followed.
       if (processes.has(sessionId)) continue;
       if (!owners.has(sessionId) && !previous.has(sessionId)) continue;
-      await refreshFollowed(sdk, sessionId, entry);
+      if (entry.auto) await refreshLiveRow(sdk, sessionId, entry, { final: !owners.has(sessionId) });
+      else await refreshFollowed(sdk, sessionId, entry);
     }
   };
 
@@ -970,12 +1032,15 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
    * The front end still shows this session: keep following its transcript.
    * Answers whether the lease was dead when it renewed — a follow that lapsed
    * (a sleeping laptop, a throttled tab) starts over, and the caller has to pull
-   * the transcript to cover the gap the stream never carried.
+   * the transcript to cover the gap the stream never carried. An `auto` follow
+   * has no base for that view either: it lapses too, and the transcript the
+   * caller then pulls (`getMessages`) is what turns it into a full follow.
    */
   const keepFollowing = async (input = {}) => {
     const sessionId = typeof input.sessionID === 'string' ? input.sessionID.trim() : '';
     if (!sessionId) return { lapsed: false };
     const entry = followed.get(sessionId);
+    if (entry?.auto) return { lapsed: true };
     if (entry) {
       entry.readAt = Date.now();
       return { lapsed: false };
@@ -1694,7 +1759,9 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
       if (owner) {
         if (!remoteAttach || !owner.bridgeSessionId) throw new ClaudeSessionLiveElsewhereError(owner);
         // Follow the transcript so the owner's answer streams here.
-        if (!followed.has(sessionId)) await getMessages({ sessionID: sessionId, directory: directory || owner.cwd });
+        // (An `auto` follow publishes no records: only a read of the transcript makes it one.)
+        const following = followed.get(sessionId);
+        if (!following || following.auto) await getMessages({ sessionID: sessionId, directory: directory || owner.cwd });
         // Only a model or effort picked in the composer: the owner keeps its own otherwise.
         const pickedModel = typeof input.model?.modelID === 'string' ? input.model.modelID.trim() : '';
         if (pickedModel) await remoteAttach.setModel(owner.bridgeSessionId, pickedModel);
