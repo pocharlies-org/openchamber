@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
+import { BRAND_URL_SCHEME } from '@/lib/brand';
 import {
   buildPairingConnectionPayload,
   encodePairingConnectionPayload,
@@ -25,7 +26,7 @@ describe('connection payload helpers', () => {
 
     const encoded = encodePairingConnectionPayload(payload);
 
-    expect(encoded.startsWith('openchamber://connect?v=2&p=')).toBe(true);
+    expect(encoded.startsWith(`${BRAND_URL_SCHEME}://connect?v=2&p=`)).toBe(true);
     expect(parsePairingConnectionPayload(encoded)).toEqual({
       ...payload,
       candidates: [
@@ -124,17 +125,23 @@ describe('parsePairingConnectionPayloadString (Android WebView fallback)', () =>
   });
 
   test('recovers a link whose scheme/host case the URL parser would reject', () => {
-    const mixedCase = encoded.replace('openchamber://connect', 'OpenChamber://CONNECT');
+    const mixedCase = encoded.replace(`${BRAND_URL_SCHEME}://connect`, `${BRAND_URL_SCHEME.toUpperCase()}://CONNECT`);
     expect(parsePairingConnectionPayload(mixedCase)).toBeNull();
     expect(parsePairingConnectionPayloadString(mixedCase)).toEqual(parsePairingConnectionPayload(encoded));
   });
 
   test('tolerates a trailing slash and reordered query params', () => {
-    const trailingSlash = encoded.replace('openchamber://connect?', 'openchamber://connect/?');
+    const trailingSlash = encoded.replace(`${BRAND_URL_SCHEME}://connect?`, `${BRAND_URL_SCHEME}://connect/?`);
     expect(parsePairingConnectionPayloadString(trailingSlash)).toEqual(parsePairingConnectionPayload(encoded));
 
     const p = encoded.slice(encoded.indexOf('p=') + 2);
-    expect(parsePairingConnectionPayloadString(`openchamber://connect?p=${p}&v=2`)).toEqual(parsePairingConnectionPayload(encoded));
+    expect(parsePairingConnectionPayloadString(`${BRAND_URL_SCHEME}://connect?p=${p}&v=2`)).toEqual(parsePairingConnectionPayload(encoded));
+  });
+
+  test('links minted with the legacy openchamber scheme still parse', () => {
+    const legacy = encoded.replace(`${BRAND_URL_SCHEME}://`, 'openchamber://');
+    expect(parsePairingConnectionPayload(legacy)).toEqual(parsePairingConnectionPayload(encoded));
+    expect(parsePairingConnectionPayloadString(legacy)).toEqual(parsePairingConnectionPayload(encoded));
   });
 
   test('still rejects non-pairing and malformed payloads', () => {

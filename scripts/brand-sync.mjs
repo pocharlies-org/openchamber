@@ -9,38 +9,45 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { z } from 'zod';
 import { brandMarkMarkup } from './lib/brand-mark.mjs';
 
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const at = (relative) => join(ROOT, relative);
 const read = (relative) => readFileSync(at(relative), 'utf8');
 
-const fail = (message) => { throw new Error(`brand/brand.json: ${message}`); };
+const text = z.string().trim().min(1);
+const BrandSchema = z.strictObject({
+  name: z.string().regex(/^[a-z][a-z0-9-]*$/, 'lowercase letters, digits and dashes'),
+  displayName: text.max(12, 'must fit the iOS home-screen label (12 characters)'),
+  productName: text,
+  appId: z.string().regex(/^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*){2,}$/, 'a lowercase reverse-DNS id'),
+  urlScheme: z.string().regex(/^[a-z][a-z0-9+.-]*$/, 'a lowercase URL scheme'),
+  description: text,
+  themeColor: z.string().regex(/^#[0-9a-f]{6}$/i, '#rrggbb'),
+  repo: z.strictObject({ owner: text, name: text }),
+  icons: z.strictObject({ app: text, macos: text, small: text, mono: text }),
+  legacy: z.strictObject({
+    userDataDir: text,
+    urlSchemes: z.array(text).min(1, 'list the schemes the old builds registered'),
+    names: z.array(text),
+    deviceLabels: z.array(text),
+    nsisGuid: z.uuid(),
+  }),
+}).refine((brand) => !brand.legacy.urlSchemes.includes(brand.urlScheme), {
+  path: ['urlScheme'],
+  message: 'must differ from every legacy scheme: two apps claiming one scheme is a coin toss on iOS',
+});
 
-export function validateBrand(brand) {
-  const text = (value, label) => (typeof value === 'string' && value.trim() ? value : fail(`${label} must be a non-empty string`));
-  text(brand.name, 'name');
-  if (!/^[a-z][a-z0-9-]*$/.test(brand.name)) fail('name must be lowercase letters, digits and dashes');
-  if (text(brand.displayName, 'displayName').length > 12) fail('displayName must fit the iOS home-screen label (12 characters)');
-  text(brand.productName, 'productName');
-  if (!/^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*){2,}$/.test(text(brand.appId, 'appId'))) fail('appId must be a lowercase reverse-DNS id');
-  const legacySchemes = brand.legacy?.urlSchemes;
-  if (!Array.isArray(legacySchemes) || legacySchemes.length === 0) fail('legacy.urlSchemes must list the schemes the old builds registered');
-  if (!/^[a-z][a-z0-9+.-]*$/.test(text(brand.urlScheme, 'urlScheme'))) fail('urlScheme must be a lowercase URL scheme');
-  if (legacySchemes.includes(brand.urlScheme)) fail('urlScheme must differ from every legacy scheme: two apps claiming one scheme is a coin toss on iOS');
-  text(brand.description, 'description');
-  if (!/^#[0-9a-f]{6}$/i.test(text(brand.themeColor, 'themeColor'))) fail('themeColor must be #rrggbb');
-  text(brand.repo?.owner, 'repo.owner');
-  text(brand.repo?.name, 'repo.name');
-  for (const key of ['app', 'macos', 'small', 'mono']) {
-    if (!existsSync(at(text(brand.icons?.[key], `icons.${key}`)))) fail(`icons.${key} does not exist: ${brand.icons[key]}`);
+export function validateBrand(value) {
+  const parsed = BrandSchema.safeParse(value);
+  if (!parsed.success) {
+    throw new Error(`brand/brand.json: ${parsed.error.issues.map((issue) => `${issue.path.join('.') || '(root)'} ${issue.message}`).join('; ')}`);
   }
-  text(brand.legacy?.userDataDir, 'legacy.userDataDir');
-  for (const key of ['names', 'deviceLabels']) {
-    if (!Array.isArray(brand.legacy?.[key])) fail(`legacy.${key} must be a list`);
+  for (const path of Object.values(parsed.data.icons)) {
+    if (!existsSync(at(path))) throw new Error(`brand/brand.json: icon master does not exist: ${path}`);
   }
-  if (!/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(text(brand.legacy?.nsisGuid, 'legacy.nsisGuid'))) fail('legacy.nsisGuid must be a UUID');
-  return brand;
+  return parsed.data;
 }
 
 export const readBrand = () => validateBrand(JSON.parse(read('brand/brand.json')));
