@@ -493,6 +493,7 @@ describe('Long paragraphs', () => {
     expect(html.match(/href="https:\/\/example\.com"/g)).toHaveLength(200);
   });
 
+  // The dump takes seconds under CI load; the guard is the scan counter, not the clock.
   test('the data dump from the report opens without the quadratic rescan', async () => {
     resetMarkdownHtmlCacheForTests();
     const text = dataDump();
@@ -509,7 +510,7 @@ describe('Long paragraphs', () => {
     expect(hrefOf(html)).toBe('https://example.com/docs');
     expect(html).toContain('class="katex"');
     expect(settled.map((block) => block.html).join('')).toContain('item_1799');
-  });
+  }, 30_000);
 });
 
 describe('Many short paragraphs', () => {
