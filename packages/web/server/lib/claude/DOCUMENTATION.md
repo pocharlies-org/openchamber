@@ -18,7 +18,7 @@ the way the Claude Code VS Code extension drives its panel.
 | `claude-requests.js` | Claude Code asking the user (`canUseTool`): permission prompts, `AskUserQuestion` forms, plan approvals. |
 | `claude-tools.js` | Claude Code tool calls as OpenCode v2 tool parts (names, input keys, diffs, subagent links). |
 | `claude-transcript.js` | Transcript records → OpenChamber records (read back). |
-| `transcript-sidecar.js` | What the SDK's reader drops: structured tool results (`toolUseResult`), subagent `.meta.json`. |
+| `transcript-sidecar.js` | What the SDK's reader drops: structured tool results (`toolUseResult`), subagent `.meta.json`; and the title lookups (`ai-title`, real `custom-title`, first prompt). Transcripts are read as streams, one line at a time (they run to hundreds of MB), never whole; the session list builds its sessions 8 at a time (`LIST_SCAN_CONCURRENCY` in `runtime.js`). |
 | `v2-wire.js` | Internal events → OpenCode 2 wire events; records → v2 shapes. |
 | `live-sessions.js`, `remote-attach.js` | Sessions live in another CLI process; writing to them through Remote Control. |
 | `account.js` | The Claude Code account these sessions run as: its status, and the sign-in that changes it. |
@@ -61,6 +61,7 @@ the dialog opens on them. Nothing here changes a session already running.
 | `AskUserQuestion` dialog with "Other" | A form: one field per question (`string`/`multiselect`, `custom: true`); the answer goes back as the tool's `answers` (multi-select comma-separated). A cancelled form refuses. |
 | Plan review | `ExitPlanMode` → a permission with `action: 'plan_exit'`, `metadata.plan`. `once` = approve, ask before edits; `always` = approve, edit automatically; `reject` + message = keep planning with that feedback. |
 | Subagents: live rows, agent map, read-only transcript, stop | `task_started` links the call (`metadata.sessionID`) and announces the child (`session.created`, busy); the subagent's own frames (`parent_tool_use_id`) stream into the child session; `task_notification` ends it. `GET /api/session?parentID=` lists children (live and from disk). |
+| A session another CLI process is writing (VS Code, terminal) | Every live writer's list row follows it without reading its transcript: at most one `getSessionInfo` per session every 30 s (`LIVE_ROW_REFRESH_MS`), and the row is rebuilt only if the transcript changed (a last look, unthrottled, when the writer exits). Opening it (`GET …/message`) makes it a full follow: each poll republishes only the records whose fingerprint (length + sha1) changed, as an owned session's live stream would. `POST /api/session/:id/claude/follow` answers `lapsed: true` to a session not yet followed in full, and the client then pulls the transcript. |
 | Diffs | Edits carry `metadata.files[{file, patch, additions, deletions}]`: exact hunks from `structuredPatch` when known, else built from the call's strings. |
 | To-do list | `TodoWrite` and the task tools render as a checklist; `TaskCreate` results carry `metadata.task` so updates find their task. |
 | Context indicator | `result.modelUsage[].contextWindow` → `metadata.claude.contextWindow`; tokens per API message (not per content block). |
