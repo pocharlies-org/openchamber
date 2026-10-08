@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import nodeCrypto from 'crypto';
 
-import { createClaudeBackendRuntime } from './runtime.js';
+import { createClaudeBackendRuntime, recordFingerprint } from './runtime.js';
 
 const HOME = '/home/test';
 const OVERLAY_FILE = '/state/claude-sessions.json';
@@ -1543,6 +1543,211 @@ describe('claude backend sessions live in another process', () => {
       .filter((p) => p.type === 'message.part.updated' && p.properties.part.text === 'hola');
     expect(userEchoes).toHaveLength(0);
     await runtime.shutdownAll();
+  });
+
+  describe('a live writer nobody has opened', () => {
+    const events = (publishEvent, type) => publishEvent.mock.calls.map(([e]) => e.payload).filter((p) => p.type === type);
+    const secondPoll = (liveRegistry) => vi.waitFor(() => expect(liveRegistry.read.mock.calls.length).toBeGreaterThanOrEqual(2));
+
+    it('never reads its transcript: only its list row follows it', async () => {
+      const publishEvent = vi.fn();
+      let lastModified = 100;
+      const sdk = makeSdk({
+        getSessionInfo: vi.fn(async () => sessionInfo({ lastModified })),
+        getSessionMessages: vi.fn(async () => []),
+      });
+      const read = vi.fn(async () => ({ toolResults: new Map(), subagents: new Map() }));
+      const liveRegistry = makeRegistry([owner()]);
+      const { runtime } = createRuntime({
+        sdk,
+        publishEvent,
+        liveRegistry,
+        livePollMs: 5,
+        liveRowRefreshMs: 15,
+        transcriptSidecar: { locate: async () => '/transcripts/sess-1.jsonl', read },
+      });
+
+      await runtime.listSessions({ directory: '/repo/project' });
+      await secondPoll(liveRegistry);
+      const rows = () => events(publishEvent, 'session.updated').length;
+      const rowsBefore = rows();
+      // The writer keeps writing: every poll finds a newer transcript.
+      const writer = setInterval(() => { lastModified += 1; }, 2);
+      await vi.waitFor(() => expect(rows()).toBeGreaterThanOrEqual(rowsBefore + 3));
+      clearInterval(writer);
+
+      expect(sdk.getSessionMessages).not.toHaveBeenCalled();
+      expect(read).not.toHaveBeenCalled();
+      expect(events(publishEvent, 'message.part.updated')).toHaveLength(0);
+      await runtime.shutdownAll();
+    });
+
+    it('looks at a session at most once per refresh window, however often the writer writes', async () => {
+      vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
+      try {
+        const WRITERS = 26;
+        const WINDOW = 200;
+        const publishEvent = vi.fn();
+        const ids = Array.from({ length: WRITERS }, (_, index) => `sess-${index}`);
+        let tick = 100;
+        const asked = [];
+        const sdk = makeSdk({
+          // Newer on every look: the transcript changes at every poll.
+          getSessionInfo: vi.fn(async (sessionId) => {
+            asked.push({ sessionId, at: Date.now() });
+            tick += 1;
+            return sessionInfo({ sessionId, lastModified: tick });
+          }),
+        });
+        const liveRegistry = makeRegistry(ids.map((sessionId) => owner({ sessionId, pid: 1000 + Number(sessionId.slice(5)) })));
+        const { runtime } = createRuntime({ sdk, publishEvent, liveRegistry, livePollMs: 10, liveRowRefreshMs: WINDOW });
+
+        await runtime.listSessions({ directory: '/repo/project' });
+        // The first polls: each writer is seen once, nothing more is asked of it yet.
+        await vi.advanceTimersByTimeAsync(30);
+        asked.length = 0;
+        publishEvent.mockClear();
+
+        await vi.advanceTimersByTimeAsync(3 * WINDOW);
+
+        for (const sessionId of ids) {
+          const looks = asked.filter((look) => look.sessionId === sessionId).map((look) => look.at);
+          expect(looks.length).toBeGreaterThanOrEqual(1);
+          expect(looks.length).toBeLessThanOrEqual(3);
+          for (let i = 1; i < looks.length; i += 1) expect(looks[i] - looks[i - 1]).toBeGreaterThanOrEqual(WINDOW);
+        }
+        expect(asked.length).toBeLessThanOrEqual(WRITERS * 3);
+        const rowsOf = (sessionId) => events(publishEvent, 'session.updated').filter((p) => p.properties.info.id === sessionId);
+        for (const sessionId of ids) expect(rowsOf(sessionId).length).toBeLessThanOrEqual(3);
+        await runtime.shutdownAll();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('does not turn a failing getSessionInfo into a retry at every poll', async () => {
+      vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
+      try {
+        const sdk = makeSdk({ getSessionInfo: vi.fn(async () => { throw new Error('sdk down'); }) });
+        const liveRegistry = makeRegistry([owner()]);
+        const { runtime } = createRuntime({ sdk, liveRegistry, livePollMs: 10, liveRowRefreshMs: 200 });
+
+        await runtime.listSessions({ directory: '/repo/project' });
+        await vi.advanceTimersByTimeAsync(30);
+        sdk.getSessionInfo.mockClear();
+        await vi.advanceTimersByTimeAsync(600);
+
+        expect(sdk.getSessionInfo.mock.calls.length).toBeLessThanOrEqual(3);
+        await runtime.shutdownAll();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('takes one last look, without waiting, when the writer exits: the row moves only if the transcript did', async () => {
+      const publishEvent = vi.fn();
+      const modified = { moved: 100, still: 100 };
+      const sdk = makeSdk({
+        getSessionInfo: vi.fn(async (sessionId) => sessionInfo({ sessionId, lastModified: modified[sessionId] })),
+      });
+      const liveRegistry = makeRegistry([owner({ sessionId: 'moved' }), owner({ sessionId: 'still', pid: 4243 })]);
+      // A window nothing in this test outlasts: only the last look can see the change.
+      const { runtime } = createRuntime({ sdk, publishEvent, liveRegistry, livePollMs: 5, liveRowRefreshMs: 600_000 });
+      const rowsOf = (sessionId) => events(publishEvent, 'session.updated').filter((p) => p.properties.info.id === sessionId);
+
+      await runtime.listSessions({ directory: '/repo/project' });
+      await secondPoll(liveRegistry);
+      modified.moved = 200;
+      const polls = liveRegistry.read.mock.calls.length;
+      await vi.waitFor(() => expect(liveRegistry.read.mock.calls.length).toBeGreaterThanOrEqual(polls + 3));
+      // Still alive: the window has not run out, so the row was not touched.
+      expect(rowsOf('moved')).toHaveLength(0);
+
+      liveRegistry.state.owners.clear();
+      // The exit itself publishes the session once; the last look adds the new row of the one that moved.
+      await vi.waitFor(() => expect(rowsOf('moved')).toHaveLength(2));
+      expect(rowsOf('moved').at(-1).properties.info.time.updated).toBe(200);
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      expect(rowsOf('still')).toHaveLength(1);
+      await runtime.shutdownAll();
+    });
+
+    it('becomes a full follow when a view reads it, and publishes only what changes after that', async () => {
+      const publishEvent = vi.fn();
+      let lastModified = 100;
+      let transcript = [
+        { type: 'user', uuid: 'u1', timestamp: '2026-09-23T00:00:00.000Z', message: { role: 'user', content: 'hola' } },
+      ];
+      const sdk = makeSdk({
+        getSessionInfo: vi.fn(async () => sessionInfo({ lastModified })),
+        getSessionMessages: vi.fn(async () => transcript),
+      });
+      const liveRegistry = makeRegistry([owner()]);
+      const { runtime } = createRuntime({ sdk, publishEvent, liveRegistry, livePollMs: 5 });
+      const texts = () => events(publishEvent, 'message.part.updated').map((p) => p.properties.part.text);
+
+      await runtime.listSessions({ directory: '/repo/project' });
+      await secondPoll(liveRegistry);
+      // Followed without a view: it has no base to catch up from, so the view is told to pull.
+      await expect(runtime.keepFollowing({ sessionID: 'sess-1', directory: '/repo/project' }))
+        .resolves.toEqual({ lapsed: true });
+      expect(sdk.getSessionMessages).not.toHaveBeenCalled();
+
+      const history = await runtime.getMessages({ sessionID: 'sess-1', directory: '/repo/project' });
+      expect(history).toHaveLength(1);
+      await expect(runtime.keepFollowing({ sessionID: 'sess-1', directory: '/repo/project' }))
+        .resolves.toEqual({ lapsed: false });
+
+      transcript = [
+        ...transcript,
+        { type: 'assistant', uuid: 'a1', timestamp: '2026-09-23T00:00:01.000Z', message: { id: 'api_1', role: 'assistant', content: [{ type: 'text', text: 'ya con vista' }] } },
+      ];
+      lastModified = 200;
+      await vi.waitFor(() => expect(texts()).toContain('ya con vista'));
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      // The history the view already has is not sent again, and the news only once.
+      expect(texts()).toEqual(['ya con vista']);
+      await runtime.shutdownAll();
+    });
+
+    it('streams the answer of a claude.ai-attached writer even when it was only followed as a row', async () => {
+      const publishEvent = vi.fn();
+      let lastModified = 100;
+      let transcript = [
+        { type: 'user', uuid: 'u1', timestamp: '2026-09-23T00:00:00.000Z', message: { role: 'user', content: 'hola' } },
+      ];
+      const sdk = makeSdk({
+        getSessionInfo: vi.fn(async () => sessionInfo({ lastModified })),
+        getSessionMessages: vi.fn(async () => transcript),
+      });
+      const liveRegistry = makeRegistry([owner()]);
+      const remoteAttach = { send: vi.fn(async () => {}), closeAll: vi.fn() };
+      const { runtime } = createRuntime({ sdk, publishEvent, liveRegistry, remoteAttach, livePollMs: 5 });
+
+      await runtime.listSessions({ directory: '/repo/project' });
+      await secondPoll(liveRegistry);
+      await runtime.promptAsync({ sessionID: 'sess-1', directory: '/repo/project', parts: [{ type: 'text', text: 'dime' }] });
+      expect(remoteAttach.send).toHaveBeenCalled();
+
+      transcript = [
+        ...transcript,
+        { type: 'assistant', uuid: 'a1', timestamp: '2026-09-23T00:00:01.000Z', message: { id: 'api_1', role: 'assistant', content: [{ type: 'text', text: 'respuesta del escritor' }] } },
+      ];
+      lastModified = 200;
+      await vi.waitFor(() => expect(events(publishEvent, 'message.part.updated').map((p) => p.properties.part.text)).toContain('respuesta del escritor'));
+      await runtime.shutdownAll();
+    });
+  });
+
+  it('remembers a record by a short fingerprint, not by the record', () => {
+    const record = { info: { id: 'm1' }, parts: [{ type: 'text', text: 'x'.repeat(1024 * 1024) }] };
+    const fingerprint = recordFingerprint(record);
+    expect(fingerprint.length).toBeLessThan(64);
+    expect(recordFingerprint({ ...record })).toBe(fingerprint);
+    // Same length, one character different: still a change.
+    const edited = { ...record, parts: [{ type: 'text', text: `${'x'.repeat(1024 * 1024 - 1)}y` }] };
+    expect(recordFingerprint(edited)).not.toBe(fingerprint);
+    expect(recordFingerprint({ ...record, parts: [] })).not.toBe(fingerprint);
   });
 });
 
