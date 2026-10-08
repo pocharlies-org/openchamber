@@ -7,7 +7,9 @@ const ROOTS = ['packages/ui/src', 'packages/electron', 'packages/mobile'];
 const lines = readFileSync(new URL('./brand-allowlist.txt', import.meta.url), 'utf8').split('\n');
 const entries = lines.filter((l) => l && !l.startsWith('#'));
 const reviewedTotal = Number(lines.find((l) => l.startsWith('# reviewed-total:'))?.split(':')[1]);
-const mentions = execSync(`git grep -il openchamber -- ${ROOTS.join(' ')}`, { encoding: 'utf8' }).split('\n').filter(Boolean);
+// The copy of brand/brand.json is the seam itself (its legacy block names the old product on purpose).
+const SEAM_COPIES = new Set(['packages/ui/src/lib/brand.json']);
+const mentions = execSync(`git grep -il openchamber -- ${ROOTS.join(' ')}`, { encoding: 'utf8' }).split('\n').filter((f) => f && !SEAM_COPIES.has(f));
 
 test('the allowlist is paths with a reason, not patterns', () => {
   let why = false;

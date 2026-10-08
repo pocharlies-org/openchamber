@@ -77,8 +77,25 @@ jobs:
       version_name: ${{ steps.version.outputs.version_name }}
       build_number: ${{ steps.version.outputs.build_number }}
       release_tag: ${{ steps.version.outputs.release_tag }}
+      product_name: ${{ steps.brand.outputs.product_name }}
+      slug: ${{ steps.brand.outputs.slug }}
+      app_id: ${{ steps.brand.outputs.app_id }}
+      url_scheme: ${{ steps.brand.outputs.url_scheme }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The product's name, app id and URL scheme live in brand/brand.json: nothing is set as a repository variable.
+      - name: Read the brand
+        id: brand
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "product_name=$(node -p "require('./brand/brand.json').productName")"
+            echo "slug=$(node -p "require('./brand/brand.json').name")"
+            echo "app_id=$(node -p "require('./brand/brand.json').appId")"
+            echo "url_scheme=$(node -p "require('./brand/brand.json').urlScheme")"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Resolve version values
         id: version
@@ -159,7 +176,7 @@ jobs:
       - name: Upload Android artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: openchamber-android-${{ needs.resolve-version.outputs.version_name }}-${{ needs.resolve-version.outputs.build_number }}
+          name: ${{ needs.resolve-version.outputs.slug }}-android-${{ needs.resolve-version.outputs.version_name }}-${{ needs.resolve-version.outputs.build_number }}
           path: |
             packages/mobile/android/app/build/outputs/bundle/release/*.aab
             packages/mobile/android/app/build/outputs/apk/release/*.apk
@@ -169,6 +186,7 @@ jobs:
         if: inputs.upload_github_release && needs.resolve-version.outputs.release_tag != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRAND_PRODUCT_NAME: ${{ needs.resolve-version.outputs.product_name }}
           RELEASE_TAG: ${{ needs.resolve-version.outputs.release_tag }}
           VERSION_NAME: ${{ needs.resolve-version.outputs.version_name }}
           BUILD_NUMBER: ${{ needs.resolve-version.outputs.build_number }}
@@ -176,8 +194,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p release-assets
-          cp app/build/outputs/bundle/release/*.aab "release-assets/OpenChamber-${VERSION_NAME}-${BUILD_NUMBER}-android.aab"
-          cp app/build/outputs/apk/release/*.apk "release-assets/OpenChamber-${VERSION_NAME}-${BUILD_NUMBER}-android.apk"
+          cp app/build/outputs/bundle/release/*.aab "release-assets/${BRAND_PRODUCT_NAME}-${VERSION_NAME}-${BUILD_NUMBER}-android.aab"
+          cp app/build/outputs/apk/release/*.apk "release-assets/${BRAND_PRODUCT_NAME}-${VERSION_NAME}-${BUILD_NUMBER}-android.apk"
           files=(
             app/build/outputs/bundle/release/*.aab
             app/build/outputs/apk/release/*.apk
@@ -192,16 +210,14 @@ jobs:
     runs-on: blacksmith-6vcpu-macos-26
     needs: resolve-version
     env:
-      # A fork signs with its own Apple team, where com.openchamber.app is not
-      # available: set the repository variable IOS_BUNDLE_ID and the build
-      # rewrites the bundle ids and App Group at build time, so the committed
-      # project keeps upstream's ids and merges from upstream stay clean.
-      IOS_BUNDLE_ID: ${{ vars.IOS_BUNDLE_ID || 'com.openchamber.app' }}
-      # Such a build must not register openchamber:// too — with two apps
-      # claiming it iOS opens either one. IOS_URL_SCHEME (openchamber-<suffix>,
-      # the form deepLinks.ts accepts) replaces it in Info.plist and in the
+      # The brand's app id is not the id committed in the Xcode project (com.openchamber.app): the build rewrites the
+      # bundle ids and the App Group at build time, so the project keeps its native ids and merges stay clean.
+      IOS_BUNDLE_ID: ${{ needs.resolve-version.outputs.app_id }}
+      # The only URL scheme this app registers. The older openchamber:// is still accepted by every parser but never
+      # claimed here: with two apps claiming it iOS opens either one. It replaces the scheme in Info.plist and in the
       # widget/Control Center URLs.
-      IOS_URL_SCHEME: ${{ vars.IOS_URL_SCHEME || 'openchamber' }}
+      IOS_URL_SCHEME: ${{ needs.resolve-version.outputs.url_scheme }}
+      BRAND_PRODUCT_NAME: ${{ needs.resolve-version.outputs.product_name }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -270,7 +286,6 @@ jobs:
         run: bun run mobile:sync
 
       - name: Apply iOS bundle id
-        if: env.IOS_BUNDLE_ID != 'com.openchamber.app'
         shell: bash
         run: |
           set -euo pipefail
@@ -288,16 +303,15 @@ jobs:
         working-directory: ${{ env.IOS_PROJECT_DIR }}
 
       - name: Apply iOS URL scheme
-        if: env.IOS_BUNDLE_ID != 'com.openchamber.app' || env.IOS_URL_SCHEME != 'openchamber'
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "$IOS_URL_SCHEME" == 'openchamber' ]]; then
-            echo "IOS_BUNDLE_ID is overridden but IOS_URL_SCHEME is not: the app would claim openchamber:// alongside the official one."
+          if [[ ! "$IOS_URL_SCHEME" =~ ^[a-z][a-z0-9+.-]*$ ]]; then
+            echo "urlScheme in brand/brand.json must be a lowercase URL scheme, got: $IOS_URL_SCHEME"
             exit 1
           fi
-          if [[ ! "$IOS_URL_SCHEME" =~ ^openchamber-[a-z0-9.+-]+$ ]]; then
-            echo "IOS_URL_SCHEME must look like openchamber-<suffix> (lowercase), got: $IOS_URL_SCHEME"
+          if [[ "$IOS_URL_SCHEME" == 'openchamber' ]]; then
+            echo "urlScheme in brand/brand.json is the legacy openchamber: the app would claim it alongside any other app that does."
             exit 1
           fi
           /usr/libexec/PlistBuddy -c "Set :CFBundleURLTypes:0:CFBundleURLSchemes:0 $IOS_URL_SCHEME" App/Info.plist
@@ -388,7 +402,7 @@ jobs:
             -scheme App \
             -configuration Release \
             -destination 'generic/platform=iOS' \
-            -archivePath "$RUNNER_TEMP/OpenChamber.xcarchive" \
+            -archivePath "$RUNNER_TEMP/${BRAND_PRODUCT_NAME}.xcarchive" \
             "OTHER_CODE_SIGN_FLAGS=--keychain $RUNNER_TEMP/app-signing.keychain-db"
         working-directory: ${{ env.IOS_PROJECT_DIR }}
 
@@ -434,16 +448,16 @@ jobs:
           </plist>
           PLIST
           xcodebuild -exportArchive \
-            -archivePath "$RUNNER_TEMP/OpenChamber.xcarchive" \
-            -exportPath "$RUNNER_TEMP/OpenChamberExport" \
+            -archivePath "$RUNNER_TEMP/${BRAND_PRODUCT_NAME}.xcarchive" \
+            -exportPath "$RUNNER_TEMP/${BRAND_PRODUCT_NAME}Export" \
             -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist"
         working-directory: ${{ env.IOS_PROJECT_DIR }}
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
-          name: openchamber-ios-${{ needs.resolve-version.outputs.version_name }}-${{ needs.resolve-version.outputs.build_number }}
-          path: ${{ runner.temp }}/OpenChamberExport/*.ipa
+          name: ${{ needs.resolve-version.outputs.slug }}-ios-${{ needs.resolve-version.outputs.version_name }}-${{ needs.resolve-version.outputs.build_number }}
+          path: ${{ runner.temp }}/${{ needs.resolve-version.outputs.product_name }}Export/*.ipa
           if-no-files-found: error
 
       - name: Upload to TestFlight
@@ -458,6 +472,6 @@ jobs:
           printf '%s' "$APP_STORE_CONNECT_PRIVATE_KEY_BASE64" | base64 -D > "$HOME/private_keys/AuthKey_${APP_STORE_CONNECT_KEY_ID}.p8"
           xcrun altool --upload-app \
             --type ios \
-            --file "$RUNNER_TEMP/OpenChamberExport/App.ipa" \
+            --file "$RUNNER_TEMP/${BRAND_PRODUCT_NAME}Export/App.ipa" \
             --apiKey "$APP_STORE_CONNECT_KEY_ID" \
             --apiIssuer "$APP_STORE_CONNECT_ISSUER_ID"
