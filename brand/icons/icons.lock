@@ -1,0 +1,14 @@
+{
+  "icons": {
+    "app": "brand/icons/triora-icon.svg",
+    "macos": "brand/icons/triora-icon-macos.svg",
+    "small": "brand/icons/triora-glyph-small.svg",
+    "mono": "brand/icons/triora-glyph-mono.svg"
+  },
+  "sha256": {
+    "app": "ccc4646ff55b8023573f20299b82d0a98eeae3ad9f926d8156350d344393d4fb",
+    "macos": "b5b3bfabaf76e3166b59e788e1a8cccc9be94d010f3558908df02174b86c096f",
+    "small": "643dc8ba578aa4761029297edf94ccba70546b8d79302caee7df5a84de13de21",
+    "mono": "b8b69a35d6143e371c13eaa91ad778909562589018dec6ddebe99f3b0f0e0ecf"
+  }
+}
