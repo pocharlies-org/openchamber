@@ -224,6 +224,38 @@ describe('claude backend listSessions', () => {
     expect(session.title).toBe('first prompt');
   });
 
+  it('reads at most eight transcripts at a time and keeps the order of the list', async () => {
+    const SESSIONS = 50;
+    let reading = 0;
+    let peak = 0;
+    const readAiTitle = vi.fn(async (sessionId) => {
+      reading += 1;
+      peak = Math.max(peak, reading);
+      // Finish out of order: the last ones are quickest.
+      await new Promise((resolve) => setTimeout(resolve, (SESSIONS - Number(sessionId.slice(5))) % 7));
+      reading -= 1;
+      return `title of ${sessionId}`;
+    });
+    const infos = Array.from({ length: SESSIONS }, (_, index) => sessionInfo({
+      sessionId: `sess-${index}`,
+      customTitle: '',
+      summary: '',
+      firstPrompt: '',
+    }));
+    const { runtime } = createRuntime({
+      sdk: makeSdk({ listSessions: vi.fn(async () => infos) }),
+      fs: Object.assign(makeFs(), { stat: vi.fn(async () => ({ mtimeMs: 123 })) }),
+      transcriptSidecar: { locate: async (sessionId) => `/transcripts/${sessionId}.jsonl`, readAiTitle },
+    });
+
+    const sessions = await runtime.listSessions({ directory: '/repo/project' });
+    expect(readAiTitle).toHaveBeenCalledTimes(SESSIONS);
+    expect(peak).toBeGreaterThan(1);
+    expect(peak).toBeLessThanOrEqual(8);
+    // Same `lastModified` everywhere: the list keeps the order the SDK gave.
+    expect(sessions.map((session) => session.title)).toEqual(infos.map((info) => `title of ${info.sessionId}`));
+  });
+
   it('maps SDK session info to harness sessions', async () => {
     const { runtime } = createRuntime({
       sdk: makeSdk({ listSessions: vi.fn(async () => [sessionInfo()]) }),

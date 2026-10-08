@@ -1,6 +1,7 @@
 import fsDefault from 'fs';
 import osDefault from 'os';
 import pathDefault from 'path';
+import readline from 'readline';
 import { isClaudeGeneratedName, isClaudeTitlePlaceholder } from './claude-transcript.js';
 
 /**
@@ -33,11 +34,13 @@ export const projectSlug = (directory) => String(directory || '').replace(/[^a-z
 /**
  * @param {object} [options]
  * @param {typeof fsDefault.promises} [options.fsPromises]
+ * @param {typeof fsDefault.createReadStream} [options.createReadStream] How a transcript is read: line by line, never whole
  * @param {typeof pathDefault} [options.path]
  * @param {string} [options.configDir] Claude Code's config directory (CLAUDE_CONFIG_DIR, else ~/.claude)
  */
 export const createTranscriptSidecar = ({
   fsPromises = fsDefault.promises,
+  createReadStream = fsDefault.createReadStream,
   path = pathDefault,
   configDir = process.env.CLAUDE_CONFIG_DIR || pathDefault.join(osDefault.homedir(), '.claude'),
 } = {}) => {
@@ -51,6 +54,34 @@ export const createTranscriptSidecar = ({
     } catch {
       return false;
     }
+  };
+
+  /**
+   * Calls `onLine` with each line of a transcript; a `true` answer stops the
+   * read. A transcript runs to hundreds of MB (images pasted into it): one
+   * line at a time keeps memory at the longest line, not the file. A read
+   * error rejects, so each reader answers empty rather than partial.
+   */
+  const forEachLine = async (file, onLine) => {
+    const stream = createReadStream(file, { encoding: 'utf8' });
+    const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
+    // Without a listener a transcript that vanishes after `locate` (ENOENT,
+    // EIO) is an uncaught exception that takes the whole server down.
+    let failure = null;
+    stream.once('error', (error) => {
+      failure = error;
+      rl.close();
+    });
+    try {
+      for await (const line of rl) {
+        if (onLine(line) === true) break;
+      }
+    } finally {
+      // Closing the interface pauses the stream but keeps its descriptor.
+      rl.close();
+      stream.destroy();
+    }
+    if (failure) throw failure;
   };
 
   /** The transcript file of a session, or null when there is none (yet). */
@@ -85,27 +116,25 @@ export const createTranscriptSidecar = ({
    */
   const readToolResults = async (file) => {
     const results = new Map();
-    let raw;
     try {
-      raw = await fsPromises.readFile(file, 'utf8');
-    } catch {
-      return results;
-    }
-    for (const line of raw.split('\n')) {
-      if (!line.includes('"toolUseResult"')) continue;
-      let entry;
-      try {
-        entry = JSON.parse(line);
-      } catch {
-        continue;
-      }
-      if (!isRecord(entry.toolUseResult)) continue;
-      const blocks = Array.isArray(entry.message?.content) ? entry.message.content : [];
-      for (const block of blocks) {
-        if (block?.type === 'tool_result' && typeof block.tool_use_id === 'string') {
-          results.set(block.tool_use_id, entry.toolUseResult);
+      await forEachLine(file, (line) => {
+        if (!line.includes('"toolUseResult"')) return;
+        let entry;
+        try {
+          entry = JSON.parse(line);
+        } catch {
+          return;
         }
-      }
+        if (!isRecord(entry.toolUseResult)) return;
+        const blocks = Array.isArray(entry.message?.content) ? entry.message.content : [];
+        for (const block of blocks) {
+          if (block?.type === 'tool_result' && typeof block.tool_use_id === 'string') {
+            results.set(block.tool_use_id, entry.toolUseResult);
+          }
+        }
+      });
+    } catch {
+      return new Map();
     }
     return results;
   };
@@ -176,22 +205,20 @@ export const createTranscriptSidecar = ({
   const readAiTitle = async (sessionId, directory) => {
     const file = await locate(sessionId, directory);
     if (!file) return '';
-    let raw;
+    let title = '';
     try {
-      raw = await fsPromises.readFile(file, 'utf8');
+      await forEachLine(file, (line) => {
+        if (!line.includes('"ai-title"')) return;
+        let entry;
+        try {
+          entry = JSON.parse(line);
+        } catch {
+          return;
+        }
+        if (typeof entry.aiTitle === 'string' && entry.aiTitle.trim()) title = entry.aiTitle.trim();
+      });
     } catch {
       return '';
-    }
-    let title = '';
-    for (const line of raw.split('\n')) {
-      if (!line.includes('"ai-title"')) continue;
-      let entry;
-      try {
-        entry = JSON.parse(line);
-      } catch {
-        continue;
-      }
-      if (typeof entry.aiTitle === 'string' && entry.aiTitle.trim()) title = entry.aiTitle.trim();
     }
     return title;
   };
@@ -207,22 +234,20 @@ export const createTranscriptSidecar = ({
   const readRealCustomTitle = async (sessionId, directory) => {
     const file = await locate(sessionId, directory);
     if (!file) return '';
-    let raw;
+    const titles = [];
     try {
-      raw = await fsPromises.readFile(file, 'utf8');
+      await forEachLine(file, (line) => {
+        if (!line.includes('"custom-title"')) return;
+        let entry;
+        try {
+          entry = JSON.parse(line);
+        } catch {
+          return;
+        }
+        if (typeof entry.customTitle === 'string' && entry.customTitle.trim()) titles.push(entry.customTitle.trim());
+      });
     } catch {
       return '';
-    }
-    const titles = [];
-    for (const line of raw.split('\n')) {
-      if (!line.includes('"custom-title"')) continue;
-      let entry;
-      try {
-        entry = JSON.parse(line);
-      } catch {
-        continue;
-      }
-      if (typeof entry.customTitle === 'string' && entry.customTitle.trim()) titles.push(entry.customTitle.trim());
     }
     if (titles.length === 0) return '';
     const newest = titles[titles.length - 1];
@@ -242,29 +267,28 @@ export const createTranscriptSidecar = ({
   const readFirstPrompt = async (sessionId, directory) => {
     const file = await locate(sessionId, directory);
     if (!file) return '';
-    let raw;
+    let prompt = '';
     try {
-      raw = await fsPromises.readFile(file, 'utf8');
+      await forEachLine(file, (line) => {
+        if (!line.includes('"type":"user"')) return;
+        let entry;
+        try {
+          entry = JSON.parse(line);
+        } catch {
+          return;
+        }
+        if (entry.type !== 'user' || entry.isMeta || entry.isCompactSummary || entry.isSidechain) return;
+        const content = entry.message?.content;
+        const parts = typeof content === 'string' ? [content] : Array.isArray(content)
+          ? content.filter((part) => part?.type === 'text' && typeof part.text === 'string').map((part) => part.text)
+          : [];
+        prompt = parts.map((part) => part.trim()).filter((part) => part && !part.startsWith('<')).join(' ').replace(/\s+/g, ' ');
+        return Boolean(prompt);
+      });
     } catch {
       return '';
     }
-    for (const line of raw.split('\n')) {
-      if (!line.includes('"type":"user"')) continue;
-      let entry;
-      try {
-        entry = JSON.parse(line);
-      } catch {
-        continue;
-      }
-      if (entry.type !== 'user' || entry.isMeta || entry.isCompactSummary || entry.isSidechain) continue;
-      const content = entry.message?.content;
-      const parts = typeof content === 'string' ? [content] : Array.isArray(content)
-        ? content.filter((part) => part?.type === 'text' && typeof part.text === 'string').map((part) => part.text)
-        : [];
-      const text = parts.map((part) => part.trim()).filter((part) => part && !part.startsWith('<')).join(' ').replace(/\s+/g, ' ');
-      if (text) return text;
-    }
-    return '';
+    return prompt;
   };
 
   return { locate, read, readSubagent, readAiTitle, readRealCustomTitle, readFirstPrompt, projectsDir };

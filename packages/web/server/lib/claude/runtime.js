@@ -22,6 +22,9 @@ import { isCompanyClaudeSession } from './company-sessions.js';
 const BACKEND_ID = 'claude';
 const PROVIDER_ID = 'claude';
 const LIST_CACHE_TTL_MS = 15_000;
+// A cold list reads the transcript of every session; this many at once keeps
+// the work (and the memory it holds) bounded however many sessions exist.
+const LIST_SCAN_CONCURRENCY = 8;
 // Listing reads the head of every transcript (~5 s for 1,600 of them). Past
 // the TTL a list younger than this is still served while a fresh read runs in
 // the background: the UI lists several directories at once and would otherwise
@@ -40,6 +43,20 @@ const DEFAULT_AUTO_ARCHIVE_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_MODE_ID = 'default';
 const DEFAULT_EFFORT_ID = 'high';
 const SDK_IMPORT_PATH = '@anthropic-ai/claude-agent-sdk';
+
+/** `fn` over `items`, at most `limit` at a time; results in the order of `items`. */
+const mapWithConcurrency = async (items, limit, fn) => {
+  const results = new Array(items.length);
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < items.length) {
+      const index = cursor++;
+      results[index] = await fn(items[index], index);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+};
 
 /** A fork named a record the transcript does not have (a stale view, or another session's id). */
 export class ClaudeForkPointNotFoundError extends Error {
@@ -701,9 +718,11 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
           listRequest.dir = directory;
         }
         const infos = await sdk.listSessions(listRequest);
-        const scanned = await Promise.all((Array.isArray(infos) ? infos : [])
-          .filter((info) => info && typeof info.sessionId === 'string')
-          .map((info) => buildSessionFromInfo(info, directory)));
+        const scanned = await mapWithConcurrency(
+          (Array.isArray(infos) ? infos : []).filter((info) => info && typeof info.sessionId === 'string'),
+          LIST_SCAN_CONCURRENCY,
+          (info) => buildSessionFromInfo(info, directory),
+        );
         if (generation === listGeneration) {
           const at = staleness === listStaleness ? Date.now() : Date.now() - LIST_CACHE_TTL_MS;
           listCache.set(cacheKey, { at, sessions: scanned });
