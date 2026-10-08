@@ -1,4 +1,5 @@
 import { getRegisteredRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
+import { BRAND_URL_SCHEMES } from '@/lib/brand';
 
 type DesktopBridgeGlobal = {
   openExternal?: (url: string) => Promise<unknown>;
@@ -52,8 +53,8 @@ const BLOCKED_APP_LINK_SCHEMES = new Set([
   // Historically abused Windows handlers can invoke diagnostic, shell, or
   // file-search flows that must not be offered from untrusted chat content.
   'ms-msdt', 'search-ms', 'shell',
-  // OpenChamber's own schemes must not be re-launched from chat content
-  'openchamber', 'openchamber-ui', 'capacitor',
+  // The app's own schemes must not be re-launched from chat content
+  ...BRAND_URL_SCHEMES, 'openchamber-ui', 'capacitor',
 ]);
 
 const APP_LINK_SCHEME_RE = /^[a-z][a-z0-9+.-]{1,31}$/;

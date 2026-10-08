@@ -1,8 +1,9 @@
 import type { CapacitorConfig } from '@capacitor/cli';
+import brand from '../../brand/brand.json';
 
 const config: CapacitorConfig = {
-  appId: 'com.pocharlies.agentchamber',
-  appName: 'AgentChamber',
+  appId: brand.appId,
+  appName: brand.displayName,
   webDir: 'dist',
   server: {
     androidScheme: 'https',

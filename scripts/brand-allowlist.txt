@@ -2,7 +2,7 @@
 # One path per line (never a pattern). A "# why:" line gives the reason for every path below it.
 # scripts/brand-allowlist.test.mjs fails if this list grows past the reviewed total, if a path no longer
 # mentions openchamber (remove it), or if a file outside the list mentions it.
-# reviewed-total: 679
+# reviewed-total: 675
 
 # why: Tests and fixtures: they assert the contract identifiers below, or feed legacy names on purpose.
 packages/electron/linux-app-discovery.test.mjs
@@ -225,10 +225,8 @@ packages/mobile/ios/App/App/App.entitlements
 packages/mobile/ios/App/App/AppDelegate.swift
 packages/mobile/ios/App/App/Info.plist
 packages/mobile/ios/App/App/PrivacyInfo.xcprivacy
-packages/mobile/ios/App/OpenChamberNotificationService/Info.plist
 packages/mobile/ios/App/OpenChamberNotificationService/NotificationService.swift
 packages/mobile/ios/App/OpenChamberNotificationService/OpenChamberNotificationService.entitlements
-packages/mobile/ios/App/OpenChamberWidget/Info.plist
 packages/mobile/ios/App/OpenChamberWidget/OpenChamberControl.swift
 packages/mobile/ios/App/OpenChamberWidget/OpenChamberWidget.entitlements
 packages/mobile/ios/App/OpenChamberWidget/OpenChamberWidgets.swift
@@ -322,7 +320,6 @@ packages/ui/src/apps/deepLinkNavigation.ts
 packages/ui/src/apps/deepLinks.ts
 packages/ui/src/apps/mobileConnectionDebug.ts
 packages/ui/src/apps/mobileConnections.ts
-packages/ui/src/apps/mobileQrScan.ts
 packages/ui/src/apps/mobileWidgetSnapshot.ts
 packages/ui/src/apps/renderMobileApp.tsx
 packages/ui/src/apps/useEdgeSwipe.ts
@@ -514,7 +511,6 @@ packages/ui/src/lib/chunkLoadRecovery.ts
 packages/ui/src/lib/claudeAccount.ts
 packages/ui/src/lib/claudeCacheClock.ts
 packages/ui/src/lib/claudeSessionMetadata.ts
-packages/ui/src/lib/connectionPayload.ts
 packages/ui/src/lib/contextObligatoryMessages.ts
 packages/ui/src/lib/debug.ts
 packages/ui/src/lib/desktop.ts

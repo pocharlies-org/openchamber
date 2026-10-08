@@ -290,7 +290,7 @@ const AuthShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
 const LoadingScreen: React.FC = () => (
   <div className="flex min-h-dvh items-center justify-center bg-[var(--splash-background,var(--surface-background))] text-foreground">
-    <OpenChamberLogo width={120} height={120} variant="splash" />
+    <OpenChamberLogo width={120} height={120} />
   </div>
 );
 

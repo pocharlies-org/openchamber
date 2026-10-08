@@ -1,10 +1,10 @@
-# ARCHITECTURE.md — AgentChamber (fork de OpenChamber)
+# ARCHITECTURE.md — Triora (fork de OpenChamber)
 
 > Escrito por el architect de la compañía (DGX-513, 2026-10-06). Lo medido está fechado; si algo contradice el repo, se corrige en el mismo cambio. Repo: `pocharlies-org/openchamber` (público, fork de `openchamber/openchamber`). Árbol de trabajo real en el x86: `~/src/openchamber-fork` (`~/k8s/openchamber-fork` es un clon vacío, solo `.git`).
 
 ## 1. Qué es y clientes
 
-AgentChamber es el fork de la compañía de OpenChamber: una UI web/escritorio/móvil para agentes de código, con dos motores de sesión lado a lado — **OpenCode** (nativo) y **Claude Code** (`packages/web/server/lib/claude`) — y la arquitectura preparada (sin código de ejecución) para un tercero (Codex). «Fork oficial» = fork oficial de la compañía; **no** implica respaldo de upstream (sin respuesta de Bohdan a 2026-09-30). MIT cubre el código, no la marca ni el scope `@openchamber/*`.
+Triora (nombre provisional anterior: AgentChamber) es el fork de la compañía de OpenChamber: una UI web/escritorio/móvil para agentes de código, con dos motores de sesión lado a lado — **OpenCode** (nativo) y **Claude Code** (`packages/web/server/lib/claude`) — y la arquitectura preparada (sin código de ejecución) para un tercero (Codex). «Fork oficial» = fork oficial de la compañía; **no** implica respaldo de upstream (sin respuesta de Bohdan a 2026-09-30). MIT cubre el código, no la marca ni el scope `@openchamber/*`.
 
 Un producto, un servidor, varios clientes. Todos hablan con el mismo servidor Node (`packages/web/server`) y pintan la misma UI React (`packages/ui`):
 
@@ -61,8 +61,16 @@ Dos adaptadores reales (OpenCode, Claude) → seam legítimo. Añadir Codex = un
 | Tipos de panel de terceros | `packages/sdk` (no copiar a `packages/ui`) |
 | i18n | `packages/ui/src/lib/i18n/messages/*` (paridad Claude: `claude-parity.i18n.ts`) |
 | Datos de iconos/sprites | `scripts/generate-*-sprite.mjs` |
+| Marca (nombre, ids, iconos) | `brand/brand.json` (a mano, datos puros) + `brand/icons/*.svg` (maestros del designer) → `scripts/brand-sync.mjs` y `scripts/build-brand-icons.mjs` |
 
-Marca (tras DGX-514): `scripts/brand-allowlist.txt` (referencias históricas permitidas, motivo por entrada) + test que falla si crece sin revisión. Nombre: `packages/ui/src/lib/brand.ts` (`BRAND_NAME`, `BRAND_REPO_URL`), `packages/electron/brand.mjs` (`APP_NAME`) y `packages/web/server/lib/brand.js` (`APP_NAME`, `REPO_SLUG`: respuestas del servidor, releases y changelog). El actualizador de Electron (`build.publish` = `PRODUCTION_UPDATER_FEED`) y los enlaces de release apuntan al fork; `scripts/upstream-slug.test.mjs` falla si reaparece el slug de upstream.
+**Marca (DGX-513 P7/P9): una fuente, dos guiones, tres fachadas.** `brand/brand.json` fija `name`, `displayName` (≤12), `productName`, `appId` (el mismo para Electron, Capacitor e iOS), `urlScheme`, `repo`, `social` (canales propios `discord` y `x`; Triora no tiene ninguno y va `{}`: Acerca de y el menú Ayuda de escritorio no pintan la fila), `themeColor`, las rutas de icono y el bloque `legacy` (`userDataDir`, `urlSchemes`, `names`, `deviceLabels`, `nsisGuid`). Quién lee qué:
+
+- **Lo importan**: `packages/ui/src/lib/brand.ts` y `packages/web/server/lib/brand.js` (fachadas con los exports de siempre: `BRAND_NAME`, `APP_NAME`, `REPO_SLUG`, `PWA_*`…) leen sus copias `brand.json` (idénticas byte a byte, las escribe el sync: el paquete npm `@openchamber/web` solo publica `dist server bin public`); `packages/electron/brand.mjs` reexporta el de `@openchamber/web/server/lib/brand.js`; `capacitor.config.ts` y los workflows leen `brand/brand.json` directamente (`node -p "require('./brand/brand.json').appId"`; no hay `vars.IOS_*`).
+- **Los escribe `brand-sync`** (por clave, nunca por línea; `--check` falla si algo difiere): `packages/electron/package.json` (`build.appId/productName/publish`, `NSLocalNetworkUsageDescription`, entrada `.desktop`), los tres `Info.plist` de iOS, `strings.xml` de Android, `packages/web/index.html` y `public/site.webmanifest`. Los widgets Swift leen `CFBundleDisplayName` de su propio Info.plist.
+- **Iconos**: `build-brand-icons.mjs` rasteriza los SVG (maestro ≥48 px, glifo óptico 16–32 px, macOS para `.icns`, mono para bandeja y `ic_stat_notify`) y escribe `brand/icons/icons.lock` (sha256 de cada maestro y de los campos `icons.*`); el test falla si un maestro cambia sin regenerar. `Assets.car` necesita `actool`: `--mac`, en el MacBook o `macos-26`. La geometría de marca no vive en código: ni TSX ni guion.
+- **Test**: `scripts/brand.test.mjs` falla si `OpenChamber`, `AgentChamber` o el nombre vigente, o un handle o enlace de X/Discord (`openchamber_dev`, `x.com/`, `discord.gg/`), aparecen **a mano** (sensible a mayúsculas, por línea, sin comentarios ni tests) en `packages/ui/src`, `electron`, `mobile`, `index.html`, `public`; excepciones en `scripts/brand-exceptions.txt` (ruta, texto exacto, motivo; tope `reviewed-total`). `scripts/brand-allowlist.*` sigue como guarda de los identificadores `openchamber` en minúscula (contratos). Fuera de alcance, con historia propia: `packages/web/bin` y `server/lib/*` (mensajes de CLI/log) y `packages/vscode`.
+
+Cambiar nombre o icono = editar `brand.json` o sustituir un SVG, `bun run brand:sync` / `bun run brand:icons` y commit. El actualizador de Electron (`build.publish` = `PRODUCTION_UPDATER_FEED`) y los enlaces de release salen de `repo`; `scripts/upstream-slug.test.mjs` falla si reaparece el slug de upstream.
 
 ## 6. Cómo se construye aquí
 
@@ -97,7 +105,11 @@ La suite web tiene fallos heredados de upstream; la puerta de PR del fork usa `v
 ## 9. Decisiones y trampas
 
 - Un solo motor-seam (sección 3); `AgentProvider` (DGX-518) es nombre/alias documentado de ese seam, no un segundo.
-- El `appId` móvil y el `productName` de Electron cambian con el rebrand (DGX-514); lo consumido por la compañía (`~/.local/openchamber`, bin, puertos, ids de sesión/filing) no.
-- `mobile-release.yml` ya soporta bundle id propio (`vars.IOS_BUNDLE_ID`, `IOS_URL_SCHEME`): el rebrand iOS usa esa variable, no sed ad hoc.
+- Un solo `appId` (`com.e-dani.triora`, en `brand/brand.json`) para Electron, Capacitor e iOS; el `applicationId`/`namespace` de Android, los targets Xcode (`OpenChamberWidget`, `OpenChamberNotificationService`) y el app group `group.com.openchamber.app` son ids nativos que no se renombran (el build de iOS los reescribe a `appId`). Lo consumido por la compañía (`~/.local/openchamber`, bin `openchamber`, puertos, ids de sesión/filing), el `userData` `OpenChamber`, `nsis.guid`, `openchamber-ui://`, los canales IPC `openchamber:*` y `/api/*` no cambian.
+- Esquema de URL: se emite y registra `triora://`; todos los parsers aceptan además `openchamber://` (`legacy.urlSchemes`). iOS registra solo `triora` (dos apps con el mismo scheme = iOS abre una al azar).
+- Etiquetas de dispositivo persistidas («OpenChamber Desktop/Mobile», «AgentChamber …») son datos: el registro deduplica por `dedupeKey` y conserva `existing.label`. No se migran ni se comparan con un literal; `legacy.deviceLabels` solo las lista para quien deba reconocerlas.
+- **No se corta ninguna release (`release.yml`, `mobile-release.yml`) entre el merge de #119 y el de P9**: macOS y Linux se reinstalarían dos veces. `nsis.guid` fijo mantiene Windows.
+- `mobile-release.yml` lee `appId` y `urlScheme` de `brand/brand.json` (ya no hay `vars.IOS_BUNDLE_ID` ni `vars.IOS_URL_SCHEME`) y reescribe con `sed` los ids nativos de Xcode y los literales `"openchamber://` de los Swift al construir; la guarda exige que el scheme sea el de la marca y distinto de `openchamber`.
 - Release/ejecución en el x86: ver sección 2; nunca editar `~/.local/openchamber` a mano.
 - Pendiente para el architect: añadir el árbol de decisiones de marca cuando Bohdan conteste.
+- Hasta que `actool` corra en macOS (`build-brand-icons.mjs --mac`), `Assets.car` y `AppIcon.icon` de Electron conservan el icono anterior.

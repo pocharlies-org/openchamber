@@ -20,11 +20,9 @@ import {
   SETTINGS_BRAND_TITLE_CLASS,
   SETTINGS_FIELD_LABEL_CLASS,
 } from '@/components/sections/shared/SettingsSection';
-import { BRAND_NAME, BRAND_REPO_URL } from '@/lib/brand';
+import { BRAND_NAME, BRAND_REPO_URL, BRAND_SOCIAL } from '@/lib/brand';
 
 const GITHUB_URL = BRAND_REPO_URL;
-const DISCORD_URL = 'https://discord.gg/ZYRSdnwwKA';
-const X_URL = 'https://x.com/openchamber_dev';
 
 const MIN_CHECKING_DURATION = 800; // ms
 
@@ -427,26 +425,30 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
               <span>GitHub</span>
             </a>
 
+            {BRAND_SOCIAL.discord && (
+              <a
+                href={BRAND_SOCIAL.discord}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1.5 typography-ui-label text-muted-foreground transition-colors hover:text-foreground"
+              >
+                <Icon name="discord-fill" className="size-5" />
+                <span>Discord</span>
+              </a>
+            )}
+          </div>
+
+          {BRAND_SOCIAL.x && (
             <a
-              href={DISCORD_URL}
+              href={BRAND_SOCIAL.x.url}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-1.5 typography-ui-label text-muted-foreground transition-colors hover:text-foreground"
             >
-              <Icon name="discord-fill" className="size-5" />
-              <span>Discord</span>
+              <Icon name="twitter-xfill" className="size-5" />
+              <span>{BRAND_SOCIAL.x.handle}</span>
             </a>
-          </div>
-
-          <a
-            href={X_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1.5 typography-ui-label text-muted-foreground transition-colors hover:text-foreground"
-          >
-            <Icon name="twitter-xfill" className="size-5" />
-            <span>@openchamber_dev</span>
-          </a>
+          )}
         </div>
 
         <p className="text-center typography-ui text-muted-foreground/60">
@@ -546,15 +548,17 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
             <span>GitHub</span>
           </a>
 
+          {BRAND_SOCIAL.x && (
             <a
-              href={X_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground typography-meta transition-colors"
-          >
-            <Icon name="twitter-xfill" className="h-4 w-4" />
-              <span>@openchamber_dev</span>
+              href={BRAND_SOCIAL.x.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground typography-meta transition-colors"
+            >
+              <Icon name="twitter-xfill" className="h-4 w-4" />
+              <span>{BRAND_SOCIAL.x.handle}</span>
             </a>
+          )}
         </div>
       </div>
 

@@ -12,6 +12,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import updaterPkg from 'electron-updater';
 import { ElectronSshManager } from './ssh-manager.mjs';
+import { APP_NAME, PRODUCT_NAME, SOCIAL } from './brand.mjs';
 import { replaceFileWithRetry } from './windows-file-replace.mjs';
 import { createTrayController } from './tray.mjs';
 import { resolveManagedOpenCodeCwd } from './opencode-cwd.mjs';
@@ -19,7 +20,7 @@ import { stopEmbeddedServer } from './server-shutdown.mjs';
 import { resolveStartupUrlProbePlan } from './startup-url-selection.mjs';
 import {
   BACKGROUND_START_ARG,
-  DEEP_LINK_PROTOCOL,
+  DEEP_LINK_PROTOCOLS,
   MIN_WINDOW_HEIGHT,
   MIN_WINDOW_WIDTH,
   UI_PROTOCOL,
@@ -30,6 +31,8 @@ import {
   getWindowIconPath,
   installPackagedUiRequestHandler,
   installStartupMarkSink,
+  isDeepLinkProtocol,
+  isDeepLinkUrl,
   isDev,
   isMacMenuBarEnabled,
   macosMajorVersion,
@@ -184,8 +187,10 @@ try {
 }
 
 try {
-  if (!app.isDefaultProtocolClient(DEEP_LINK_PROTOCOL)) {
-    app.setAsDefaultProtocolClient(DEEP_LINK_PROTOCOL);
+  for (const protocol of DEEP_LINK_PROTOCOLS) {
+    if (!app.isDefaultProtocolClient(protocol)) {
+      app.setAsDefaultProtocolClient(protocol);
+    }
   }
 } catch (error) {
   // log.* not yet initialized at this point; fall back to console.
@@ -232,7 +237,8 @@ const REMOTE_DESKTOP_CLIENT_KIND = 'desktop';
 const ENV_OVERRIDE_HOST_ID = '__env';
 const GITHUB_BUG_REPORT_URL = 'https://github.com/openchamber/openchamber/issues/new?template=bug_report.yml';
 const GITHUB_IDEAS_URL = 'https://github.com/openchamber/openchamber/discussions/categories/ideas';
-const DISCORD_INVITE_URL = 'https://discord.gg/ZYRSdnwwKA';
+// The product's own Discord (brand.json `social`); the Help menu has no entry when it has none.
+const DISCORD_INVITE_URL = SOCIAL.discord;
 const INSTALLED_APPS_CACHE_TTL_SECS = 60 * 60 * 24;
 const INSTALLED_APPS_CACHE_FILE = 'discovered-apps.json';
 // Bump when discovery results change shape or matching semantics change, so cached
@@ -352,7 +358,7 @@ const quitConfirmationMessage = () => {
   if (reasons.length === 0) {
     return 'Background processes (sidecar, SSH sessions) will be stopped.';
   }
-  return `OpenChamber detected ${reasons.join(', ')}. Quitting now will stop sidecar/background processes and may interrupt pending work.`;
+  return `${APP_NAME} detected ${reasons.join(', ')}. Quitting now will stop sidecar/background processes and may interrupt pending work.`;
 };
 
 const shutdownBackgroundServices = () => {
@@ -470,8 +476,8 @@ const requestQuitWithConfirmation = async () => {
   try {
     const result = await dialog.showMessageBox({
       type: 'warning',
-      title: 'Quit OpenChamber?',
-      message: 'Quit OpenChamber?',
+      title: `Quit ${APP_NAME}?`,
+      message: `Quit ${APP_NAME}?`,
       detail: quitConfirmationMessage(),
       buttons: ['Quit', 'Cancel'],
       defaultId: 1,
@@ -1214,7 +1220,7 @@ const maybeShowNativeNotification = (rawInput) => {
 
   const title = typeof payload.title === 'string' && payload.title.trim()
     ? payload.title.trim()
-    : 'OpenChamber';
+    : APP_NAME;
   const body = typeof payload.body === 'string' ? payload.body : '';
   const sessionId = typeof payload.sessionId === 'string' && payload.sessionId.trim()
     ? payload.sessionId.trim()
@@ -1652,7 +1658,7 @@ const loginRemoteAndIssueClientToken = async ({ url, password, trustDevice, requ
       password: candidatePassword,
       trustDevice: trustDevice === true,
       issueClientToken: true,
-      clientLabel: 'OpenChamber Desktop',
+      clientLabel: `${APP_NAME} Desktop`,
       ...clientIdentity,
     }),
   });
@@ -1680,7 +1686,7 @@ const loginRemoteAndIssueClientToken = async ({ url, password, trustDevice, requ
       Cookie: cookie,
     },
     body: JSON.stringify({
-      label: 'OpenChamber Desktop',
+      label: `${APP_NAME} Desktop`,
       ...clientIdentity,
     }),
   });
@@ -1747,7 +1753,7 @@ const parseDeepLink = (raw) => {
   if (!trimmed) return null;
   try {
     const url = new URL(trimmed);
-    if (url.protocol !== `${DEEP_LINK_PROTOCOL}:`) return null;
+    if (!isDeepLinkProtocol(url.protocol)) return null;
     const type = url.hostname;
     if (!type) return null;
     const segments = url.pathname.split('/').filter(Boolean);
@@ -1784,7 +1790,7 @@ const parseConnectPairingDeepLinkPayload = (raw) => {
   if (typeof raw !== 'string') return null;
   try {
     const url = new URL(raw.trim());
-    if (url.protocol !== `${DEEP_LINK_PROTOCOL}:` || url.hostname !== 'connect') return null;
+    if (!isDeepLinkProtocol(url.protocol) || url.hostname !== 'connect') return null;
     if (url.searchParams.get('v') !== '2') return null;
     const payload = decodeBase64UrlJson(url.searchParams.get('p') || '');
     if (!payload || payload.v !== 2 || typeof payload !== 'object') return null;
@@ -1812,7 +1818,7 @@ const parseConnectPairingDeepLinkPayload = (raw) => {
     return {
       pairingId,
       secret,
-      label: typeof payload.label === 'string' && payload.label.trim() ? payload.label.trim() : 'OpenChamber',
+      label: typeof payload.label === 'string' && payload.label.trim() ? payload.label.trim() : APP_NAME,
       fingerprint: typeof payload.fingerprint === 'string' && payload.fingerprint.trim() ? payload.fingerprint.trim() : '',
       expiresAt: expiresAt || null,
       candidates: candidates.sort((left, right) => left.priority - right.priority),
@@ -1884,9 +1890,9 @@ const redeemConnectPairingDeepLink = async (payload, serverUrl) => {
     body: JSON.stringify({
       pairingId: payload.pairingId,
       secret: payload.secret,
-      clientLabel: 'OpenChamber Desktop',
+      clientLabel: `${APP_NAME} Desktop`,
       clientKind: 'desktop',
-      deviceName: 'OpenChamber Desktop',
+      deviceName: `${APP_NAME} Desktop`,
       ...desktopDeviceMetadata(),
       dedupeKey: `desktop:${await getOrCreateDesktopInstallId()}`,
     }),
@@ -1946,7 +1952,7 @@ const confirmConnectDeepLink = async (payload) => {
   }
   const options = {
     type: 'warning',
-    title: 'Connect to OpenChamber server?',
+    title: `Connect to ${APP_NAME} server?`,
     message: `Connect to "${payload.label}"?`,
     detail:
       `This will add ${payload.serverUrl} as a remote instance and route this app's activity ` +
@@ -2071,7 +2077,7 @@ const handleDeepLinks = (urls) => {
 };
 
 const extractInitialDeepLinks = () =>
-  process.argv.filter((arg) => typeof arg === 'string' && arg.startsWith(`${DEEP_LINK_PROTOCOL}://`));
+  process.argv.filter(isDeepLinkUrl);
 
 const dispatchDomEventToWindow = (browserWindow, event, detail) => {
   if (!browserWindow || browserWindow.isDestroyed()) return;
@@ -2722,7 +2728,7 @@ const createMiniChatWindow = async ({ mode, sessionId = '', directory = '', proj
   const desktopClientToken = effectiveRuntimeConfig.clientToken || '';
   const desktopRequestHeaders = effectiveRuntimeConfig.requestHeaders || {};
   const browserWindow = new BrowserWindow({
-    title: 'OpenChamber Mini Chat',
+    title: `${APP_NAME} Mini Chat`,
     width: MINI_CHAT_WINDOW_WIDTH,
     height: MINI_CHAT_WINDOW_HEIGHT,
     minWidth: MINI_CHAT_MIN_WINDOW_WIDTH,
@@ -4510,7 +4516,7 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
       if (applyUpdate && process.platform === 'darwin' && typeof app.isInApplicationsFolder === 'function') {
         try {
           if (!app.isInApplicationsFolder()) {
-            throw new Error('Desktop update requires OpenChamber.app to be installed in /Applications');
+            throw new Error(`Desktop update requires ${PRODUCT_NAME}.app to be installed in /Applications`);
           }
         } catch (error) {
           log.warn('[electron] desktop_restart blocked', error);
@@ -4753,6 +4759,16 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
   }
 };
 
+// Help-menu entries after "clear cache", shared by both menus; Discord only when the brand has one.
+const helpLinkItems = (t) => [
+  { label: t('reportABug'), click: () => shell.openExternal(GITHUB_BUG_REPORT_URL) },
+  { label: t('discussAnIdea'), click: () => shell.openExternal(GITHUB_IDEAS_URL) },
+  ...(DISCORD_INVITE_URL ? [
+    { type: 'separator' },
+    { label: t('joinDiscord'), click: () => shell.openExternal(DISCORD_INVITE_URL) },
+  ] : []),
+];
+
 const buildMacMenu = (locale = 'en') => {
   const dispatchAction = (action) => dispatchMenuAction(action);
   const t = (key) => menuLabel(locale, key);
@@ -4856,10 +4872,7 @@ const buildMacMenu = (locale = 'en') => {
         { type: 'separator' },
         { label: t('clearCache'), click: () => void handleInvoke(null, 'desktop_clear_cache') },
         { type: 'separator' },
-        { label: t('reportABug'), click: () => shell.openExternal(GITHUB_BUG_REPORT_URL) },
-        { label: t('discussAnIdea'), click: () => shell.openExternal(GITHUB_IDEAS_URL) },
-        { type: 'separator' },
-        { label: t('joinDiscord'), click: () => shell.openExternal(DISCORD_INVITE_URL) },
+        ...helpLinkItems(t),
       ],
     },
   ]);
@@ -4975,10 +4988,7 @@ const buildAutoHiddenMenu = (locale = 'en') => {
         { type: 'separator' },
         { label: t('clearCache'), click: () => void handleInvoke(null, 'desktop_clear_cache') },
         { type: 'separator' },
-        { label: t('reportABug'), click: () => shell.openExternal(GITHUB_BUG_REPORT_URL) },
-        { label: t('discussAnIdea'), click: () => shell.openExternal(GITHUB_IDEAS_URL) },
-        { type: 'separator' },
-        { label: t('joinDiscord'), click: () => shell.openExternal(DISCORD_INVITE_URL) },
+        ...helpLinkItems(t),
       ],
     },
   ]);
@@ -5402,7 +5412,7 @@ app.on('before-quit', (event) => {
 
 const handleSecondInstance = (argv) => {
   const urls = Array.isArray(argv)
-    ? argv.filter((arg) => typeof arg === 'string' && arg.startsWith(`${DEEP_LINK_PROTOCOL}://`))
+    ? argv.filter(isDeepLinkUrl)
     : [];
   if (urls.length > 0) handleDeepLinks(urls);
   if (BrowserWindow.getAllWindows().length > 0) {

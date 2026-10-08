@@ -1,0 +1,24 @@
+{
+  "name": "triora",
+  "displayName": "Triora",
+  "productName": "Triora",
+  "appId": "com.e-dani.triora",
+  "urlScheme": "triora",
+  "description": "One workspace for your AI coding agents: Claude and OpenCode",
+  "themeColor": "#ee4f0c",
+  "repo": { "owner": "pocharlies-org", "name": "openchamber" },
+  "social": {},
+  "icons": {
+    "app": "brand/icons/triora-icon.svg",
+    "macos": "brand/icons/triora-icon-macos.svg",
+    "small": "brand/icons/triora-glyph-small.svg",
+    "mono": "brand/icons/triora-glyph-mono.svg"
+  },
+  "legacy": {
+    "userDataDir": "OpenChamber",
+    "urlSchemes": ["openchamber"],
+    "names": ["OpenChamber", "AgentChamber"],
+    "deviceLabels": ["OpenChamber Desktop", "OpenChamber Mobile", "AgentChamber Desktop", "AgentChamber Mobile"],
+    "nsisGuid": "103a64e2-d142-5f36-803b-284d778c8afd"
+  }
+}

@@ -18,8 +18,8 @@
     <!-- Web app manifest (endpoint-first with data URL fallback) -->
     <script>
       const baseUrl = location.origin;
-      const defaultAppName = 'AgentChamber';
-      const defaultShortName = 'AgentChamber';
+      const defaultAppName = 'Triora';
+      const defaultShortName = 'Triora';
       const pwaNameStorageKey = 'openchamber.pwaName';
       const pwaOrientationStorageKey = 'openchamber.pwaOrientation';
       const mobileKeyboardModeStorageKey = 'openchamber.mobileKeyboardMode';
@@ -422,12 +422,12 @@
     <!-- iOS Safari PWA styling -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="AgentChamber" />
+    <meta name="apple-mobile-web-app-title" content="Triora" />
 
-    <title>AgentChamber - AI Coding Assistant</title>
+    <title>Triora - AI Coding Assistant</title>
     <meta name="description" content="Web interface companion for OpenCode AI coding agent" />
-    <meta name="application-name" content="AgentChamber" />
-    <meta name="apple-mobile-web-app-title" content="AgentChamber" />
+    <meta name="application-name" content="Triora" />
+    <meta name="apple-mobile-web-app-title" content="Triora" />
 
     <!-- Inline CSS for the loading screen (before Tailwind loads). Terminal
          prompt symbols come from the bundled Symbols Nerd Font (lib/ghostty),
@@ -498,57 +498,10 @@
       <!-- Loading fallback while React initializes -->
       <div id="initial-loading">
         <div style="display: flex; align-items: center; justify-content: center;">
-          <svg width="120" height="120" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="AgentChamber loading icon">
-            <!-- Isometric cube: edge=48, centerY=50 -->
-            <!-- Points: top(50,2), left(8.432,26), right(91.568,26), center(50,50), bottomLeft(8.432,74), bottomRight(91.568,74), bottom(50,98) -->
-
-            <!-- Left face - base fill with stroke -->
-            <path d="M50 50 L8.432 26 L8.432 74 L50 98 Z" fill="var(--splash-face-fill)" stroke="var(--splash-stroke)" stroke-width="2" stroke-linejoin="round"/>
-
-            <!-- Left face grid cells (4x4) with varying opacity -->
-            <path d="M50 50 L39.608 44 L39.608 56 L50 62 Z" fill="var(--splash-cell-fill)" opacity="0.2"/>
-            <path d="M39.608 44 L29.216 38 L29.216 50 L39.608 56 Z" fill="var(--splash-cell-fill)" opacity="0.45"/>
-            <path d="M29.216 38 L18.824 32 L18.824 44 L29.216 50 Z" fill="var(--splash-cell-fill)" opacity="0.15"/>
-            <path d="M18.824 32 L8.432 26 L8.432 38 L18.824 44 Z" fill="var(--splash-cell-fill)" opacity="0.55"/>
-            <path d="M50 62 L39.608 56 L39.608 68 L50 74 Z" fill="var(--splash-cell-fill)" opacity="0.35"/>
-            <path d="M39.608 56 L29.216 50 L29.216 62 L39.608 68 Z" fill="var(--splash-cell-fill)" opacity="0.1"/>
-            <path d="M29.216 50 L18.824 44 L18.824 56 L29.216 62 Z" fill="var(--splash-cell-fill)" opacity="0.5"/>
-            <path d="M18.824 44 L8.432 38 L8.432 50 L18.824 56 Z" fill="var(--splash-cell-fill)" opacity="0.25"/>
-            <path d="M50 74 L39.608 68 L39.608 80 L50 86 Z" fill="var(--splash-cell-fill)" opacity="0.4"/>
-            <path d="M39.608 68 L29.216 62 L29.216 74 L39.608 80 Z" fill="var(--splash-cell-fill)" opacity="0.3"/>
-            <path d="M29.216 62 L18.824 56 L18.824 68 L29.216 74 Z" fill="var(--splash-cell-fill)" opacity="0.45"/>
-            <path d="M18.824 56 L8.432 50 L8.432 62 L18.824 68 Z" fill="var(--splash-cell-fill)" opacity="0.15"/>
-            <path d="M50 86 L39.608 80 L39.608 92 L50 98 Z" fill="var(--splash-cell-fill)" opacity="0.55"/>
-            <path d="M39.608 80 L29.216 74 L29.216 86 L39.608 92 Z" fill="var(--splash-cell-fill)" opacity="0.2"/>
-            <path d="M29.216 74 L18.824 68 L18.824 80 L29.216 86 Z" fill="var(--splash-cell-fill)" opacity="0.35"/>
-            <path d="M18.824 68 L8.432 62 L8.432 74 L18.824 80 Z" fill="var(--splash-cell-fill)" opacity="0.1"/>
-
-            <!-- Right face - base fill with stroke -->
-            <path d="M50 50 L91.568 26 L91.568 74 L50 98 Z" fill="var(--splash-face-fill)" stroke="var(--splash-stroke)" stroke-width="2" stroke-linejoin="round"/>
-
-            <!-- Right face grid cells (4x4) with varying opacity -->
-            <path d="M50 50 L60.392 44 L60.392 56 L50 62 Z" fill="var(--splash-cell-fill)" opacity="0.3"/>
-            <path d="M60.392 44 L70.784 38 L70.784 50 L60.392 56 Z" fill="var(--splash-cell-fill)" opacity="0.15"/>
-            <path d="M70.784 38 L81.176 32 L81.176 44 L70.784 50 Z" fill="var(--splash-cell-fill)" opacity="0.45"/>
-            <path d="M81.176 32 L91.568 26 L91.568 38 L81.176 44 Z" fill="var(--splash-cell-fill)" opacity="0.25"/>
-            <path d="M50 62 L60.392 56 L60.392 68 L50 74 Z" fill="var(--splash-cell-fill)" opacity="0.5"/>
-            <path d="M60.392 56 L70.784 50 L70.784 62 L60.392 68 Z" fill="var(--splash-cell-fill)" opacity="0.35"/>
-            <path d="M70.784 50 L81.176 44 L81.176 56 L70.784 62 Z" fill="var(--splash-cell-fill)" opacity="0.1"/>
-            <path d="M81.176 44 L91.568 38 L91.568 50 L81.176 56 Z" fill="var(--splash-cell-fill)" opacity="0.4"/>
-            <path d="M50 74 L60.392 68 L60.392 80 L50 86 Z" fill="var(--splash-cell-fill)" opacity="0.2"/>
-            <path d="M60.392 68 L70.784 62 L70.784 74 L60.392 80 Z" fill="var(--splash-cell-fill)" opacity="0.55"/>
-            <path d="M70.784 62 L81.176 56 L81.176 68 L70.784 74 Z" fill="var(--splash-cell-fill)" opacity="0.3"/>
-            <path d="M81.176 56 L91.568 50 L91.568 62 L81.176 68 Z" fill="var(--splash-cell-fill)" opacity="0.15"/>
-            <path d="M50 86 L60.392 80 L60.392 92 L50 98 Z" fill="var(--splash-cell-fill)" opacity="0.45"/>
-            <path d="M60.392 80 L70.784 74 L70.784 86 L60.392 92 Z" fill="var(--splash-cell-fill)" opacity="0.25"/>
-            <path d="M70.784 74 L81.176 68 L81.176 80 L70.784 86 Z" fill="var(--splash-cell-fill)" opacity="0.4"/>
-            <path d="M81.176 68 L91.568 62 L91.568 74 L81.176 80 Z" fill="var(--splash-cell-fill)" opacity="0.2"/>
-
-            <!-- Top face - open (no fill), only stroke -->
-            <path d="M50 2 L8.432 26 L50 50 L91.568 26 Z" fill="none" stroke="var(--splash-stroke)" stroke-width="2" stroke-linejoin="round"/>
-
-            <!-- Agent: accent diamond on the open top face (same as OpenChamberLogo.tsx) -->
-            <path d="M50 14 L70.78 26 L50 38 L29.22 26 Z" fill="var(--splash-accent)"/>
+          <svg width="120" height="120" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Triora loading icon">
+            <!-- brand:mark:start -->
+            <defs><linearGradient id="splash-ring" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff5a1f"/><stop offset="1" stop-color="#e0440c"/></linearGradient><linearGradient id="splash-gA" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffcb5e"/><stop offset="1" stop-color="#eea82c"/></linearGradient><linearGradient id="splash-gM" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#62e2b9"/><stop offset="1" stop-color="#2dbd92"/></linearGradient><linearGradient id="splash-gP" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#a6adff"/><stop offset="1" stop-color="#7783f4"/></linearGradient></defs><mask id="splash-cutm" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024"><rect width="1024" height="1024" fill="#fff"/><circle cx="512.00" cy="286.00" r="120.00" fill="#000"/><rect x="177.10" y="571.00" width="216.00" height="216.00" rx="56.00" fill="#000"/><polygon points="738.90,575.00 835.89,743.00 641.90,743.00" fill="#000" stroke="#000" stroke-width="70.00" stroke-linejoin="round"/></mask><circle cx="512" cy="548" r="262" fill="none" stroke="url(#splash-ring)" stroke-width="46" mask="url(#splash-cutm)"/><circle cx="512.00" cy="286.00" r="98.00" fill="url(#splash-gA)"/><rect x="199.10" y="593.00" width="172.00" height="172.00" rx="34.00" fill="url(#splash-gM)"/><polygon points="738.90,575.00 835.89,743.00 641.90,743.00" fill="url(#splash-gP)" stroke="url(#splash-gP)" stroke-width="26.00" stroke-linejoin="round"/>
+            <!-- brand:mark:end -->
           </svg>
         </div>
       </div>

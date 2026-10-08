@@ -1,5 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
-  <style>:root{color:#17171a}.a{fill:#ee4f0c}@media (prefers-color-scheme: dark){:root{color:#f2f2f2}.a{fill:#ff5a1f}}</style>
-  <!-- AgentChamber: the chamber (isometric cube, open top) with the agent (accent rhombus) inside -->
-  <path d="M16 16 L3.88 9 L3.88 23 L16 30 Z" fill="currentColor" fill-opacity="0.25" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M16 16 L28.12 9 L28.12 23 L16 30 Z" fill="currentColor" fill-opacity="0.45" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M16 2 L3.88 9 L16 16 L28.12 9 Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M16 4.8 L8.73 9 L16 13.2 L23.27 9 Z" class="a"/>
-</svg>

@@ -1,7 +1,12 @@
-// Display name of the desktop app. Must match `build.productName` in package.json.
-// The shared UI has its own copy in packages/ui/src/lib/brand.ts (different bundle).
-export const APP_NAME = 'AgentChamber';
-
-// Folder name (under appData) of the user's existing data. Electron derives userData
-// from the app name, so renaming the app would otherwise orphan settings and sessions.
-export const LEGACY_USER_DATA_DIR = 'OpenChamber';
+// The desktop shell reads the same brand as the server (brand/brand.json through the web package, which
+// stays external in the bundle and resolves from node_modules at runtime).
+export {
+  APP_ID,
+  APP_NAME,
+  LEGACY_USER_DATA_DIR,
+  PRODUCT_NAME,
+  REPO_NAME,
+  REPO_OWNER,
+  SOCIAL,
+  URL_SCHEMES,
+} from '@openchamber/web/server/lib/brand.js';

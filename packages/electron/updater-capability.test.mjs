@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { APP_NAME } from './brand.mjs';
 import { assertUpdaterCapability } from './updater-capability.mjs';
 
 test('preserves updater behavior outside packaged Linux', () => {
@@ -12,7 +13,7 @@ test('preserves updater behavior outside packaged Linux', () => {
 test('rejects packaged Linux execution outside an AppImage', () => {
   assert.throws(
     () => assertUpdaterCapability({ platform: 'linux', packaged: true, appImagePath: '' }),
-    /Start AgentChamber from its \.AppImage file/,
+    new RegExp(`Start ${APP_NAME} from its \\.AppImage file`),
   );
 });
 

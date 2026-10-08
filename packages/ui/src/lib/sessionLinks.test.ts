@@ -1,10 +1,11 @@
 import { describe, expect, test } from 'bun:test';
 
+import { BRAND_URL_SCHEME } from '@/lib/brand';
 import { buildMessageLink, isSessionDeepLink, parseSessionLink } from './sessionLinks';
 
 describe('buildMessageLink', () => {
     test('builds the native deep link', () => {
-        expect(buildMessageLink('ses_a', 'msg_1', { kind: 'deep-link' })).toBe('openchamber://session/ses_a?message=msg_1');
+        expect(buildMessageLink('ses_a', 'msg_1', { kind: 'deep-link' })).toBe(`${BRAND_URL_SCHEME}://session/ses_a?message=msg_1`);
     });
 
     test('builds the web link on this page, keeping its path', () => {

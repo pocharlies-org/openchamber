@@ -1,3 +1,4 @@
+import { BRAND_URL_SCHEME } from '@/lib/brand';
 import { describe, expect, mock, test } from 'bun:test';
 
 type SanitizeAttribute = {
@@ -116,6 +117,18 @@ describe('markdown sanitization', () => {
     expect(html).toContain('href="openchamber://session/ses_abc?message=msg_123"');
     expect(html).toContain('href="openchamber://session/ses_abc"');
     expect(html).not.toContain('href="openchamber://connect');
+  });
+
+  test('keeps the brand scheme session links and strips its other routes', () => {
+    const html = renderMarkdownSync([
+      `Pasted: ${BRAND_URL_SCHEME}://session/ses_abc?message=msg_123`,
+      `[labelled](${BRAND_URL_SCHEME}://session/ses_abc)`,
+      `[pairing](${BRAND_URL_SCHEME}://connect?v=2&p=secret)`,
+    ].join('\n\n'), 'inline');
+
+    expect(html).toContain(`href="${BRAND_URL_SCHEME}://session/ses_abc?message=msg_123"`);
+    expect(html).toContain(`href="${BRAND_URL_SCHEME}://session/ses_abc"`);
+    expect(html).not.toContain(`href="${BRAND_URL_SCHEME}://connect`);
   });
 
 });

@@ -1,0 +1,24 @@
+# Hand-written names of the product (old or new) that the brand test lets through, one per line:
+#   <path><TAB><exact line, trimmed><TAB><reason>
+# Never a file or a pattern: a changed line has to be reviewed again. scripts/brand.test.mjs fails if a listed line
+# no longer exists, if the list grows past the reviewed total, or if a name appears anywhere else outside the seam
+# (brand/brand.json, its copies and what scripts/brand-sync.mjs writes). Out of scope by declaration: packages/web/bin,
+# packages/web/server/lib (CLI and log messages) and packages/vscode.
+# reviewed-total: 16
+
+packages/ui/src/components/layout/VSCodeLayout.tsx	if (debugEnabled) console.log('[OpenChamber][VSCode][bootstrap] attempt', { configInitialized });	Developer console prefix behind the VS Code debug flag, not shown to a person.
+packages/ui/src/components/layout/VSCodeLayout.tsx	if (debugEnabled) console.log('[OpenChamber][VSCode][bootstrap] post-load', {	Developer console prefix behind the VS Code debug flag, not shown to a person.
+packages/ui/src/lib/theme/themes/fields-of-the-shire-dark.json	"author": "OpenChamber",	Attribution of a third-party theme to the upstream project: history, not branding.
+packages/ui/src/lib/theme/themes/fields-of-the-shire-light.json	"author": "OpenChamber",	Attribution of a third-party theme to the upstream project: history, not branding.
+packages/ui/src/lib/theme/themes/jetbrains-dark.json	"description": "JetBrains IDE-inspired colors for OpenChamber - dark variant",	Attribution of a third-party theme to the upstream project: history, not branding.
+packages/ui/src/lib/theme/themes/jetbrains-dark.json	"author": "Artem Evsevev, adapted for OpenChamber",	Attribution of a third-party theme to the upstream project: history, not branding.
+packages/ui/src/lib/theme/themes/jetbrains-light.json	"description": "JetBrains IDE-inspired colors for OpenChamber - light variant",	Attribution of a third-party theme to the upstream project: history, not branding.
+packages/ui/src/lib/theme/themes/jetbrains-light.json	"author": "Artem Evsevev, adapted for OpenChamber",	Attribution of a third-party theme to the upstream project: history, not branding.
+packages/ui/src/lib/theme/themes/openchamber-dark.json	"name": "OpenChamber",	Label of the default theme, named after the upstream product; the stored key is metadata.id (openchamber-*). Rename with DGX-655.
+packages/ui/src/lib/theme/themes/openchamber-dark.json	"description": "The OpenChamber signature - Vitesse syntax over OpenCode-deep neutrals with Flexoki accents, harmonized in OKLCH (dark variant)",	Attribution and description of the upstream default theme (authorship is history, not branding).
+packages/ui/src/lib/theme/themes/openchamber-dark.json	"author": "OpenChamber",	Attribution and description of the upstream default theme (authorship is history, not branding).
+packages/ui/src/lib/theme/themes/openchamber-light.json	"name": "OpenChamber",	Label of the default theme, named after the upstream product; the stored key is metadata.id (openchamber-*). Rename with DGX-655.
+packages/ui/src/lib/theme/themes/openchamber-light.json	"description": "The OpenChamber signature - Vitesse syntax on warm paper with Flexoki accents, harmonized in OKLCH (light variant)",	Attribution and description of the upstream default theme (authorship is history, not branding).
+packages/ui/src/lib/theme/themes/openchamber-light.json	"author": "OpenChamber",	Attribution and description of the upstream default theme (authorship is history, not branding).
+packages/ui/src/stores/useProjectsStore.ts	console.log('[OpenChamber][VSCode][projects] Using workspace projects', projects);	Developer console prefix behind the VS Code debug flag, not shown to a person.
+packages/ui/src/sync/document-attachments.ts	const TEXT_TRUNCATION_NOTICE = "\n\n[Document text truncated by OpenChamber]\n"	Text appended to a document sent to the model, not shown to a person (messages for the agent are out of scope, see DGX-655).

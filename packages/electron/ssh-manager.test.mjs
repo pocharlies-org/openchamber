@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
+import { APP_NAME } from './brand.mjs';
 import { execFileSync } from 'node:child_process';
 
 import { ElectronSshManager } from './ssh-manager.mjs';
@@ -854,7 +855,7 @@ printf '4321\\n'`);
       const result = await manager.ensureRemoteServer(managed(), parsed, '/unused.sock');
 
       expect(result.startedByUs).toBe(true);
-      expect(manager.logsForInstance('ssh-reuse', 50).join('\n')).toContain('Could not list OpenChamber servers');
+      expect(manager.logsForInstance('ssh-reuse', 50).join('\n')).toContain(`Could not list ${APP_NAME} servers`);
     });
   });
 });
