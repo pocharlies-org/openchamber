@@ -187,6 +187,9 @@ jobs:
     if: inputs.build_ios
     runs-on: macos-26
     needs: resolve-version
+    # Apple signing/ASC credentials live only in this protected environment,
+    # which requires manual approval before the job starts.
+    environment: testflight
     env:
       # A fork signs with its own Apple team, where com.openchamber.app is not
       # available: set the repository variable IOS_BUNDLE_ID and the build
