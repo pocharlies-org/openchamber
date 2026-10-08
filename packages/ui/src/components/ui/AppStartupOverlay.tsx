@@ -22,7 +22,7 @@ export const AppStartupOverlay: React.FC<{ ready: boolean; animated?: boolean }>
       }}
       style={{ pointerEvents: ready ? 'none' : 'auto' }}
     >
-      <OpenChamberLogo width={120} height={120} isAnimated={animated} variant="splash" />
+      <OpenChamberLogo width={120} height={120} isAnimated={animated} />
     </motion.div>
   );
 };

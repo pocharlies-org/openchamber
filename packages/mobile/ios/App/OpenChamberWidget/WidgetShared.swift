@@ -41,6 +41,14 @@ enum WidgetStore {
     }
 }
 
+// MARK: - Brand
+
+/// The product name, read from this extension's own Info.plist (`CFBundleDisplayName`, written by
+/// scripts/brand-sync.mjs from brand/brand.json), so no widget text carries it as a literal.
+enum Brand {
+    static let name = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? ""
+}
+
 // MARK: - Deep links (mirror packages/ui/src/apps/deepLinks.ts)
 
 enum WidgetDeepLink {

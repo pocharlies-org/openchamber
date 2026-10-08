@@ -1,6 +1,6 @@
 {
-  "name": "AgentChamber",
-  "short_name": "AgentChamber",
+  "name": "Triora",
+  "short_name": "Triora",
   "description": "One workspace for your AI coding agents: Claude and OpenCode",
   "start_url": "/",
   "display": "standalone",

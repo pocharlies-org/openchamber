@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
+import { APP_NAME } from './brand.mjs';
 import {
   CONTEXT_MENU_LABEL_DICTIONARIES,
   MENU_LOCALE_DICTIONARIES,
@@ -13,7 +14,7 @@ import {
 test('menuLabel returns proper English labels for en and other locales', () => {
   assert.equal(menuLabel('en', 'file'), 'File');
   assert.equal(menuLabel('en', 'settings'), 'Settings');
-  assert.equal(menuLabel('en', 'app.name'), 'AgentChamber');
+  assert.equal(menuLabel('en', 'app.name'), APP_NAME);
   assert.equal(menuLabel(undefined, 'file'), 'File');
   assert.equal(menuLabel('xx', 'file'), 'File');
   assert.equal(menuLabel('fr', 'file'), 'Fichier');

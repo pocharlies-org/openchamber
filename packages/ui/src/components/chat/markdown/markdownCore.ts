@@ -4,6 +4,7 @@ import remend from 'remend';
 import katex from 'katex';
 import DOMPurify, { type DOMPurify as DOMPurifyInstance } from 'dompurify';
 import { buildAgentMentionUrl, parseAgentHref, parseSkillHref } from '@/lib/messages/inlineMessageLinks';
+import { BRAND_URL_SCHEMES } from '@/lib/brand';
 import { isAppLinkUrl } from '@/lib/url';
 import { isSessionDeepLink } from '@/lib/sessionLinks';
 import { isVSCodeRuntime } from '@/lib/desktop';
@@ -618,16 +619,16 @@ const detailsExtension: TokenizerAndRendererExtension = {
 // autolink, which is linear, links bare URLs without the CJK boundary.
 export const LINKIFY_SOURCE_LIMIT = 5_000;
 
-// A pasted session or message link (`openchamber://session/<id>?message=<id>`)
-// becomes a link too; other `openchamber:` routes stay text.
+// A pasted session or message link (`<scheme>://session/<id>?message=<id>`)
+// becomes a link too; other routes of the app's schemes stay text.
 const OPENCHAMBER_SESSION_LINK_TAIL = /^\/\/session\/[A-Za-z0-9_-]{1,128}(?:\?message=[A-Za-z0-9_-]{1,128})?/;
 const OPENCHAMBER_SESSION_LINK_SCHEMA = {
-  // Length of the link after `openchamber:` at `pos`, or 0 when it is not one.
+  // Length of the link after `<scheme>:` at `pos`, or 0 when it is not one.
   validate: (text: string, pos: number): number => OPENCHAMBER_SESSION_LINK_TAIL.exec(text.slice(pos))?.[0].length ?? 0,
 };
 
 const boundedLinkify = (): MarkedExtension => ({
-  extensions: (markedLinkifyIt({ fuzzyLink: false, schemas: { 'openchamber:': OPENCHAMBER_SESSION_LINK_SCHEMA } }).extensions ?? []).map((extension) => {
+  extensions: (markedLinkifyIt({ fuzzyLink: false, schemas: Object.fromEntries(BRAND_URL_SCHEMES.map((scheme) => [`${scheme}:`, OPENCHAMBER_SESSION_LINK_SCHEMA])) }).extensions ?? []).map((extension) => {
     if (!('tokenizer' in extension)) return extension;
     const { start, tokenizer } = extension;
     return {

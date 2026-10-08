@@ -2,8 +2,8 @@
   "name": "@openchamber/electron",
   "version": "2.1.1",
   "private": true,
-  "description": "Electron desktop runtime for OpenChamber",
-  "author": "OpenChamber",
+  "description": "Electron desktop runtime for Triora",
+  "author": "Triora",
   "type": "module",
   "main": "./dist-bundle/entry.mjs",
   "opencodeCli": {
@@ -56,8 +56,8 @@
     "lint": "node -e \"process.exit(0)\""
   },
   "build": {
-    "appId": "com.pocharlies.agentchamber",
-    "productName": "AgentChamber",
+    "appId": "com.e-dani.triora",
+    "productName": "Triora",
     "asarUnpack": [
       "node_modules/@openchamber/web/server/built-in-extensions/**/*",
       "node_modules/@openchamber/web/server/lib/git/credential-helper.js",
@@ -109,7 +109,7 @@
       "artifactName": "${productName}-${version}-mac-${arch}.${ext}",
       "extendInfo": {
         "CFBundleIconName": "AppIcon",
-        "NSLocalNetworkUsageDescription": "OpenChamber needs access to devices and services on your local network."
+        "NSLocalNetworkUsageDescription": "Triora needs access to devices and services on your local network."
       },
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
@@ -139,7 +139,7 @@
       "artifactName": "${productName}-${version}-linux-${arch}.${ext}",
       "desktop": {
         "entry": {
-          "Name": "AgentChamber",
+          "Name": "Triora",
           "Comment": "Work with AI coding agents on your projects",
           "Comment[es]": "Trabaja con agentes de IA en tus proyectos de código",
           "Icon": "openchamber",

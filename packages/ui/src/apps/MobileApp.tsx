@@ -1262,7 +1262,7 @@ function MobileAppContent({ apis }: MobileAppProps) {
   if (!fontsReady) {
     return (
       <main className="flex min-h-dvh items-center justify-center bg-[var(--splash-background,var(--surface-background))] text-foreground">
-        <OpenChamberLogo width={120} height={120} isAnimated variant="splash" />
+        <OpenChamberLogo width={120} height={120} isAnimated />
       </main>
     );
   }
@@ -1280,7 +1280,7 @@ function MobileAppContent({ apis }: MobileAppProps) {
       return (
         <main className="flex min-h-dvh items-center justify-center bg-[var(--splash-background,var(--surface-background))] px-6 text-center text-foreground">
           <div className="flex max-w-sm flex-col items-center gap-4">
-            <OpenChamberLogo width={120} height={120} isAnimated={!showConnectionRecovery} variant="splash" />
+            <OpenChamberLogo width={120} height={120} isAnimated={!showConnectionRecovery} />
             {showConnectionRecovery ? (
               <>
                 <div className="space-y-2">
@@ -1311,7 +1311,7 @@ function MobileAppContent({ apis }: MobileAppProps) {
     if (autoConnectPhase !== 'done') {
       return (
         <main className="relative flex min-h-dvh items-center justify-center bg-[var(--splash-background,var(--surface-background))] text-foreground">
-          <OpenChamberLogo width={120} height={120} isAnimated variant="splash" />
+          <OpenChamberLogo width={120} height={120} isAnimated />
           {/* Absolutely positioned below the (still perfectly centered) logo so
               the text never pushes it up. 50% + half the 120px logo + a gap. */}
           {autoConnectLabel ? (
@@ -1343,7 +1343,7 @@ function MobileAppContent({ apis }: MobileAppProps) {
     if (!showConnectionRecovery) {
       return (
         <main className="flex min-h-dvh items-center justify-center bg-[var(--splash-background,var(--surface-background))] text-foreground">
-          <OpenChamberLogo width={120} height={120} isAnimated variant="splash" />
+          <OpenChamberLogo width={120} height={120} isAnimated />
         </main>
       );
     }

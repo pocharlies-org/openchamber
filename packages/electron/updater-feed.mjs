@@ -1,9 +1,10 @@
 import fs from 'node:fs';
+import { REPO_NAME, REPO_OWNER } from './brand.mjs';
 
 export const PRODUCTION_UPDATER_FEED = Object.freeze({
   provider: 'github',
-  owner: 'pocharlies-org',
-  repo: 'openchamber',
+  owner: REPO_OWNER,
+  repo: REPO_NAME,
 });
 
 const isLoopbackHostname = (hostname) => {
