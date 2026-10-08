@@ -18,7 +18,7 @@ the way the Claude Code VS Code extension drives its panel.
 | `claude-requests.js` | Claude Code asking the user (`canUseTool`): permission prompts, `AskUserQuestion` forms, plan approvals. |
 | `claude-tools.js` | Claude Code tool calls as OpenCode v2 tool parts (names, input keys, diffs, subagent links). |
 | `claude-transcript.js` | Transcript records → OpenChamber records (read back). |
-| `transcript-sidecar.js` | What the SDK's reader drops: structured tool results (`toolUseResult`), subagent `.meta.json`; and the title lookups (`ai-title`, real `custom-title`, first prompt). Transcripts are read as streams, one line at a time (they run to hundreds of MB), never whole; the session list builds its sessions 8 at a time (`LIST_SCAN_CONCURRENCY` in `runtime.js`). |
+| `transcript-sidecar.js` | What the SDK's reader drops: structured tool results (`toolUseResult`), subagent `.meta.json`; and the title lookups (`ai-title`, real `custom-title`, first prompt). Transcripts are read as streams, one line at a time (they run to hundreds of MB), never whole; the session list builds its sessions 8 at a time (`LIST_SCAN_CONCURRENCY` in `runtime.js`) and stores their text fields as copies of their own (`ownString`): the SDK hands them out as substrings of a 64 KB window of each transcript, which V8 keeps alive for as long as the substring lives. |
 | `v2-wire.js` | Internal events → OpenCode 2 wire events; records → v2 shapes. |
 | `live-sessions.js`, `remote-attach.js` | Sessions live in another CLI process; writing to them through Remote Control. |
 | `account.js` | The Claude Code account these sessions run as: its status, and the sign-in that changes it. |
