@@ -11,7 +11,7 @@ import { Icon } from "@/components/icon/Icon";
 import { useI18n } from '@/lib/i18n';
 import { getDesktopAppVersion } from '@/lib/desktopNative';
 import { runtimeFetch } from '@/lib/runtime-fetch';
-import { BRAND_NAME, BRAND_REPO_URL } from '@/lib/brand';
+import { BRAND_NAME, BRAND_REPO_URL, BRAND_SOCIAL } from '@/lib/brand';
 
 interface AboutDialogProps {
   open: boolean;
@@ -193,25 +193,29 @@ export const AboutDialog: React.FC<AboutDialogProps> = ({
                 <Icon name="github-fill" className="h-4 w-4" />
                 <span>GitHub</span>
               </a>
+              {BRAND_SOCIAL.discord && (
+                <a
+                  href={BRAND_SOCIAL.discord}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 typography-meta text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <Icon name="discord-fill" className="h-4 w-4" />
+                  <span>Discord</span>
+                </a>
+              )}
+            </div>
+            {BRAND_SOCIAL.x && (
               <a
-                href="https://discord.gg/ZYRSdnwwKA"
+                href={BRAND_SOCIAL.x.url}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center gap-1.5 typography-meta text-muted-foreground hover:text-foreground transition-colors"
               >
-                <Icon name="discord-fill" className="h-4 w-4" />
-                <span>Discord</span>
+                <Icon name="twitter-xfill" className="h-4 w-4" />
+                <span>{BRAND_SOCIAL.x.handle}</span>
               </a>
-            </div>
-            <a
-              href="https://x.com/openchamber_dev"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1.5 typography-meta text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <Icon name="twitter-xfill" className="h-4 w-4" />
-              <span>@openchamber_dev</span>
-            </a>
+            )}
           </div>
 
           <p className="typography-meta text-muted-foreground/60 pt-2">

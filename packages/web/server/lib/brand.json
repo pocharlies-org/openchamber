@@ -7,6 +7,7 @@
   "description": "One workspace for your AI coding agents: Claude and OpenCode",
   "themeColor": "#ee4f0c",
   "repo": { "owner": "pocharlies-org", "name": "openchamber" },
+  "social": {},
   "icons": {
     "app": "brand/icons/triora-icon.svg",
     "macos": "brand/icons/triora-icon-macos.svg",

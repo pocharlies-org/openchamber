@@ -14,6 +14,9 @@ export const BRAND_NAME = brand.displayName;
 /** The fork's repository: releases, About links. Upstream's slug must not come back (see scripts/upstream-slug.test.mjs). */
 export const BRAND_REPO_URL = `https://github.com/${brand.repo.owner}/${brand.repo.name}`;
 
+/** The product's own community channels (`social` in brand/brand.json). A channel the product does not have is absent and no row is drawn for it. */
+export const BRAND_SOCIAL: { discord?: string; x?: { url: string; handle: string } } = brand.social;
+
 /** The URL scheme the app emits (`<scheme>://session/<id>`, pairing links) and, after it, the older ones every parser still accepts. */
 export const BRAND_URL_SCHEME = brand.urlScheme;
 export const BRAND_URL_SCHEMES: readonly string[] = [brand.urlScheme, ...brand.legacy.urlSchemes];

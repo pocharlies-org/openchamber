@@ -12,7 +12,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import updaterPkg from 'electron-updater';
 import { ElectronSshManager } from './ssh-manager.mjs';
-import { APP_NAME, PRODUCT_NAME } from './brand.mjs';
+import { APP_NAME, PRODUCT_NAME, SOCIAL } from './brand.mjs';
 import { replaceFileWithRetry } from './windows-file-replace.mjs';
 import { createTrayController } from './tray.mjs';
 import { resolveManagedOpenCodeCwd } from './opencode-cwd.mjs';
@@ -237,7 +237,8 @@ const REMOTE_DESKTOP_CLIENT_KIND = 'desktop';
 const ENV_OVERRIDE_HOST_ID = '__env';
 const GITHUB_BUG_REPORT_URL = 'https://github.com/openchamber/openchamber/issues/new?template=bug_report.yml';
 const GITHUB_IDEAS_URL = 'https://github.com/openchamber/openchamber/discussions/categories/ideas';
-const DISCORD_INVITE_URL = 'https://discord.gg/ZYRSdnwwKA';
+// The product's own Discord (brand.json `social`); the Help menu has no entry when it has none.
+const DISCORD_INVITE_URL = SOCIAL.discord;
 const INSTALLED_APPS_CACHE_TTL_SECS = 60 * 60 * 24;
 const INSTALLED_APPS_CACHE_FILE = 'discovered-apps.json';
 // Bump when discovery results change shape or matching semantics change, so cached
@@ -4863,8 +4864,10 @@ const buildMacMenu = (locale = 'en') => {
         { type: 'separator' },
         { label: t('reportABug'), click: () => shell.openExternal(GITHUB_BUG_REPORT_URL) },
         { label: t('discussAnIdea'), click: () => shell.openExternal(GITHUB_IDEAS_URL) },
-        { type: 'separator' },
-        { label: t('joinDiscord'), click: () => shell.openExternal(DISCORD_INVITE_URL) },
+        ...(DISCORD_INVITE_URL ? [
+          { type: 'separator' },
+          { label: t('joinDiscord'), click: () => shell.openExternal(DISCORD_INVITE_URL) },
+        ] : []),
       ],
     },
   ]);
@@ -4982,8 +4985,10 @@ const buildAutoHiddenMenu = (locale = 'en') => {
         { type: 'separator' },
         { label: t('reportABug'), click: () => shell.openExternal(GITHUB_BUG_REPORT_URL) },
         { label: t('discussAnIdea'), click: () => shell.openExternal(GITHUB_IDEAS_URL) },
-        { type: 'separator' },
-        { label: t('joinDiscord'), click: () => shell.openExternal(DISCORD_INVITE_URL) },
+        ...(DISCORD_INVITE_URL ? [
+          { type: 'separator' },
+          { label: t('joinDiscord'), click: () => shell.openExternal(DISCORD_INVITE_URL) },
+        ] : []),
       ],
     },
   ]);

@@ -23,6 +23,9 @@ const WRITTEN_BY_SYNC = new Set(TARGETS.map((target) => target.file));
 // Case-sensitive on purpose: `OpenChamberWidget`, `OpenChamberLogo` and `openchamber://` are identifiers, not names.
 const NAMES = [...new Set([...brand.legacy.names, brand.displayName, brand.productName])];
 const NAME = new RegExp(`\\b(${NAMES.join('|')})\\b`);
+// The product's own channels come from brand.json `social`. A handle or an invite written by hand is somebody else's
+// community on a screen that says Triora, and NAME (case-sensitive) cannot see `openchamber_dev`.
+const SOCIAL = /openchamber_dev|(^|[^\w-])(x|twitter)\.com\/|discord\.(gg|com\/invite)\//i;
 
 const stripComments = (lines) => {
   let block = null;
@@ -45,12 +48,14 @@ const trackedFiles = () => execFileSync('git', ['ls-files', '-z', '--', ...SCAN]
   .split('\0')
   .filter((file) => file && EXTENSIONS.test(file) && !TESTS.test(file) && !WRITTEN_BY_SYNC.has(file));
 
-/** Lines where the product's name (old or new) is written by hand, outside comments. */
-export const findings = () => trackedFiles().flatMap((file) => {
+/** Lines where `pattern` (the product's name, old or new, by default) is written by hand, outside comments. */
+export const findings = (pattern = NAME) => trackedFiles().flatMap((file) => {
   const lines = read(file).split('\n');
   const code = stripComments(lines);
-  return code.flatMap((line, index) => (NAME.test(line) ? [{ file, line: index + 1, text: lines[index].trim() }] : []));
+  return code.flatMap((line, index) => (pattern.test(line) ? [{ file, line: index + 1, text: lines[index].trim() }] : []));
 });
+
+const show = (f) => `${f.file}:${f.line}: ${f.text.slice(0, 140)}`;
 
 const exceptionLines = read('scripts/brand-exceptions.txt').split('\n');
 const reviewedTotal = Number(exceptionLines.find((l) => l.startsWith('# reviewed-total:'))?.split(':')[1]);
@@ -79,7 +84,12 @@ test('the sprite glyph of the product is the mono master, not a drawing', () => 
 
 test('no name of the product (old or new) is written by hand outside the seam', () => {
   const found = findings().filter((f) => !excepted.has(key(f.file, f.text)));
-  assert.deepEqual(found.map((f) => `${f.file}:${f.line}: ${f.text.slice(0, 140)}`), [], 'use the brand (packages/ui/src/lib/brand.ts, packages/web/server/lib/brand.js, packages/electron/brand.mjs) or add a reviewed line to scripts/brand-exceptions.txt');
+  assert.deepEqual(found.map(show), [], 'use the brand (packages/ui/src/lib/brand.ts, packages/web/server/lib/brand.js, packages/electron/brand.mjs) or add a reviewed line to scripts/brand-exceptions.txt');
+});
+
+test('no social handle or invite link is written by hand outside the seam, and brand.json holds none of upstream', () => {
+  assert.deepEqual(findings(SOCIAL).map(show), [], 'read the channels from `social` in brand/brand.json (packages/ui/src/lib/brand.ts, packages/web/server/lib/brand.js)');
+  assert.doesNotMatch(JSON.stringify(brand.social), /openchamber/i, "upstream's accounts are not the product's own channels");
 });
 
 test('the exceptions are exact lines with a reason, and none is stale or unreviewed', () => {

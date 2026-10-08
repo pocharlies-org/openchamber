@@ -26,6 +26,11 @@ const BrandSchema = z.strictObject({
   description: text,
   themeColor: z.string().regex(/^#[0-9a-f]{6}$/i, '#rrggbb'),
   repo: z.strictObject({ owner: text, name: text }),
+  // The product's own channels; a product without them leaves the block empty and the UI draws no row.
+  social: z.strictObject({
+    discord: z.url().optional(),
+    x: z.strictObject({ url: z.url(), handle: text }).optional(),
+  }),
   icons: z.strictObject({ app: text, macos: text, small: text, mono: text }),
   legacy: z.strictObject({
     userDataDir: text,

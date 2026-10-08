@@ -21,6 +21,9 @@ export const REPO_OWNER = brand.repo.owner;
 export const REPO_NAME = brand.repo.name;
 export const REPO_SLUG = `${REPO_OWNER}/${REPO_NAME}`;
 
+// The product's own community channels ({ discord?, x?: { url, handle } }); empty when it has none.
+export const SOCIAL = brand.social;
+
 // The URL scheme the product emits and registers, and the ones every parser still accepts.
 export const URL_SCHEME = brand.urlScheme;
 export const LEGACY_URL_SCHEMES = brand.legacy.urlSchemes;

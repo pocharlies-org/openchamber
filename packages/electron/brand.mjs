@@ -7,5 +7,6 @@ export {
   PRODUCT_NAME,
   REPO_NAME,
   REPO_OWNER,
+  SOCIAL,
   URL_SCHEMES,
 } from '@openchamber/web/server/lib/brand.js';
