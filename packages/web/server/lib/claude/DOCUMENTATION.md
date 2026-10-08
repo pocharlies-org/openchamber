@@ -13,12 +13,12 @@ the way the Claude Code VS Code extension drives its panel.
 | File | Role |
 |---|---|
 | `routes.js` | Express routes (`createClaudeSurface`): public ids, the OpenCode 2 routes for a Claude session, the v2 event translator, the queue transport, the merges the proxy calls. |
-| `runtime.js` | Sessions, transcripts, processes, modes, subagent child sessions, per-session engine state. |
+| `runtime.js` | Sessions, transcripts, processes, modes, subagent child sessions, per-session engine state. The list is built with bounded concurrency (`LIST_BUILD_CONCURRENCY`, `lib/concurrency.js`). |
 | `session-process.js` | One live CLI process: turns, streaming, tool calls, subagent streams, usage, mode reports. |
 | `claude-requests.js` | Claude Code asking the user (`canUseTool`): permission prompts, `AskUserQuestion` forms, plan approvals. |
 | `claude-tools.js` | Claude Code tool calls as OpenCode v2 tool parts (names, input keys, diffs, subagent links). |
 | `claude-transcript.js` | Transcript records → OpenChamber records (read back). |
-| `transcript-sidecar.js` | What the SDK's reader drops: structured tool results (`toolUseResult`), subagent `.meta.json`. |
+| `transcript-sidecar.js` | What the SDK's reader drops: structured tool results (`toolUseResult`), subagent `.meta.json`. Reads transcripts **by lines** (`fsPromises.open` + `readline`), never the whole file; `readFirstPrompt` stops at the first match. |
 | `v2-wire.js` | Internal events → OpenCode 2 wire events; records → v2 shapes. |
 | `live-sessions.js`, `remote-attach.js` | Sessions live in another CLI process; writing to them through Remote Control. |
 | `account.js` | The Claude Code account these sessions run as: its status, and the sign-in that changes it. |

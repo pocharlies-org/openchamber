@@ -1,6 +1,7 @@
 import fsDefault from 'fs';
 import osDefault from 'os';
 import pathDefault from 'path';
+import readline from 'readline';
 import { isClaudeGeneratedName, isClaudeTitlePlaceholder } from './claude-transcript.js';
 
 /**
@@ -80,32 +81,49 @@ export const createTranscriptSidecar = ({
   };
 
   /**
+   * Calls `visit(line)` for each line of a transcript without holding the file
+   * in memory (they run to hundreds of MB); `visit` returns `true` to stop.
+   * Rejects when the file cannot be opened or read.
+   */
+  const scanLines = async (file, visit) => {
+    const handle = await fsPromises.open(file, 'r');
+    const stream = handle.createReadStream();
+    const lines = readline.createInterface({ input: stream, crlfDelay: Infinity });
+    try {
+      for await (const line of lines) {
+        if (visit(line) === true) return;
+      }
+    } finally {
+      lines.close();
+      stream.destroy(); // closes the FileHandle too, also on early exit and on error
+    }
+  };
+
+  /**
    * `tool_use_id` → Claude Code's structured tool result, from the transcript
    * lines that carry one. Only those lines are parsed.
    */
   const readToolResults = async (file) => {
     const results = new Map();
-    let raw;
     try {
-      raw = await fsPromises.readFile(file, 'utf8');
-    } catch {
-      return results;
-    }
-    for (const line of raw.split('\n')) {
-      if (!line.includes('"toolUseResult"')) continue;
-      let entry;
-      try {
-        entry = JSON.parse(line);
-      } catch {
-        continue;
-      }
-      if (!isRecord(entry.toolUseResult)) continue;
-      const blocks = Array.isArray(entry.message?.content) ? entry.message.content : [];
-      for (const block of blocks) {
-        if (block?.type === 'tool_result' && typeof block.tool_use_id === 'string') {
-          results.set(block.tool_use_id, entry.toolUseResult);
+      await scanLines(file, (line) => {
+        if (!line.includes('"toolUseResult"')) return;
+        let entry;
+        try {
+          entry = JSON.parse(line);
+        } catch {
+          return;
         }
-      }
+        if (!isRecord(entry.toolUseResult)) return;
+        const blocks = Array.isArray(entry.message?.content) ? entry.message.content : [];
+        for (const block of blocks) {
+          if (block?.type === 'tool_result' && typeof block.tool_use_id === 'string') {
+            results.set(block.tool_use_id, entry.toolUseResult);
+          }
+        }
+      });
+    } catch {
+      return new Map();
     }
     return results;
   };
@@ -176,22 +194,20 @@ export const createTranscriptSidecar = ({
   const readAiTitle = async (sessionId, directory) => {
     const file = await locate(sessionId, directory);
     if (!file) return '';
-    let raw;
+    let title = '';
     try {
-      raw = await fsPromises.readFile(file, 'utf8');
+      await scanLines(file, (line) => {
+        if (!line.includes('"ai-title"')) return;
+        let entry;
+        try {
+          entry = JSON.parse(line);
+        } catch {
+          return;
+        }
+        if (typeof entry.aiTitle === 'string' && entry.aiTitle.trim()) title = entry.aiTitle.trim();
+      });
     } catch {
       return '';
-    }
-    let title = '';
-    for (const line of raw.split('\n')) {
-      if (!line.includes('"ai-title"')) continue;
-      let entry;
-      try {
-        entry = JSON.parse(line);
-      } catch {
-        continue;
-      }
-      if (typeof entry.aiTitle === 'string' && entry.aiTitle.trim()) title = entry.aiTitle.trim();
     }
     return title;
   };
@@ -207,22 +223,20 @@ export const createTranscriptSidecar = ({
   const readRealCustomTitle = async (sessionId, directory) => {
     const file = await locate(sessionId, directory);
     if (!file) return '';
-    let raw;
+    const titles = [];
     try {
-      raw = await fsPromises.readFile(file, 'utf8');
+      await scanLines(file, (line) => {
+        if (!line.includes('"custom-title"')) return;
+        let entry;
+        try {
+          entry = JSON.parse(line);
+        } catch {
+          return;
+        }
+        if (typeof entry.customTitle === 'string' && entry.customTitle.trim()) titles.push(entry.customTitle.trim());
+      });
     } catch {
       return '';
-    }
-    const titles = [];
-    for (const line of raw.split('\n')) {
-      if (!line.includes('"custom-title"')) continue;
-      let entry;
-      try {
-        entry = JSON.parse(line);
-      } catch {
-        continue;
-      }
-      if (typeof entry.customTitle === 'string' && entry.customTitle.trim()) titles.push(entry.customTitle.trim());
     }
     if (titles.length === 0) return '';
     const newest = titles[titles.length - 1];
@@ -242,29 +256,30 @@ export const createTranscriptSidecar = ({
   const readFirstPrompt = async (sessionId, directory) => {
     const file = await locate(sessionId, directory);
     if (!file) return '';
-    let raw;
+    let prompt = '';
     try {
-      raw = await fsPromises.readFile(file, 'utf8');
+      await scanLines(file, (line) => {
+        if (!line.includes('"type":"user"')) return;
+        let entry;
+        try {
+          entry = JSON.parse(line);
+        } catch {
+          return;
+        }
+        if (entry.type !== 'user' || entry.isMeta || entry.isCompactSummary || entry.isSidechain) return;
+        const content = entry.message?.content;
+        const parts = typeof content === 'string' ? [content] : Array.isArray(content)
+          ? content.filter((part) => part?.type === 'text' && typeof part.text === 'string').map((part) => part.text)
+          : [];
+        const text = parts.map((part) => part.trim()).filter((part) => part && !part.startsWith('<')).join(' ').replace(/\s+/g, ' ');
+        if (!text) return;
+        prompt = text;
+        return true;
+      });
     } catch {
       return '';
     }
-    for (const line of raw.split('\n')) {
-      if (!line.includes('"type":"user"')) continue;
-      let entry;
-      try {
-        entry = JSON.parse(line);
-      } catch {
-        continue;
-      }
-      if (entry.type !== 'user' || entry.isMeta || entry.isCompactSummary || entry.isSidechain) continue;
-      const content = entry.message?.content;
-      const parts = typeof content === 'string' ? [content] : Array.isArray(content)
-        ? content.filter((part) => part?.type === 'text' && typeof part.text === 'string').map((part) => part.text)
-        : [];
-      const text = parts.map((part) => part.trim()).filter((part) => part && !part.startsWith('<')).join(' ').replace(/\s+/g, ' ');
-      if (text) return text;
-    }
-    return '';
+    return prompt;
   };
 
   return { locate, read, readSubagent, readAiTitle, readRealCustomTitle, readFirstPrompt, projectsDir };

@@ -230,6 +230,38 @@ describe('claude backend listSessions', () => {
     expect(scan.readRealCustomTitle).not.toHaveBeenCalled();
   });
 
+  it('builds the list with a bounded number of transcript reads at once', async () => {
+    // A cold start over thousands of sessions must not open them all together.
+    let active = 0;
+    let max = 0;
+    const readAiTitle = vi.fn(async () => {
+      active += 1;
+      max = Math.max(max, active);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      active -= 1;
+      return 'Debug image issue';
+    });
+    const { runtime } = createRuntime({
+      sdk: makeSdk({
+        listSessions: vi.fn(async () => Array.from({ length: 200 }, (_, i) => sessionInfo({
+          sessionId: `sess-${i}`,
+          customTitle: 'OpenChamber · k8s',
+          summary: 'OpenChamber · k8s',
+          firstPrompt: '',
+        }))),
+      }),
+      fs: Object.assign(makeFs(), { stat: vi.fn(async () => ({ mtimeMs: 123 })) }),
+      transcriptSidecar: { locate: async (id) => `/transcripts/${id}.jsonl`, readAiTitle },
+    });
+
+    const sessions = await runtime.listSessions({ directory: '/repo/project' });
+    expect(sessions).toHaveLength(200);
+    expect(sessions.every((session) => session.title === 'Debug image issue')).toBe(true);
+    expect(readAiTitle).toHaveBeenCalledTimes(200);
+    expect(max).toBeGreaterThan(1);
+    expect(max).toBeLessThanOrEqual(16);
+  });
+
   it('names a prompt-only session by its ai-title, as VS Code does', async () => {
     const readAiTitle = vi.fn(async () => 'Apagar y relanzar SC-1340');
     const { runtime } = createRuntime({

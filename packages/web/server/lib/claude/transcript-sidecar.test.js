@@ -1,3 +1,6 @@
+import fs from 'fs';
+import os from 'os';
+import { Readable } from 'stream';
 import { describe, expect, it } from 'vitest';
 import path from 'path';
 
@@ -5,17 +8,49 @@ import { createTranscriptSidecar, projectSlug } from './transcript-sidecar.js';
 
 const CONFIG = '/home/test/.claude';
 const PROJECTS = `${CONFIG}/projects`;
+const CHUNK = 64 * 1024;
 
-const makeFs = (files) => {
+/**
+ * An in-memory `fs.promises`. `open()` hands back a lazy read stream of 64 KiB
+ * byte chunks, as a real file does, so a chunk can cut a line or a multibyte
+ * character in two; every stream it opens is kept in `streams` (what was
+ * pushed, whether it was destroyed). `forbidTranscriptReadFile` makes
+ * `readFile` throw on a `.jsonl`, so a reader that loads the whole transcript
+ * fails the test; `failAfter` (file → bytes) breaks that file's stream midway.
+ */
+const makeFs = (files, { forbidTranscriptReadFile = false, failAfter = {} } = {}) => {
   const missing = () => Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
   const has = (target) => Object.prototype.hasOwnProperty.call(files, target);
+  const streams = [];
   return {
+    streams,
     access: async (target) => {
       if (!has(target)) throw missing();
     },
     readFile: async (target) => {
       if (!has(target)) throw missing();
+      if (forbidTranscriptReadFile && target.endsWith('.jsonl')) throw new Error(`readFile on a transcript: ${target}`);
       return files[target];
+    },
+    open: async (target) => {
+      if (!has(target)) throw missing();
+      const bytes = Buffer.from(files[target]);
+      const record = { file: target, pushed: 0, stream: null };
+      record.stream = new Readable({
+        read() {
+          if (failAfter[target] !== undefined && record.pushed >= failAfter[target]) {
+            this.destroy(Object.assign(new Error('EIO'), { code: 'EIO' }));
+          } else if (record.pushed >= bytes.length) {
+            this.push(null);
+          } else {
+            const chunk = bytes.subarray(record.pushed, record.pushed + CHUNK);
+            record.pushed += chunk.length;
+            this.push(chunk);
+          }
+        },
+      });
+      streams.push(record);
+      return { createReadStream: () => record.stream, close: async () => {} };
     },
     readdir: async (target) => {
       const prefix = `${target}/`;
@@ -141,5 +176,186 @@ describe('transcript sidecar', () => {
     expect(await sidecar.readFirstPrompt('s5', '/repo')).toBe('porque hay 2 precios?');
     expect(await sidecar.readFirstPrompt('s6', '/repo')).toBe('');
     expect(await sidecar.readFirstPrompt('missing', '/repo')).toBe('');
+  });
+});
+
+describe('transcript sidecar reads by lines', () => {
+  const DIR = `${PROJECTS}/-repo`;
+  const FILE = `${DIR}/big.jsonl`;
+  const user = (content, extra = {}) => line({ type: 'user', message: { role: 'user', content }, ...extra });
+  const aiTitle = (aiTitle) => line({ type: 'ai-title', aiTitle, sessionId: 'big' });
+  const customTitle = (customTitle) => line({ type: 'custom-title', customTitle, sessionId: 'big' });
+  const toolResult = (id, result) => line({ type: 'user', toolUseResult: result, message: { content: [{ type: 'tool_result', tool_use_id: id }] } });
+  const FILLER = line({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'x'.repeat(180) }] } });
+  const filler = (count) => Array.from({ length: count }, () => FILLER);
+  // A transcript a few MB long, as the ones that took the server down are.
+  const BIG_LINES = 50_000;
+  const MB = 1024 * 1024;
+
+  const over = (content, options) => {
+    const fsPromises = makeFs({ [FILE]: content }, options);
+    return { fsPromises, sidecar: createTranscriptSidecar({ fsPromises, path, configDir: CONFIG }) };
+  };
+
+  it('stops at the first real prompt instead of reading the file', async () => {
+    const content = [
+      line({ type: 'bridge-session', sessionId: 'big' }),
+      user('meta', { isMeta: true }),
+      user('el primer prompt de verdad'),
+      ...filler(BIG_LINES),
+    ].join('\n');
+    expect(Buffer.byteLength(content)).toBeGreaterThan(10 * MB);
+    const { fsPromises, sidecar } = over(content, { forbidTranscriptReadFile: true });
+
+    expect(await sidecar.readFirstPrompt('big', '/repo')).toBe('el primer prompt de verdad');
+    expect(fsPromises.streams).toHaveLength(1);
+    const [opened] = fsPromises.streams;
+    expect(opened.pushed).toBeLessThan(MB);
+    expect(opened.stream.destroyed).toBe(true);
+  });
+
+  it('reads the last ai-title, the real custom title and the tool results past 50,000 lines', async () => {
+    const content = [
+      aiTitle('Primero'),
+      customTitle('Titulo real'),
+      toolResult('toolu_first', { stdout: 'a' }),
+      ...filler(BIG_LINES),
+      aiTitle('Ultimo'),
+      customTitle('ubuntu-bright-duckling'),
+      toolResult('toolu_last', { stdout: 'b' }),
+    ].join('\n');
+    expect(Buffer.byteLength(content)).toBeGreaterThan(10 * MB);
+    const { fsPromises, sidecar } = over(content, { forbidTranscriptReadFile: true });
+
+    expect(await sidecar.readAiTitle('big', '/repo')).toBe('Ultimo');
+    expect(await sidecar.readRealCustomTitle('big', '/repo')).toBe('Titulo real');
+    const { toolResults } = await sidecar.read('big', '/repo');
+    expect([...toolResults.keys()]).toEqual(['toolu_first', 'toolu_last']);
+    // Each reader went through the file once, and let go of it.
+    expect(fsPromises.streams).toHaveLength(3);
+    for (const opened of fsPromises.streams) {
+      expect(opened.stream.destroyed).toBe(true);
+    }
+  });
+
+  it('reads a last line with no trailing newline', async () => {
+    const { sidecar } = over([aiTitle('Primero'), user('hola'), aiTitle('Sin salto final')].join('\n'));
+    expect(await sidecar.readAiTitle('big', '/repo')).toBe('Sin salto final');
+
+    const prompt = over([line({ type: 'bridge-session' }), user('prompt sin salto final')].join('\n'));
+    expect(await prompt.sidecar.readFirstPrompt('big', '/repo')).toBe('prompt sin salto final');
+
+    const results = over([user('hi'), toolResult('toolu_end', { stdout: 'z' })].join('\n'));
+    expect([...(await results.sidecar.read('big', '/repo')).toolResults.keys()]).toEqual(['toolu_end']);
+  });
+
+  it('ignores a broken line that mentions the key it looks for', async () => {
+    const { sidecar } = over([
+      '{not json "toolUseResult"',
+      toolResult('toolu_ok', { stdout: 'ok' }),
+      '{broken "ai-title"',
+      aiTitle('Valido'),
+      '{broken "custom-title"',
+      '{broken "type":"user"',
+    ].join('\n'));
+    expect([...(await sidecar.read('big', '/repo')).toolResults.keys()]).toEqual(['toolu_ok']);
+    expect(await sidecar.readAiTitle('big', '/repo')).toBe('Valido');
+    expect(await sidecar.readRealCustomTitle('big', '/repo')).toBe('');
+    expect(await sidecar.readFirstPrompt('big', '/repo')).toBe('');
+  });
+
+  it('answers empty when the file is gone by the time it is opened', async () => {
+    const files = { [FILE]: aiTitle('x') };
+    const vanished = {
+      ...makeFs(files),
+      open: async () => { throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' }); },
+    };
+    const sidecar = createTranscriptSidecar({ fsPromises: vanished, path, configDir: CONFIG });
+    expect(await sidecar.readAiTitle('big', '/repo')).toBe('');
+    expect(await sidecar.readRealCustomTitle('big', '/repo')).toBe('');
+    expect(await sidecar.readFirstPrompt('big', '/repo')).toBe('');
+    expect((await sidecar.read('big', '/repo')).toolResults.size).toBe(0);
+  });
+
+  it('reads past a line of several MB (a pasted image) to the first prompt', async () => {
+    const content = [
+      user([{ type: 'image', source: { type: 'base64', data: 'A'.repeat(5 * MB) } }], { isMeta: true }),
+      user([
+        { type: 'image', source: { type: 'base64', data: 'B'.repeat(5 * MB) } },
+        { type: 'text', text: 'que pasa con esta imagen?' },
+      ]),
+      aiTitle('Imagen'),
+    ].join('\n');
+    const { fsPromises, sidecar } = over(content, { forbidTranscriptReadFile: true });
+    expect(await sidecar.readFirstPrompt('big', '/repo')).toBe('que pasa con esta imagen?');
+    expect(await sidecar.readAiTitle('big', '/repo')).toBe('Imagen');
+    expect(fsPromises.streams.every((opened) => opened.stream.destroyed)).toBe(true);
+  });
+
+  it('puts a line and a multibyte character back together across chunks', async () => {
+    // The first line's length decides where the 64 KiB boundary falls: with
+    // one byte more or less, at least one of the two files has a multibyte
+    // character cut between its first and second chunk.
+    const boundaries = [];
+    for (const padding of ['', 'x']) {
+      const text = 'ñ😀'.repeat(40_000);
+      const content = [line({ type: 'bridge-session', note: padding }), user(text), aiTitle('ñandú 😀')].join('\n');
+      boundaries.push((Buffer.from(content)[CHUNK] & 0xc0) === 0x80 ? 'cut' : 'whole');
+      const { sidecar } = over(content);
+      expect(await sidecar.readFirstPrompt('big', '/repo')).toBe(text);
+      expect(await sidecar.readAiTitle('big', '/repo')).toBe('ñandú 😀');
+    }
+    expect(boundaries).toContain('cut');
+  });
+
+  it('reads CRLF files and an empty file', async () => {
+    const { sidecar } = over([user('hola'), aiTitle('Con CRLF'), toolResult('toolu_crlf', { stdout: 'c' })].join('\r\n') + '\r\n');
+    expect(await sidecar.readFirstPrompt('big', '/repo')).toBe('hola');
+    expect(await sidecar.readAiTitle('big', '/repo')).toBe('Con CRLF');
+    expect([...(await sidecar.read('big', '/repo')).toolResults.keys()]).toEqual(['toolu_crlf']);
+
+    const empty = over('');
+    expect(await empty.sidecar.readFirstPrompt('big', '/repo')).toBe('');
+    expect(await empty.sidecar.readAiTitle('big', '/repo')).toBe('');
+    expect(await empty.sidecar.readRealCustomTitle('big', '/repo')).toBe('');
+    expect((await empty.sidecar.read('big', '/repo')).toolResults.size).toBe(0);
+  });
+
+  it('answers empty, and does not hang, when the stream fails midway', async () => {
+    const content = [
+      toolResult('toolu_early', { stdout: 'e' }),
+      ...filler(2_000),
+      aiTitle('Tarde'),
+      user('prompt tarde'),
+    ].join('\n');
+    expect(Buffer.byteLength(content)).toBeGreaterThan(3 * CHUNK);
+    const { fsPromises, sidecar } = over(content, { failAfter: { [FILE]: 2 * CHUNK } });
+
+    expect(await sidecar.readAiTitle('big', '/repo')).toBe('');
+    expect(await sidecar.readRealCustomTitle('big', '/repo')).toBe('');
+    expect(await sidecar.readFirstPrompt('big', '/repo')).toBe('');
+    expect((await sidecar.read('big', '/repo')).toolResults.size).toBe(0);
+    expect(fsPromises.streams.every((opened) => opened.stream.destroyed)).toBe(true);
+  });
+
+  it('reads a real file by lines and leaves no descriptor open', async () => {
+    const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'oc-sidecar-'));
+    try {
+      const dir = path.join(configDir, 'projects', projectSlug('/repo'));
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, 'real.jsonl'), [user('hola real'), aiTitle('Titulo real'), ...filler(3_000)].join('\n'));
+      const sidecar = createTranscriptSidecar({ configDir });
+      const openDescriptors = () => (fs.existsSync('/proc/self/fd') ? fs.readdirSync('/proc/self/fd').length : 0);
+      const before = openDescriptors();
+
+      expect(await sidecar.readFirstPrompt('real', '/repo')).toBe('hola real');
+      expect(await sidecar.readAiTitle('real', '/repo')).toBe('Titulo real');
+      for (let i = 0; i < 50 && openDescriptors() !== before; i += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      expect(openDescriptors()).toBe(before);
+    } finally {
+      fs.rmSync(configDir, { recursive: true, force: true });
+    }
   });
 });

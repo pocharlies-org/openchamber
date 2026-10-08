@@ -18,10 +18,15 @@ import { createClaudeSessionProcess } from './session-process.js';
 import { createTranscriptSidecar, isSafeId } from './transcript-sidecar.js';
 import { remoteControlUrl } from './live-sessions.js';
 import { isCompanyClaudeSession } from './company-sessions.js';
+import { mapWithConcurrency } from '../concurrency.js';
 
 const BACKEND_ID = 'claude';
 const PROVIDER_ID = 'claude';
 const LIST_CACHE_TTL_MS = 15_000;
+// Building the list may read a transcript per session (titles); on a cold start
+// over thousands of them, that many at once held gigabytes and killed the
+// server (DGX-671). A few at a time keeps memory flat and the scan streaming.
+const LIST_BUILD_CONCURRENCY = 8;
 // Listing reads the head of every transcript (~5 s for 1,600 of them). Past
 // the TTL a list younger than this is still served while a fresh read runs in
 // the background: the UI lists several directories at once and would otherwise
@@ -701,9 +706,11 @@ export const createClaudeBackendRuntime = (dependencies = {}) => {
           listRequest.dir = directory;
         }
         const infos = await sdk.listSessions(listRequest);
-        const scanned = await Promise.all((Array.isArray(infos) ? infos : [])
-          .filter((info) => info && typeof info.sessionId === 'string')
-          .map((info) => buildSessionFromInfo(info, directory)));
+        const scanned = await mapWithConcurrency(
+          (Array.isArray(infos) ? infos : []).filter((info) => info && typeof info.sessionId === 'string'),
+          LIST_BUILD_CONCURRENCY,
+          (info) => buildSessionFromInfo(info, directory),
+        );
         if (generation === listGeneration) {
           const at = staleness === listStaleness ? Date.now() : Date.now() - LIST_CACHE_TTL_MS;
           listCache.set(cacheKey, { at, sessions: scanned });

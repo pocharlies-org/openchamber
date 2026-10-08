@@ -1,6 +1,6 @@
 # ARCHITECTURE.md — AgentChamber (fork de OpenChamber)
 
-> Escrito por el architect de la compañía (DGX-513, 2026-10-06). Lo medido está fechado; si algo contradice el repo, se corrige en el mismo cambio. Repo: `pocharlies-org/openchamber` (público, fork de `openchamber/openchamber`). Árbol de trabajo real en el x86: `~/src/openchamber-fork` (`~/k8s/openchamber-fork` es un clon vacío, solo `.git`).
+> Escrito por el architect de la compañía (DGX-513, 2026-10-06). Lo medido está fechado; si algo contradice el repo, se corrige en el mismo cambio. Repo: `pocharlies-org/openchamber` (público, fork de `openchamber/openchamber`). Checkouts de trabajo en el x86: `~/src/openchamber-fork` y `~/k8s/openchamber-fork` (este último con árbol de trabajo, medido 2026-10-08).
 
 ## 1. Qué es y clientes
 
@@ -61,6 +61,7 @@ Dos adaptadores reales (OpenCode, Claude) → seam legítimo. Añadir Codex = un
 | Tipos de panel de terceros | `packages/sdk` (no copiar a `packages/ui`) |
 | i18n | `packages/ui/src/lib/i18n/messages/*` (paridad Claude: `claude-parity.i18n.ts`) |
 | Datos de iconos/sprites | `scripts/generate-*-sprite.mjs` |
+| Concurrencia acotada (servidor) | `packages/web/server/lib/concurrency.js` (`mapWithConcurrency`; la de UI es `packages/ui/src/lib/concurrency.ts` y no se importa desde el servidor) → la usa `claude/runtime.js` |
 
 Marca (tras DGX-514): `scripts/brand-allowlist.txt` (referencias históricas permitidas, motivo por entrada) + test que falla si crece sin revisión.
 
@@ -100,4 +101,5 @@ La suite web tiene fallos heredados de upstream; la puerta de PR del fork usa `v
 - El `appId` móvil y el `productName` de Electron cambian con el rebrand (DGX-514); lo consumido por la compañía (`~/.local/openchamber`, bin, puertos, ids de sesión/filing) no.
 - `mobile-release.yml` ya soporta bundle id propio (`vars.IOS_BUNDLE_ID`, `IOS_URL_SCHEME`): el rebrand iOS usa esa variable, no sed ad hoc.
 - Release/ejecución en el x86: ver sección 2; nunca editar `~/.local/openchamber` a mano.
+- Un `.jsonl` de transcript no se lee entero: `readFile` sobre un transcript es hallazgo (DGX-671: OOM en bucle con 5.066 transcripts / 7,2 GB). `transcript-sidecar.js` lee por líneas y la lista de sesiones Claude se construye con `LIST_BUILD_CONCURRENCY`.
 - Pendiente para el architect: añadir el árbol de decisiones de marca cuando Bohdan conteste.
