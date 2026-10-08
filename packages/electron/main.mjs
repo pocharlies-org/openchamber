@@ -4759,6 +4759,16 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
   }
 };
 
+// Help-menu entries after "clear cache", shared by both menus; Discord only when the brand has one.
+const helpLinkItems = (t) => [
+  { label: t('reportABug'), click: () => shell.openExternal(GITHUB_BUG_REPORT_URL) },
+  { label: t('discussAnIdea'), click: () => shell.openExternal(GITHUB_IDEAS_URL) },
+  ...(DISCORD_INVITE_URL ? [
+    { type: 'separator' },
+    { label: t('joinDiscord'), click: () => shell.openExternal(DISCORD_INVITE_URL) },
+  ] : []),
+];
+
 const buildMacMenu = (locale = 'en') => {
   const dispatchAction = (action) => dispatchMenuAction(action);
   const t = (key) => menuLabel(locale, key);
@@ -4862,12 +4872,7 @@ const buildMacMenu = (locale = 'en') => {
         { type: 'separator' },
         { label: t('clearCache'), click: () => void handleInvoke(null, 'desktop_clear_cache') },
         { type: 'separator' },
-        { label: t('reportABug'), click: () => shell.openExternal(GITHUB_BUG_REPORT_URL) },
-        { label: t('discussAnIdea'), click: () => shell.openExternal(GITHUB_IDEAS_URL) },
-        ...(DISCORD_INVITE_URL ? [
-          { type: 'separator' },
-          { label: t('joinDiscord'), click: () => shell.openExternal(DISCORD_INVITE_URL) },
-        ] : []),
+        ...helpLinkItems(t),
       ],
     },
   ]);
@@ -4983,12 +4988,7 @@ const buildAutoHiddenMenu = (locale = 'en') => {
         { type: 'separator' },
         { label: t('clearCache'), click: () => void handleInvoke(null, 'desktop_clear_cache') },
         { type: 'separator' },
-        { label: t('reportABug'), click: () => shell.openExternal(GITHUB_BUG_REPORT_URL) },
-        { label: t('discussAnIdea'), click: () => shell.openExternal(GITHUB_IDEAS_URL) },
-        ...(DISCORD_INVITE_URL ? [
-          { type: 'separator' },
-          { label: t('joinDiscord'), click: () => shell.openExternal(DISCORD_INVITE_URL) },
-        ] : []),
+        ...helpLinkItems(t),
       ],
     },
   ]);
