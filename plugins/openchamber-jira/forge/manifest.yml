@@ -157,12 +157,12 @@ modules:
 
 resources:
   # `static/live` es una build ya hecha (esbuild; fuente en `src/`), como pide
-  # Custom UI. `static/panel` era la versión nativa anterior y se queda como
-  # referencia hasta que el panel nuevo lleve un tiempo en producción.
+  # Custom UI. `static/panel` era la versión nativa anterior y se queda en el
+  # árbol como referencia, pero ya no es un recurso: sin un módulo que lo pinte
+  # con `render: native`, la CLI de Forge lo toma por Custom UI y falla al
+  # empaquetar («Resource panel … is an empty directory»).
   - key: live
     path: static/live
-  - key: panel
-    path: static/panel/src/index.jsx
   - key: roles-ui
     path: static/roles/src/index.jsx
   - key: company-ui
