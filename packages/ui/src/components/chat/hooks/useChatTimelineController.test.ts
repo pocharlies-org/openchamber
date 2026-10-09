@@ -107,6 +107,7 @@ describe('loadHistoryUntilMessage', () => {
         const root = createRoot(dom.container);
         let messages: ChatMessageEntry[] = [userMessage('msg_9', 9)];
         let calls = 0;
+        const mounted = deferred();
         let controller!: UseChatTimelineControllerResult;
         const Harness = () => {
             controller = useChatTimelineController({
@@ -121,13 +122,17 @@ describe('loadHistoryUntilMessage', () => {
                 },
                 goToBottom: () => undefined, releaseAutoFollow: () => undefined,
             });
+            React.useEffect(() => mounted.resolve(), []);
             return null;
         };
         root.render(React.createElement(Harness));
         return {
             get controller() { return controller; },
             get calls() { return calls; },
-            ready: () => new Promise((resolve) => setTimeout(resolve, 20)),
+            // The first commit's passive effects, not a wall-clock guess: a
+            // starved process can fire a fixed timer before React's scheduler
+            // has run the first render, leaving `controller` unset.
+            ready: () => mounted.promise,
             dispose: () => {
                 root.unmount();
                 dom.restore();
