@@ -189,7 +189,18 @@ jobs:
   ios-testflight:
     name: iOS TestFlight upload
     if: inputs.build_ios
-    runs-on: blacksmith-6vcpu-macos-26
+    # DGX-516: Apple credentials (SC-1953) live only in this environment. It has no required
+    # reviewer on purpose (CTO, DGX-513 2026-10-08): a reviewer parks every upload on a person.
+    # What protects it is the deployment branch policy (main only) and the triggers of this
+    # workflow: workflow_dispatch / workflow_call only, never pull_request, so a fork PR cannot
+    # reach the job or its secrets.
+    environment: testflight
+    # 2026-10-08 devops (DGX-516) · hosted macOS, not arc-k8s: xcodebuild + Apple signing need
+    # real macOS and the cluster has none. Hosted rather than the org's one self-hosted Mac
+    # because the repo is public (hosted macOS minutes are free) and that Mac is the only builder
+    # of another company app: this keeps it free for that. Back to a self-hosted pool only if the
+    # org builds a macOS one or the repo goes private (hosted minutes would then bill a $0 budget).
+    runs-on: macos-26
     needs: resolve-version
     env:
       # A fork signs with its own Apple team, where com.openchamber.app is not
@@ -204,6 +215,9 @@ jobs:
       IOS_URL_SCHEME: ${{ vars.IOS_URL_SCHEME || 'openchamber' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The "What to test" text lists the commits since the previous build.
+          fetch-depth: 0
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
 
@@ -392,16 +406,40 @@ jobs:
             "OTHER_CODE_SIGN_FLAGS=--keychain $RUNNER_TEMP/app-signing.keychain-db"
         working-directory: ${{ env.IOS_PROJECT_DIR }}
 
-      - name: Export IPA
+      - name: Prepare App Store Connect API key
         shell: bash
         env:
+          # The .p8 as base64 (or already PEM): the same secret the old altool step read.
+          ASC_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY_BASE64 }}
+        run: |
+          set -euo pipefail
+          key_path="$RUNNER_TEMP/AuthKey.p8"
+          umask 077
+          printf '%s' "$ASC_PRIVATE_KEY" | base64 -D > "$key_path" 2>/dev/null || true
+          grep -q 'BEGIN PRIVATE KEY' "$key_path" || printf '%s\n' "$ASC_PRIVATE_KEY" > "$key_path"
+          if ! grep -q 'BEGIN PRIVATE KEY' "$key_path"; then
+            echo "APP_STORE_CONNECT_PRIVATE_KEY_BASE64 is neither a base64 .p8 nor a PEM key."
+            exit 1
+          fi
+          echo "ASC_KEY_PATH=$key_path" >> "$GITHUB_ENV"
+
+      # Export and upload in one go (destination=upload): xcodebuild signs the IPA and sends it to
+      # App Store Connect with the API key, the same recipe the company's other iOS app uses.
+      # Replaces `xcrun altool --upload-app`, which Apple deprecated. method=app-store-connect is
+      # required: without it destination=upload fails with "expected one of {export}".
+      # manageAppVersionAndBuildNumber=false: the build number is the one agvtool set above.
+      - name: Export and upload to TestFlight
+        shell: bash
+        env:
+          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           IOS_APP_PROFILE_NAME: ${{ secrets.IOS_APP_PROFILE_NAME }}
           IOS_WIDGET_PROFILE_NAME: ${{ secrets.IOS_WIDGET_PROFILE_NAME }}
           IOS_NSE_PROFILE_NAME: ${{ secrets.IOS_NSE_PROFILE_NAME }}
         run: |
           set -euo pipefail
-          for name in IOS_APP_PROFILE_NAME IOS_WIDGET_PROFILE_NAME IOS_NSE_PROFILE_NAME; do
+          for name in ASC_KEY_ID ASC_ISSUER_ID IOS_APP_PROFILE_NAME IOS_WIDGET_PROFILE_NAME IOS_NSE_PROFILE_NAME; do
             if [[ -z "${!name}" ]]; then
               echo "$name secret is required."
               exit 1
@@ -414,7 +452,9 @@ jobs:
           <plist version="1.0">
           <dict>
             <key>method</key>
-            <string>app-store</string>
+            <string>app-store-connect</string>
+            <key>destination</key>
+            <string>upload</string>
             <key>teamID</key>
             <string>$APPLE_TEAM_ID</string>
             <key>signingStyle</key>
@@ -428,6 +468,8 @@ jobs:
               <key>$IOS_BUNDLE_ID.OpenChamberNotificationService</key>
               <string>$IOS_NSE_PROFILE_NAME</string>
             </dict>
+            <key>manageAppVersionAndBuildNumber</key>
+            <false/>
             <key>uploadSymbols</key>
             <true/>
           </dict>
@@ -435,29 +477,21 @@ jobs:
           PLIST
           xcodebuild -exportArchive \
             -archivePath "$RUNNER_TEMP/OpenChamber.xcarchive" \
-            -exportPath "$RUNNER_TEMP/OpenChamberExport" \
-            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist"
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            -allowProvisioningUpdates
         working-directory: ${{ env.IOS_PROJECT_DIR }}
 
-      - name: Upload IPA artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: openchamber-ios-${{ needs.resolve-version.outputs.version_name }}-${{ needs.resolve-version.outputs.build_number }}
-          path: ${{ runner.temp }}/OpenChamberExport/*.ipa
-          if-no-files-found: error
-
-      - name: Upload to TestFlight
+      # Rule (2026-10-03): no build reaches TestFlight without its "What to test". Waits for App
+      # Store Connect to process the upload (~10-20 min) and fails the job if the text cannot be
+      # written. Code and recipe: scripts/testflight-whatsnew.mjs.
+      - name: Write "What to test" on the build
         shell: bash
         env:
-          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
-          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
-          APP_STORE_CONNECT_PRIVATE_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY_BASE64 }}
-        run: |
-          set -euo pipefail
-          mkdir -p "$HOME/private_keys"
-          printf '%s' "$APP_STORE_CONNECT_PRIVATE_KEY_BASE64" | base64 -D > "$HOME/private_keys/AuthKey_${APP_STORE_CONNECT_KEY_ID}.p8"
-          xcrun altool --upload-app \
-            --type ios \
-            --file "$RUNNER_TEMP/OpenChamberExport/App.ipa" \
-            --apiKey "$APP_STORE_CONNECT_KEY_ID" \
-            --apiIssuer "$APP_STORE_CONNECT_ISSUER_ID"
+          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          BUNDLE_ID: ${{ env.IOS_BUNDLE_ID }}
+          BUILD_NUMBER: ${{ needs.resolve-version.outputs.build_number }}
+        run: node scripts/testflight-whatsnew.mjs
