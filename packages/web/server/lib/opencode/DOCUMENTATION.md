@@ -831,6 +831,12 @@ within a ten-minute overall deadline.
 - `registerOpenChamberRoutes(app, dependencies)`: registers OpenChamber endpoints:
   - `GET /api/openchamber/update-check`
   - `POST /api/openchamber/update-install`
+    - In this fork the server build is not installed from npm, so
+      `getUpdateCommand` throws and the route answers `400` with `{ error }`
+      pointing at `docs/release-promotion.md`, before any spawn. The route,
+      method and `{ error }` shape are unchanged (the 400 already existed for
+      "No update available"); the package-manager machinery below stays
+      documented as the behavior when an install command is available.
     - Desktop-managed hosts delegate authenticated Web update requests to the Electron main process, which checks, downloads, and applies the update through `electron-updater` before restarting the host.
     - Foreground servers running under a systemd user unit queue installation in
       a separate transient unit and restart the configured service afterwards.

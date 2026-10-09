@@ -72,13 +72,18 @@ env:
 jobs:
   resolve-version:
     name: Resolve mobile version
-    runs-on: ubuntu-latest
+    # DGX-516: job Linux genérico → arc-k8s (skill ci-runners-arc).
+    runs-on: arc-k8s
     outputs:
       version_name: ${{ steps.version.outputs.version_name }}
       build_number: ${{ steps.version.outputs.build_number }}
       release_tag: ${{ steps.version.outputs.release_tag }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: ./.github/actions/setup-node-bun
+        with:
+          bun: 'false'
 
       - name: Resolve version values
         id: version
@@ -111,18 +116,17 @@ jobs:
   android-release:
     name: Android signed release
     if: inputs.build_android
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    environment: release # DGX-515: keystore Android tras aprobación manual (revisores: config del repo)
+    # DGX-516: job con secretos de firma, no va en arc-k8s (runners propios solo
+    # CI sin secretos); hosted ubuntu por dispatch/tag, público: sin coste.
+    runs-on: ubuntu-24.04
     needs: resolve-version
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
-        with:
-          node-version: '22'
+      - uses: ./.github/actions/setup-node-bun
 
       - uses: actions/setup-java@v4
         with:
@@ -189,7 +193,14 @@ jobs:
   ios-testflight:
     name: iOS TestFlight upload
     if: inputs.build_ios
-    runs-on: blacksmith-6vcpu-macos-26
+    # Apple signing/ASC credentials live only in this protected environment,
+    # which requires manual approval before the job starts.
+    environment: testflight
+    # 2026-10-07 devops · hosted macOS: xcodebuild + firma Apple requieren
+    # macOS real; no hay hardware mac en el clúster (skill ci-runners-arc).
+    # Repo público: minutos hosted sin coste. Vuelve a self-hosted cuando la
+    # org monte un pool macOS.
+    runs-on: macos-26
     needs: resolve-version
     env:
       # A fork signs with its own Apple team, where com.openchamber.app is not

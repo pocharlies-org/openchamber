@@ -21,7 +21,10 @@ permissions:
 
 jobs:
   validate-and-package:
-    runs-on: arc-k8s
+    environment: release # DGX-515: token del sitio tras aprobación manual (revisores: config del repo)
+    # DGX-516: sube activos con OPENCHAMBER_WEBSITE_REPO_TOKEN → hosted, no
+    # arc-k8s (jobs con secretos); disparado por push/release/dispatch, público.
+    runs-on: ubuntu-24.04
     outputs:
       archive_name: ${{ steps.archive.outputs.archive_name }}
     steps:
