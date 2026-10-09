@@ -24,7 +24,7 @@ const createMemoryFs = (initial = {}) => {
 };
 
 const FILE = path.join('/data', 'sessions-directories.json');
-const companyFolder = (snapshot) => (snapshot.foldersMap['/home/dibanez/k8s'] ?? [])
+const companyFolder = (snapshot) => (snapshot.foldersMap['/home/user/k8s'] ?? [])
   .find((folder) => folder.name === COMPANY_FOLDER_NAME);
 const readSnapshot = (fs) => JSON.parse(fs.files.get(FILE));
 
@@ -33,7 +33,7 @@ describe('createCompanyFolderAutoFile', () => {
     const fs = createMemoryFs();
     const autoFile = createCompanyFolderAutoFile({ fsPromises: fs, path, foldersFilePath: FILE });
 
-    await autoFile.fileMany([{ sessionId: 'ses_ccc1', scopeKey: '/home/dibanez/k8s' }]);
+    await autoFile.fileMany([{ sessionId: 'ses_ccc1', scopeKey: '/home/user/k8s' }]);
 
     expect(readSnapshot(fs).version).toBe(1);
     expect(companyFolder(readSnapshot(fs)).sessionIds).toEqual(['ses_ccc1']);
@@ -43,8 +43,8 @@ describe('createCompanyFolderAutoFile', () => {
     const fs = createMemoryFs();
     const autoFile = createCompanyFolderAutoFile({ fsPromises: fs, path, foldersFilePath: FILE });
 
-    await autoFile.fileMany([{ sessionId: 'ses_ccc1', scopeKey: '/home/dibanez/k8s' }], { force: true });
-    await autoFile.fileMany([{ sessionId: 'ses_ccc1', scopeKey: '/home/dibanez/k8s' }], { force: true });
+    await autoFile.fileMany([{ sessionId: 'ses_ccc1', scopeKey: '/home/user/k8s' }], { force: true });
+    await autoFile.fileMany([{ sessionId: 'ses_ccc1', scopeKey: '/home/user/k8s' }], { force: true });
 
     expect(companyFolder(readSnapshot(fs)).sessionIds).toEqual(['ses_ccc1']);
   });
@@ -52,12 +52,12 @@ describe('createCompanyFolderAutoFile', () => {
   it('heals a clobber: re-asserting after a client dropped the ids puts them back', async () => {
     const fs = createMemoryFs();
     const autoFile = createCompanyFolderAutoFile({ fsPromises: fs, path, foldersFilePath: FILE });
-    const entries = [{ sessionId: 'ses_ccc1', scopeKey: '/home/dibanez/k8s' }];
+    const entries = [{ sessionId: 'ses_ccc1', scopeKey: '/home/user/k8s' }];
 
     await autoFile.fileMany(entries, { force: true });
     // A client POSTs a stale snapshot that lost the filing (folder emptied).
     const clobbered = readSnapshot(fs);
-    clobbered.foldersMap['/home/dibanez/k8s'] = [];
+    clobbered.foldersMap['/home/user/k8s'] = [];
     clobbered.updatedAt = Date.now() + 1000;
     fs.files.set(FILE, JSON.stringify(clobbered));
 
@@ -70,14 +70,14 @@ describe('createCompanyFolderAutoFile', () => {
     const fs = createMemoryFs();
     const autoFile = createCompanyFolderAutoFile({ fsPromises: fs, path, foldersFilePath: FILE });
 
-    await autoFile.fileMany([{ sessionId: 'ses_ccc1', scopeKey: '/home/dibanez/k8s' }]);
+    await autoFile.fileMany([{ sessionId: 'ses_ccc1', scopeKey: '/home/user/k8s' }]);
     const afterFirst = fs.files.get(FILE);
     // Same clock (now() is Date.now; both calls land inside REASSERT_MS).
-    await autoFile.fileMany([{ sessionId: 'ses_ccc2', scopeKey: '/home/dibanez/k8s' }]);
+    await autoFile.fileMany([{ sessionId: 'ses_ccc2', scopeKey: '/home/user/k8s' }]);
 
     expect(fs.files.get(FILE)).toBe(afterFirst);
     // Force reconciles regardless of the throttle.
-    await autoFile.fileMany([{ sessionId: 'ses_ccc2', scopeKey: '/home/dibanez/k8s' }], { force: true });
+    await autoFile.fileMany([{ sessionId: 'ses_ccc2', scopeKey: '/home/user/k8s' }], { force: true });
     expect(companyFolder(readSnapshot(fs)).sessionIds).toEqual(['ses_ccc1', 'ses_ccc2']);
   });
 
@@ -87,7 +87,7 @@ describe('createCompanyFolderAutoFile', () => {
       updatedAt: 100,
       collapsedFolderIds: ['f-personal'],
       foldersMap: {
-        '/home/dibanez/k8s': [
+        '/home/user/k8s': [
           { id: 'f-personal', name: 'Personal', sessionIds: ['ses_a'], createdAt: 1, parentId: null },
           { id: 'f-comp', name: COMPANY_FOLDER_NAME, sessionIds: ['ses_old'], createdAt: 2, parentId: null },
         ],
@@ -96,13 +96,13 @@ describe('createCompanyFolderAutoFile', () => {
     const fs = createMemoryFs({ [FILE]: JSON.stringify(existing) });
     const autoFile = createCompanyFolderAutoFile({ fsPromises: fs, path, foldersFilePath: FILE });
 
-    await autoFile.fileMany([{ sessionId: 'ses_ccc9', scopeKey: '/home/dibanez/k8s' }]);
+    await autoFile.fileMany([{ sessionId: 'ses_ccc9', scopeKey: '/home/user/k8s' }]);
 
     const snapshot = readSnapshot(fs);
-    expect(snapshot.foldersMap['/home/dibanez/k8s']).toHaveLength(2);
+    expect(snapshot.foldersMap['/home/user/k8s']).toHaveLength(2);
     expect(companyFolder(snapshot).id).toBe('f-comp');
     expect(companyFolder(snapshot).sessionIds).toEqual(['ses_old', 'ses_ccc9']);
-    expect(snapshot.foldersMap['/home/dibanez/k8s'][0].sessionIds).toEqual(['ses_a']);
+    expect(snapshot.foldersMap['/home/user/k8s'][0].sessionIds).toEqual(['ses_a']);
     expect(snapshot.collapsedFolderIds).toEqual(['f-personal']);
     expect(snapshot.updatedAt).toBeGreaterThan(100);
   });
@@ -113,7 +113,7 @@ describe('createCompanyFolderAutoFile', () => {
 
     await autoFile.fileMany([
       { sessionId: 'ses_ccc1', scopeKey: null },
-      { sessionId: '', scopeKey: '/home/dibanez/k8s' },
+      { sessionId: '', scopeKey: '/home/user/k8s' },
     ]);
 
     expect(fs.files.has(FILE)).toBe(false);
@@ -124,7 +124,7 @@ describe('createCompanyFolderAutoFile', () => {
     const fs = createMemoryFs({ [FILE]: corrupt });
     const autoFile = createCompanyFolderAutoFile({ fsPromises: fs, path, foldersFilePath: FILE });
 
-    await autoFile.fileMany([{ sessionId: 'ses_ccc1', scopeKey: '/home/dibanez/k8s' }]);
+    await autoFile.fileMany([{ sessionId: 'ses_ccc1', scopeKey: '/home/user/k8s' }]);
 
     expect(fs.files.get(FILE)).toBe(corrupt);
   });
@@ -136,7 +136,7 @@ describe('createCompanyFolderAutoFile', () => {
     const fs = createMemoryFs({ [FILE]: JSON.stringify(future) });
     const autoFile = createCompanyFolderAutoFile({ fsPromises: fs, path, foldersFilePath: FILE });
 
-    await autoFile.fileMany([{ sessionId: 'ses_ccc1', scopeKey: '/home/dibanez/k8s' }]);
+    await autoFile.fileMany([{ sessionId: 'ses_ccc1', scopeKey: '/home/user/k8s' }]);
 
     expect(readSnapshot(fs).updatedAt).toBeGreaterThan(future.updatedAt);
   });

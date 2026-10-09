@@ -109,6 +109,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
   android-release:
+    environment: release # DGX-515: keystore Android tras aprobación manual (revisores: config del repo)
     name: Android signed release
     if: inputs.build_android
     runs-on: blacksmith-4vcpu-ubuntu-2404
@@ -187,6 +188,7 @@ jobs:
         working-directory: ${{ env.ANDROID_PROJECT_DIR }}
 
   ios-testflight:
+    environment: release # DGX-515: credenciales App Store Connect tras aprobación manual
     name: iOS TestFlight upload
     if: inputs.build_ios
     runs-on: blacksmith-6vcpu-macos-26

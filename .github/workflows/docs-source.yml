@@ -21,6 +21,7 @@ permissions:
 
 jobs:
   validate-and-package:
+    environment: website # DGX-515: token del repo del sitio tras aprobación manual (revisores: config del repo)
     runs-on: arc-k8s
     outputs:
       archive_name: ${{ steps.archive.outputs.archive_name }}

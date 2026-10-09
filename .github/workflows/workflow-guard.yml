@@ -1,0 +1,65 @@
+name: Guarda del fork (workflows + secretos)
+
+# Puerta de PR del fork público (DGX-515): falla si reaparece un runner propio
+# o hosted en `pull_request`, un workflow con target de PR, o un secreto sin
+# `environment:`; y si gitleaks encuentra un secreto nuevo en el árbol o el
+# historial publicado (falsos positivos conocidos: .gitleaks.toml).
+#
+# Es un workflow propio a propósito (decisión del architect en la revisión de
+# la PR #112): es una puerta de otra naturaleza que fork-pr-checks — corre
+# sobre cualquier PR, también las de otros trabajos — y su check con nombre
+# propio es el que se exige como obligatorio en la protección de rama.
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  guarda:
+    name: check-workflow-guard + gitleaks
+    # Regla de la org (skill ci-runners-arc): Linux genérico en ARC.
+    runs-on: arc-k8s
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-node-bun
+        # Instalación de Node y Bun con checksum: la fuente única del composite
+        # que aporta la PR #111 (la imagen de arc-k8s no trae ninguna de las dos).
+
+      - name: Dependencias
+        run: bun install --frozen-lockfile
+
+      - name: Guarda de workflows
+        run: |
+          set -euo pipefail
+          node scripts/check-workflow-guard.mjs
+          node --test scripts/check-workflow-guard.test.mjs
+
+      - name: gitleaks (árbol e historial)
+        # Binario oficial con checksum; la imagen de arc-k8s no lo trae. Los
+        # DOS modos importan: `detect` recorre el historial pero salta los
+        # diffs de merge (lo que entra fusionado solo se ve en modo árbol), y
+        # `--no-git` no ve el historial. La config del repo (.gitleaks.toml,
+        # useDefault=true) se aplica en ambos.
+        run: |
+          set -euo pipefail
+          version=8.30.1
+          expected=551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+          archive="$RUNNER_TEMP/gitleaks.tgz"
+          curl --retry 3 --retry-all-errors -fsSL \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${version}/gitleaks_${version}_linux_x64.tar.gz" -o "$archive"
+          echo "${expected}  ${archive}" | sha256sum --check --strict
+          tar xzf "$archive" -C "$RUNNER_TEMP" gitleaks
+          "$RUNNER_TEMP/gitleaks" detect --source . --no-banner --redact
+          "$RUNNER_TEMP/gitleaks" detect --source . --no-git --redact

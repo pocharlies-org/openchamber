@@ -1,0 +1,69 @@
+# Allowlist de gitleaks para el fork (DGX-515).
+#
+# `useDefault = true` es obligatorio: sin él esta config SUSTITUYE las reglas
+# por defecto y no quedaría ninguna activa (hallazgo de qa en la PR #112).
+#
+# Cada entrada es la HUELLA exacta del valor extraído, ANCLADA (^...$) para
+# que no silencie ningún otro secreto que la contenga como subcadena, y fue
+# comprobada una a una el 2026-10-07 contra el árbol y el historial del fork.
+# Lo que no esté aquí se trata como secreto real: `PARA SECURITY:` y ticket de
+# rotación; nunca una entrada nueva sin ese visto bueno.
+#
+# La clasificación como públicos de los GOCSPX, la API key de Firebase y los
+# client ids OAuth está PENDIENTE de security (SC-2056, abierta): toda la lista
+# es provisional y se cambia al veredicto de security cuando llegue, nunca
+# antes.
+
+title = "AgentChamber fork allowlist"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "valores públicos o de test, verificados uno a uno (DGX-515, qa 70-qa.md)"
+regexes = [
+  # Google OAuth client secret de cliente «installed app» (cuota Antigravity,
+  # heredado de upstream). RFC 8252 y la doc de OAuth de Google: el par
+  # client_id/client_secret de una app instalada o de escritorio es un
+  # IDENTIFICADOR de cliente público — va embebido en el binario y no se
+  # considera credencial; la protección la da el flujo PKCE, no el secreto.
+  # (dos: Antigravity y Gemini CLI — el de gemini-cli está publicado en el repo
+  # upstream de la CLI)
+  '''^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$''',
+  '''^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$''',
+  # API key de Firebase en packages/mobile/android/app/google-services.json.
+  # Doc oficial de Firebase («API keys»/google-services.json): la API key de
+  # la config no es un secreto — se distribuye dentro de la APK; la seguridad
+  # la dan las reglas de Firebase y las restricciones de la API en Cloud
+  # Console. Identificador de proyecto, no credencial.
+  '''^AIzaSyADEQ6yRHXBMlwbaG6y8Vb1elC2q7mx6-A$''',
+  # Línea de Podfile.lock: «KeychainSwift: <sha>» es el CHECKSUM de CocoaPods
+  # (hash de commit del pod), no una credencial. genérica-rules lo pilla por
+  # entropía.
+  # (el secret que extrae la regla es el sha; se fingerprinta el valor)
+  '''^4a71a45c802fd9e73906457c2dcbdbdc06c9419d$''',
+  # Constante de alfabeto para contraseñas generadas del CLI (excluye glyphs
+  # ambiguos): un charset, no un secreto.
+  '''^ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789$''',
+  # DEFAULT_LINEAR_CLIENT_ID (linear/auth.js, ya fuera del árbol): OAuth client
+  # id — público por diseño, viaja en la URL de autorización.
+  '''^91bbe26a69a2c8568d3683f1e01e776c$''',
+  # Client id OAuth de Claude Code / OpenCode (`CLAUDE_OAUTH_CLIENT_ID`): no
+  # está en el árbol ni en el historial de esta rama; gitleaks lo detecta con
+  # la regla `generic-api-key` en los commits 40be85a535 y 07738aa192 del ref
+  # publicado feat/pin-vscode-cloud-env-3a0b (gitleaks recorre todos los refs
+  # del repo). Identificador público de un cliente OAuth de app instalada
+  # (RFC 8252, flujo PKCE): viaja en la URL de autorización y va embebido en el
+  # binario; el propio código lo documenta «not a secret». Clasificación de
+  # público PENDIENTE de security (SC-2056, abierta): entrada provisional
+  # hasta su veredicto.
+  '''^9d1c250a-e61b-44d9-88ed-5944d1962f5e$''',
+  # Fixtures de test heredados de upstream (packages/web/server/lib/spaces/** y
+  # company-office/webhook/receiver.test.js): claves falsas fijas escritas a
+  # mano en los tests.
+  '''^0123456789abcdef$''',
+  '''^fedcba9876543210$''',
+  '''^ABCDEF0123456789$''',
+  '''^space-window$''',
+  '''^a-test-secret-that-is-long-enough-32b$''',
+]

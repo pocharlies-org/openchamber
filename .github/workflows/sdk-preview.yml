@@ -21,6 +21,7 @@ concurrency:
 
 jobs:
   publish:
+    environment: release # DGX-515: NPM_TOKEN tras aprobación manual (revisores: config del repo)
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 15
     steps:
