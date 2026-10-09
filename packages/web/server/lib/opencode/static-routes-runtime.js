@@ -1,4 +1,5 @@
 import { registerPwaManifestRoute } from './pwa-manifest-routes.js';
+import { APP_NAME } from '../brand.js';
 
 export const createStaticRoutesRuntime = (dependencies) => {
   const {
@@ -79,7 +80,7 @@ export const createStaticRoutesRuntime = (dependencies) => {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>OpenChamber API-only mode</title>
+  <title>${APP_NAME} API-only mode</title>
   <style>
     :root {
       color-scheme: dark;
@@ -181,7 +182,7 @@ export const createStaticRoutesRuntime = (dependencies) => {
 </head>
 <body>
   <main>
-    <svg class="logo" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="OpenChamber logo">
+    <svg class="logo" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${APP_NAME} logo">
       <path d="M50 50 L8.432 26 L8.432 74 L50 98 Z" fill="currentColor" fill-opacity=".15" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
       <path d="M8.432 26 L18.824 32 L18.824 44 L8.432 38 Z" fill="currentColor" fill-opacity=".2"/>
       <path d="M18.824 32 L29.216 38 L29.216 50 L18.824 44 Z" fill="currentColor" fill-opacity=".45"/>
@@ -217,13 +218,10 @@ export const createStaticRoutesRuntime = (dependencies) => {
       <path d="M70.784 74 L81.176 68 L81.176 80 L70.784 86 Z" fill="currentColor" fill-opacity=".4"/>
       <path d="M81.176 68 L91.568 62 L91.568 74 L81.176 80 Z" fill="currentColor" fill-opacity=".2"/>
       <path d="M50 2 L8.432 26 L50 50 L91.568 26 Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
-      <g transform="matrix(.866 .5 -.866 .5 50 26) scale(.75)">
-        <path fill-rule="evenodd" clip-rule="evenodd" d="M-16 -20 L16 -20 L16 20 L-16 20 Z M-8 -12 L-8 12 L8 12 L8 -12 Z" fill="currentColor"/>
-        <path d="M-8 -4 L8 -4 L8 12 L-8 12 Z" fill="currentColor" fill-opacity=".4"/>
-      </g>
+      <path d="M50 14 L70.78 26 L50 38 L29.22 26 Z" fill="#ee4f0c"/>
     </svg>
-    <h1>OpenChamber is running in headless mode</h1>
-    <p>This server is ready. Open it from the OpenChamber desktop or mobile app to use it.</p>
+    <h1>${APP_NAME} is running in headless mode</h1>
+    <p>This server is ready. Open it from the ${APP_NAME} desktop or mobile app to use it.</p>
     <div class="command">
       <code id="connect-command">${command}</code>
       <button type="button" id="copy-command" aria-label="Copy command" title="Copy command">
@@ -259,10 +257,10 @@ export const createStaticRoutesRuntime = (dependencies) => {
 </html>`);
         },
         json: () => {
-          res.json({ ok: true, mode: 'api-only', message: 'OpenChamber is running in API-only mode' });
+          res.json({ ok: true, mode: 'api-only', message: `${APP_NAME} is running in API-only mode` });
         },
         default: () => {
-          res.type('text/plain').send('OpenChamber is running in API-only mode');
+          res.type('text/plain').send(`${APP_NAME} is running in API-only mode`);
         },
       });
     });

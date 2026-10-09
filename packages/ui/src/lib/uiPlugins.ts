@@ -1,3 +1,4 @@
+import { BRAND_NAME } from '@/lib/brand';
 export type LocalizedText = { default: string; [locale: string]: string };
 
 export type UIPluginSupportStatus = 'supported' | 'unsupported';
@@ -80,12 +81,12 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 export const parseUIPluginManifest = (value: unknown): OpenChamberUIPluginManifestV1 => {
   if (!isRecord(value) || value.schemaVersion !== 1 || typeof value.id !== 'string' || typeof value.version !== 'string') {
-    throw new Error('Invalid OpenChamber UI plugin manifest');
+    throw new Error(`Invalid ${BRAND_NAME} UI plugin manifest`);
   }
   if (!isRecord(value.displayName) || typeof value.displayName.default !== 'string'
     || !isRecord(value.description) || typeof value.description.default !== 'string'
     || !isRecord(value.engines) || typeof value.engines.openchamber !== 'string' || !isRecord(value.contributes)) {
-    throw new Error(`Invalid OpenChamber UI plugin manifest: ${value.id}`);
+    throw new Error(`Invalid ${BRAND_NAME} UI plugin manifest: ${value.id}`);
   }
   const composerMetrics = value.contributes.composerMetrics;
   if (composerMetrics !== undefined && !Array.isArray(composerMetrics)) {

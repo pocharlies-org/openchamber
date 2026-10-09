@@ -8,7 +8,7 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="icon" type="image/png" href="/favicon-32.png" sizes="32x32" />
     <link rel="icon" type="image/png" href="/favicon-16.png" sizes="16x16" />
-    <link rel="mask-icon" href="/favicon.svg" color="#edb449" />
+    <link rel="mask-icon" href="/favicon.svg" color="#ee4f0c" />
 
     <!-- Apple touch icon - PNG format required for iOS PWA support -->
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon-180x180.png" />
@@ -18,8 +18,8 @@
     <!-- Web app manifest (endpoint-first with data URL fallback) -->
     <script>
       const baseUrl = location.origin;
-      const defaultAppName = 'OpenChamber';
-      const defaultShortName = 'OpenChamber';
+      const defaultAppName = 'AgentChamber';
+      const defaultShortName = 'AgentChamber';
       const pwaNameStorageKey = 'openchamber.pwaName';
       const pwaOrientationStorageKey = 'openchamber.pwaOrientation';
       const mobileKeyboardModeStorageKey = 'openchamber.mobileKeyboardMode';
@@ -225,7 +225,7 @@
         return {
           name: appName,
           short_name: shortName,
-          description: 'Web interface companion for OpenCode AI coding agent',
+          description: 'One workspace for your AI coding agents: Claude and OpenCode',
           id: `${baseUrl}/`,
           start_url: `${baseUrl}/`,
           scope: `${baseUrl}/`,
@@ -233,7 +233,7 @@
           display_override: ['window-controls-overlay'],
           ...(manifestOrientation ? { orientation: manifestOrientation } : {}),
           background_color: '#151313',
-          theme_color: '#edb449',
+          theme_color: '#ee4f0c',
           icons: [
             { src: `${baseUrl}/pwa-192.png`, sizes: '192x192', type: 'image/png', purpose: 'any' },
             { src: `${baseUrl}/pwa-512.png`, sizes: '512x512', type: 'image/png', purpose: 'any' },
@@ -422,12 +422,12 @@
     <!-- iOS Safari PWA styling -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="OpenChamber" />
+    <meta name="apple-mobile-web-app-title" content="AgentChamber" />
 
-    <title>OpenChamber - AI Coding Assistant</title>
+    <title>AgentChamber - AI Coding Assistant</title>
     <meta name="description" content="Web interface companion for OpenCode AI coding agent" />
-    <meta name="application-name" content="OpenChamber" />
-    <meta name="apple-mobile-web-app-title" content="OpenChamber" />
+    <meta name="application-name" content="AgentChamber" />
+    <meta name="apple-mobile-web-app-title" content="AgentChamber" />
 
     <!-- Inline CSS for the loading screen (before Tailwind loads). Terminal
          prompt symbols come from the bundled Symbols Nerd Font (lib/ghostty),
@@ -445,7 +445,7 @@
         /* Fallback fills (overridden below when supported) */
         --splash-face-fill: rgba(255, 255, 255, 0.15);
         --splash-cell-fill: rgba(255, 255, 255, 0.35);
-        --splash-logo-fill: var(--splash-stroke);
+        --splash-accent: #ff5a1f;
       }
 
       /* Keep these fills in step with the desktop splash in
@@ -457,13 +457,13 @@
         --splash-stroke: var(--splash-stroke-light);
         --splash-face-fill: rgba(0, 0, 0, 0.15);
         --splash-cell-fill: rgba(0, 0, 0, 0.35);
-        --splash-logo-fill: var(--splash-stroke);
+        --splash-accent: #ee4f0c;
       }
 
       html[data-splash-variant='dark'] {
         --splash-background: var(--splash-background-dark);
         --splash-stroke: var(--splash-stroke-dark);
-        --splash-logo-fill: var(--splash-stroke);
+        --splash-accent: #ff5a1f;
       }
 
       @supports (color: color-mix(in srgb, white 50%, transparent)) {
@@ -498,7 +498,7 @@
       <!-- Loading fallback while React initializes -->
       <div id="initial-loading">
         <div style="display: flex; align-items: center; justify-content: center;">
-          <svg width="120" height="120" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="OpenChamber loading icon">
+          <svg width="120" height="120" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="AgentChamber loading icon">
             <!-- Isometric cube: edge=48, centerY=50 -->
             <!-- Points: top(50,2), left(8.432,26), right(91.568,26), center(50,50), bottomLeft(8.432,74), bottomRight(91.568,74), bottom(50,98) -->
 
@@ -547,11 +547,8 @@
             <!-- Top face - open (no fill), only stroke -->
             <path d="M50 2 L8.432 26 L50 50 L91.568 26 Z" fill="none" stroke="var(--splash-stroke)" stroke-width="2" stroke-linejoin="round"/>
 
-            <!-- OpenCode logo on top face -->
-            <g transform="matrix(0.866, 0.5, -0.866, 0.5, 50, 26) scale(0.75)">
-              <path fill-rule="evenodd" clip-rule="evenodd" d="M-16 -20 L16 -20 L16 20 L-16 20 Z M-8 -12 L-8 12 L8 12 L8 -12 Z" fill="var(--splash-logo-fill)"/>
-              <path d="M-8 -4 L8 -4 L8 12 L-8 12 Z" fill="var(--splash-logo-fill)" fill-opacity="0.4"/>
-            </g>
+            <!-- Agent: accent diamond on the open top face (same as OpenChamberLogo.tsx) -->
+            <path d="M50 14 L70.78 26 L50 38 L29.22 26 Z" fill="var(--splash-accent)"/>
           </svg>
         </div>
       </div>

@@ -62,7 +62,7 @@ Dos adaptadores reales (OpenCode, Claude) → seam legítimo. Añadir Codex = un
 | i18n | `packages/ui/src/lib/i18n/messages/*` (paridad Claude: `claude-parity.i18n.ts`) |
 | Datos de iconos/sprites | `scripts/generate-*-sprite.mjs` |
 
-Marca (tras DGX-514): `scripts/brand-allowlist.txt` (referencias históricas permitidas, motivo por entrada) + test que falla si crece sin revisión.
+Marca (tras DGX-514): `scripts/brand-allowlist.txt` (referencias históricas permitidas, motivo por entrada) + test que falla si crece sin revisión. Nombre: `packages/ui/src/lib/brand.ts` (`BRAND_NAME`, `BRAND_REPO_URL`), `packages/electron/brand.mjs` (`APP_NAME`) y `packages/web/server/lib/brand.js` (`APP_NAME`, `REPO_SLUG`: respuestas del servidor, releases y changelog). El actualizador de Electron (`build.publish` = `PRODUCTION_UPDATER_FEED`) y los enlaces de release apuntan al fork; `scripts/upstream-slug.test.mjs` falla si reaparece el slug de upstream.
 
 ## 6. Cómo se construye aquí
 

@@ -6,6 +6,7 @@ import { opencodeClient } from './opencode/client';
 import { runtimeFetch } from './runtime-fetch';
 import { getRecentSendFailures } from '@/sync/send-failure-log';
 import { getRecentSessionErrors } from '@/sync/session-error-log';
+import { BRAND_NAME } from '@/lib/brand';
 
 declare const __APP_VERSION__: string | undefined;
 
@@ -285,7 +286,7 @@ export const buildOpenCodeStatusReport = async (): Promise<string> => {
 
   const lines: string[] = [];
   lines.push(`Time: ${now.toISOString()}`);
-  lines.push(`OpenChamber version: ${appVersion}`);
+  lines.push(`${BRAND_NAME} version: ${appVersion}`);
   lines.push(`Runtime: ${origin || '(unknown)'} (api=${apiBase || '(unknown)'})`);
   lines.push(`OpenCode SDK base: ${opencodeClient.getBaseUrl()}`);
   lines.push(`Event stream: ${eventStreamStatus}`);
@@ -354,11 +355,11 @@ export const buildOpenCodeStatusReport = async (): Promise<string> => {
   lines.push(`- OpenCode: ${opencodeHome ? joinPath(opencodeHome, '.local/share/opencode/log', isWindows) : '<home>/.local/share/opencode/log'} (or $XDG_DATA_HOME/opencode/log when set)`);
   if (isDesktop) {
     const isMacDesktop = /Mac OS X|Macintosh/.test(platform);
-    lines.push(`- OpenChamber desktop: ${isWindows
-      ? '%APPDATA%\\OpenChamber\\logs\\main.log'
+    lines.push(`- ${BRAND_NAME} desktop: ${isWindows
+      ? `%APPDATA%\\${BRAND_NAME}\\logs\\main.log`
       : isMacDesktop
-        ? '~/Library/Logs/OpenChamber/main.log'
-        : '~/.config/OpenChamber/logs/main.log'}`);
+        ? `~/Library/Logs/${BRAND_NAME}/main.log`
+        : `~/.config/${BRAND_NAME}/logs/main.log`}`);
   }
 
   if (typeof window !== 'undefined') {

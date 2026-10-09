@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 
+import { BRAND_NAME } from '../brand';
 import { dict as enDict, type I18nKey } from './messages/en';
 import { DEFAULT_LOCALE, detectInitialLocale, type Locale, writeStoredLocale } from './runtime';
 
@@ -98,12 +99,10 @@ export function initializeLocale(): void {
 
 export function formatMessage(dictionary: I18nDictionary, key: I18nKey, params?: I18nParams): string {
   const template = dictionary[key] ?? enDict[key] ?? key;
-  if (!params) {
-    return template;
-  }
+  const values: I18nParams = { brand: BRAND_NAME, ...params };
 
   return template.replace(/\{([^{}]+)\}/g, (match, rawKey) => {
-    const value = params[rawKey.trim()];
+    const value = values[rawKey.trim()];
     return value === null || value === undefined ? match : String(value);
   });
 }

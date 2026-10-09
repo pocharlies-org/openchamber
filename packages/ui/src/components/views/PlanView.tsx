@@ -49,6 +49,7 @@ import { Icon } from "@/components/icon/Icon";
 import { useMessageTTS } from '@/hooks/useMessageTTS';
 import { renderMagicPrompt } from '@/lib/magicPrompts';
 import { useI18n } from '@/lib/i18n';
+import { BRAND_NAME } from '@/lib/brand';
 
 type PlanViewProps = {
   targetPath?: string | null;
@@ -684,7 +685,7 @@ export const PlanView: React.FC<PlanViewProps> = ({ targetPath = null, savedProj
         : [
             instructionsText,
             '',
-            'The plan is not stored as a file in the repository and has no file path. Its full current contents follow below this note and are the source of truth for the plan. Where the instructions above refer to the plan file, treat the plan as stored in OpenChamber project knowledge (it is edited through the OpenChamber UI): propose plan revisions as plan text in the chat rather than editing a file.',
+            `The plan is not stored as a file in the repository and has no file path. Its full current contents follow below this note and are the source of truth for the plan. Where the instructions above refer to the plan file, treat the plan as stored in ${BRAND_NAME} project knowledge (it is edited through the ${BRAND_NAME} UI): propose plan revisions as plan text in the chat rather than editing a file.`,
             '',
             content,
           ].join('\n');

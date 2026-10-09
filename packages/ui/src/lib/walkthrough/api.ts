@@ -7,6 +7,7 @@ import {
   type WalkthroughStage,
   type WalkthroughTarget,
 } from './types';
+import { BRAND_NAME } from '@/lib/brand';
 
 const BASE = '/api/walkthrough';
 const WALKTHROUGH_STAGES: readonly WalkthroughStage[] = ['collecting', 'asking', 'retrying', 'assembling'];
@@ -34,7 +35,7 @@ const isJsonResponse = (response: Response): boolean =>
  * keeps its own failure rather than becoming advice to upgrade.
  */
 const serverUnsupported = () =>
-  new WalkthroughError('This OpenChamber server has no walkthrough API', { code: 'server-unsupported' });
+  new WalkthroughError(`This ${BRAND_NAME} server has no walkthrough API`, { code: 'server-unsupported' });
 
 const looksUnsupported = (response: Response): boolean =>
   !isJsonResponse(response) && (response.ok || response.status === 404);

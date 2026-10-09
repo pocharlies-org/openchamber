@@ -141,12 +141,11 @@ export function getWebviewHtml(options: WebviewHtmlOptions): string {
       fill: var(--vscode-foreground);
       opacity: 0.15;
     }
-    #initial-loading .logo-fill-solid {
-      fill: var(--vscode-foreground);
+    #initial-loading .logo-accent {
+      fill: #ee4f0c;
     }
-    #initial-loading .logo-fill-dim {
-      fill: var(--vscode-foreground);
-      opacity: 0.4;
+    .vscode-dark #initial-loading .logo-accent {
+      fill: #ff5a1f;
     }
     #initial-loading .status-text {
       font-size: 13px;
@@ -173,11 +172,8 @@ export function getWebviewHtml(options: WebviewHtmlOptions): string {
       <!-- Top face (no fill, stroke only) -->
       <path class="logo-stroke" d="M50 2 L8.432 26 L50 50 L91.568 26 Z" fill="none" stroke-width="2" stroke-linejoin="round"/>
       
-      <!-- OpenCode logo on top face -->
-      <g class="logo-inner" transform="matrix(0.866, 0.5, -0.866, 0.5, 50, 26) scale(0.75)">
-        <path class="logo-fill-solid" fill-rule="evenodd" clip-rule="evenodd" d="M-16 -20 L16 -20 L16 20 L-16 20 Z M-8 -12 L-8 12 L8 12 L8 -12 Z"/>
-        <path class="logo-fill-dim" d="M-8 -4 L8 -4 L8 12 L-8 12 Z"/>
-      </g>
+      <!-- Agent: accent diamond on the open top face -->
+      <path class="logo-inner logo-accent" d="M50 14 L70.78 26 L50 38 L29.22 26 Z"/>
     </svg>
     <!-- Status text stays empty while things are fine; populated only on error. -->
     <div class="status-text" id="loading-status"></div>

@@ -6,6 +6,7 @@ import {
   isSubagentTool,
   isWriteTool,
 } from '@/lib/opencode/tools';
+import { BRAND_NAME } from '@/lib/brand';
 
 /** v2 file tools report `path`; the other keys cover MCP and plugin tools. */
 const readInputPath = (input: Record<string, unknown> | undefined): string | null => {
@@ -199,28 +200,28 @@ const TOOL_METADATA: Record<string, ToolMetadata> = {
      },
 
     openchamber: {
-      displayName: 'OpenChamber',
+      displayName: BRAND_NAME,
       category: 'system',
       outputLanguage: 'json',
       inputFields: []
     },
 
     openchamber_web: {
-      displayName: 'OpenChamber Web',
+      displayName: `${BRAND_NAME} Web`,
       category: 'system',
       outputLanguage: 'json',
       inputFields: []
     },
 
     openchamber_memory: {
-      displayName: 'OpenChamber Memory',
+      displayName: `${BRAND_NAME} Memory`,
       category: 'system',
       outputLanguage: 'json',
       inputFields: []
     },
 
     openchamber_notify: {
-      displayName: 'OpenChamber Notify',
+      displayName: `${BRAND_NAME} Notify`,
       category: 'system',
       outputLanguage: 'json',
       inputFields: []

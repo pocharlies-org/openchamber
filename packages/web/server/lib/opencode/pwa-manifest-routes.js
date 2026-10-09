@@ -1,4 +1,6 @@
-const DEFAULT_PWA_APP_NAME = 'OpenChamber';
+import { APP_NAME, PWA_DESCRIPTION, PWA_THEME_COLOR } from '../brand.js';
+
+const DEFAULT_PWA_APP_NAME = APP_NAME;
 const mapPwaOrientationToManifest = (value) => {
   if (value === 'portrait') {
     return 'portrait-primary';
@@ -225,14 +227,14 @@ export const registerPwaManifestRoute = (app, dependencies) => {
     const manifest = {
       name: appName,
       short_name: shortName,
-      description: 'Web interface companion for OpenCode AI coding agent',
+      description: PWA_DESCRIPTION,
       id: '/',
       start_url: '/',
       scope: '/',
       display: 'standalone',
       display_override: ['window-controls-overlay'],
       background_color: '#151313',
-      theme_color: '#edb449',
+      theme_color: PWA_THEME_COLOR,
       ...(manifestOrientation ? { orientation: manifestOrientation } : {}),
       icons: [
         { src: '/pwa-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },

@@ -37,7 +37,7 @@ public class SealedPushMessagingService extends MessagingService {
             return;
         }
 
-        String title = data.containsKey("title") ? data.get("title") : "OpenChamber";
+        String title = data.containsKey("title") ? data.get("title") : getString(R.string.app_name);
         String body = "";
         String opened = PushSealKey.open(this, sealed);
         if (opened != null) {

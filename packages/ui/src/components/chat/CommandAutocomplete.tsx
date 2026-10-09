@@ -17,6 +17,7 @@ import { AutocompleteRowTooltip } from './composer/ui/AutocompleteRowTooltip';
 import { useSessionEngine } from '@/hooks/useSessionEngine';
 import { fetchClaudeCommands, type ClaudeCommand } from '@/lib/claudeCommands';
 import { localCommandAvailable } from './composer/submit/slashCommands';
+import { BRAND_NAME } from '@/lib/brand';
 
 type CommandSource = 'openchamber' | 'opencode' | 'claude' | 'skill' | 'extension';
 
@@ -486,7 +487,7 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
                         </span>
                       ) : isOpenChamberBadge ? (
                         <span className={NEUTRAL_BADGE_CLASS}>
-                          OpenChamber
+                          {BRAND_NAME}
                         </span>
                       ) : isSystem ? (
                         <span className={NEUTRAL_BADGE_CLASS}>

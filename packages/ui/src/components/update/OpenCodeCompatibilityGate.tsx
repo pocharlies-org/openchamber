@@ -8,6 +8,7 @@ import { useI18n } from '@/lib/i18n';
 import { hasCompatibleManagedDesktopOpenCode } from '@/lib/desktop';
 import { subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 import { fetchOpenCodeCompatibility, recoverOpenCode, type OpenCodeCompatibility } from '@/lib/opencode/compatibility';
+import { BRAND_REPO_URL } from '@/lib/brand';
 
 export const OpenCodeCompatibilityGate: React.FC<React.PropsWithChildren> = ({ children }) => {
   const { t } = useI18n();
@@ -120,7 +121,7 @@ export const OpenCodeCompatibilityGate: React.FC<React.PropsWithChildren> = ({ c
         </div>
         <a
           className="app-region-no-drag mt-6 inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
-          href={bundled ? 'https://github.com/openchamber/openchamber/releases/latest' : 'https://opencode.ai/download'}
+          href={bundled ? `${BRAND_REPO_URL}/releases/latest` : 'https://opencode.ai/download'}
           target="_blank"
           rel="noopener noreferrer"
         >

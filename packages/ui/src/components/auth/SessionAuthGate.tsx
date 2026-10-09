@@ -27,6 +27,7 @@ import {
   type PasskeyStatus,
   registerCurrentDevicePasskey,
 } from '@/lib/passkeys';
+import { BRAND_NAME } from '@/lib/brand';
 
 const STATUS_CHECK_ENDPOINT = '/auth/session';
 // Transient-failure auto-retry for the initial session check. Over the relay the
@@ -129,7 +130,7 @@ const submitPassword = async (password: string, trustDevice: boolean): Promise<R
       password,
       trustDevice,
       issueClientToken,
-      clientLabel: 'OpenChamber Desktop',
+      clientLabel: `${BRAND_NAME} Desktop`,
       ...desktopClientAuthMetadata(),
     }),
   });
@@ -148,7 +149,7 @@ const issueDesktopClientToken = async (): Promise<string> => {
       'Content-Type': 'application/json',
       Accept: 'application/json',
     },
-    body: JSON.stringify({ label: 'OpenChamber Desktop', ...desktopClientAuthMetadata() }),
+    body: JSON.stringify({ label: `${BRAND_NAME} Desktop`, ...desktopClientAuthMetadata() }),
   }).catch(() => null);
   if (!response?.ok) {
     return '';
@@ -793,7 +794,7 @@ export const SessionAuthGate: React.FC<SessionAuthGateProps> = ({
     try {
       const payload = await authenticateWithPasskey(trustDevice, {
         issueClientToken: shouldIssueDesktopClientToken(),
-        clientLabel: 'OpenChamber Desktop',
+        clientLabel: `${BRAND_NAME} Desktop`,
         ...desktopClientAuthMetadata(),
       }) as { clientToken?: unknown } | null;
       const clientToken = shouldIssueDesktopClientToken() && typeof payload?.clientToken === 'string' && payload.clientToken.trim()

@@ -1,7 +1,9 @@
+import { APP_NAME } from './brand.mjs';
+
 export const MENU_LOCALE_DICTIONARIES = {
   en: {
-    'app.name': 'OpenChamber',
-    'about': 'About OpenChamber',
+    'app.name': `${APP_NAME}`,
+    'about': `About ${APP_NAME}`,
     'checkForUpdates': 'Check for Updates',
     'settings': 'Settings',
     'reloadWebview': 'Reload Webview',
@@ -63,8 +65,8 @@ export const MENU_LOCALE_DICTIONARIES = {
     'quit': 'Quit',
   },
   de: {
-    'app.name': 'OpenChamber',
-    'about': 'Über OpenChamber',
+    'app.name': `${APP_NAME}`,
+    'about': `Über ${APP_NAME}`,
     'checkForUpdates': 'Nach Updates suchen',
     'settings': 'Einstellungen',
     'reloadWebview': 'Webview neu laden',
@@ -126,8 +128,8 @@ export const MENU_LOCALE_DICTIONARIES = {
     'quit': 'Beenden',
   },
   es: {
-    'app.name': 'OpenChamber',
-    'about': 'Acerca de OpenChamber',
+    'app.name': `${APP_NAME}`,
+    'about': `Acerca de ${APP_NAME}`,
     'checkForUpdates': 'Buscar actualizaciones',
     'settings': 'Ajustes',
     'reloadWebview': 'Recargar vista web',
@@ -189,8 +191,8 @@ export const MENU_LOCALE_DICTIONARIES = {
     'quit': 'Salir',
   },
   fr: {
-    'app.name': 'OpenChamber',
-    'about': 'À propos d\'OpenChamber',
+    'app.name': `${APP_NAME}`,
+    'about': `À propos d\'${APP_NAME}`,
     'checkForUpdates': 'Rechercher des mises à jour',
     'settings': 'Réglages',
     'reloadWebview': 'Recharger la vue web',
@@ -252,8 +254,8 @@ export const MENU_LOCALE_DICTIONARIES = {
     'quit': 'Quitter',
   },
   ja: {
-    'app.name': 'OpenChamber',
-    'about': 'OpenChamber について',
+    'app.name': `${APP_NAME}`,
+    'about': `${APP_NAME} について`,
     'checkForUpdates': 'アップデートを確認',
     'settings': '設定',
     'reloadWebview': 'Webview を再読み込み',
@@ -315,8 +317,8 @@ export const MENU_LOCALE_DICTIONARIES = {
     'quit': '終了',
   },
   ko: {
-    'app.name': 'OpenChamber',
-    'about': 'OpenChamber에 관하여',
+    'app.name': `${APP_NAME}`,
+    'about': `${APP_NAME}에 관하여`,
     'checkForUpdates': '업데이트 확인',
     'settings': '설정',
     'reloadWebview': '웹뷰 새로고침',
@@ -378,8 +380,8 @@ export const MENU_LOCALE_DICTIONARIES = {
     'quit': '종료',
   },
   nl: {
-    'app.name': 'OpenChamber',
-    'about': 'Over OpenChamber',
+    'app.name': `${APP_NAME}`,
+    'about': `Over ${APP_NAME}`,
     'checkForUpdates': 'Zoek naar updates',
     'settings': 'Instellingen',
     'reloadWebview': 'Webview opnieuw laden',
@@ -441,8 +443,8 @@ export const MENU_LOCALE_DICTIONARIES = {
     'quit': 'Stoppen',
   },
   pl: {
-    'app.name': 'OpenChamber',
-    'about': 'O programie OpenChamber',
+    'app.name': `${APP_NAME}`,
+    'about': `O programie ${APP_NAME}`,
     'checkForUpdates': 'Sprawdź aktualizacje',
     'settings': 'Ustawienia',
     'reloadWebview': 'Wczytaj ponownie widok WWW',
@@ -504,8 +506,8 @@ export const MENU_LOCALE_DICTIONARIES = {
     'quit': 'Zakończ',
   },
   'pt-BR': {
-    'app.name': 'OpenChamber',
-    'about': 'Sobre o OpenChamber',
+    'app.name': `${APP_NAME}`,
+    'about': `Sobre o ${APP_NAME}`,
     'checkForUpdates': 'Verificar atualizações',
     'settings': 'Configurações',
     'reloadWebview': 'Recarregar Webview',
@@ -567,8 +569,8 @@ export const MENU_LOCALE_DICTIONARIES = {
     'quit': 'Sair',
   },
   tr: {
-    'app.name': 'OpenChamber',
-    'about': 'OpenChamber Hakkında',
+    'app.name': `${APP_NAME}`,
+    'about': `${APP_NAME} Hakkında`,
     'checkForUpdates': 'Güncellemeleri Denetle',
     'settings': 'Ayarlar',
     'reloadWebview': 'Web Görünümünü Yeniden Yükle',
@@ -630,8 +632,8 @@ export const MENU_LOCALE_DICTIONARIES = {
     'quit': 'Çık',
   },
   uk: {
-    'app.name': 'OpenChamber',
-    'about': 'Про OpenChamber',
+    'app.name': `${APP_NAME}`,
+    'about': `Про ${APP_NAME}`,
     'checkForUpdates': 'Перевірити оновлення',
     'settings': 'Налаштування',
     'reloadWebview': 'Перезавантажити вебперегляд',
@@ -693,8 +695,8 @@ export const MENU_LOCALE_DICTIONARIES = {
     'quit': 'Вийти',
   },
   'zh-CN': {
-    'app.name': 'OpenChamber',
-    'about': '关于 OpenChamber',
+    'app.name': `${APP_NAME}`,
+    'about': `关于 ${APP_NAME}`,
     'checkForUpdates': '检查更新',
     'settings': '设置',
     'reloadWebview': '重新加载界面',
@@ -756,8 +758,8 @@ export const MENU_LOCALE_DICTIONARIES = {
     'quit': '退出',
   },
   'zh-TW': {
-    'app.name': 'OpenChamber',
-    'about': '關於 OpenChamber',
+    'app.name': `${APP_NAME}`,
+    'about': `關於 ${APP_NAME}`,
     'checkForUpdates': '檢查更新',
     'settings': '設定',
     'reloadWebview': '重新載入介面',
