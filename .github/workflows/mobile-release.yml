@@ -189,8 +189,9 @@ jobs:
   ios-testflight:
     name: iOS TestFlight upload
     if: inputs.build_ios
-    runs-on: blacksmith-6vcpu-macos-26
+    runs-on: macos-26
     needs: resolve-version
+    environment: testflight
     env:
       # A fork signs with its own Apple team, where com.openchamber.app is not
       # available: set the repository variable IOS_BUNDLE_ID and the build
