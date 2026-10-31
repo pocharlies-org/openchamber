@@ -10,7 +10,7 @@ concurrency:
 jobs:
   android-debug:
     name: Android debug APK
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: arc-k8s
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -46,7 +46,8 @@ jobs:
 
   ios-simulator:
     name: iOS simulator app
-    runs-on: blacksmith-6vcpu-macos-15
+    # 2026-10-31 devops · fuera de pool: no existe hardware de esa plataforma en el clúster; Blacksmith solo sirve ubuntu en este plan (SC-2245) (skill ci-runners-arc, INFRA-548)
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
