@@ -10,7 +10,8 @@ concurrency:
 
 jobs:
   summarize:
-    if: github.event.comment.user.login != 'openchamber-bot[bot]' && (github.event.comment.body == '@openchamber-bot summarize' || startsWith(github.event.comment.body, '@openchamber-bot summarize '))
+    # INFRA-1218: job del upstream openchamber/openchamber; queda skipped en el fork
+    if: github.repository == 'openchamber/openchamber' && (github.event.comment.user.login != 'openchamber-bot[bot]' && (github.event.comment.body == '@openchamber-bot summarize' || startsWith(github.event.comment.body, '@openchamber-bot summarize ')))
     runs-on: arc-k8s
     permissions:
       contents: read
