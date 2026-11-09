@@ -63,7 +63,8 @@ jobs:
   intake:
     name: Label PR ${{ matrix.target.number }}
     needs: collect
-    if: ${{ needs.collect.outputs.targets != '[]' }}
+    # INFRA-1218: job del upstream openchamber/openchamber; queda skipped en el fork
+    if: github.repository == 'openchamber/openchamber' && needs.collect.outputs.targets != '[]'
     runs-on: arc-k8s
     permissions:
       contents: read

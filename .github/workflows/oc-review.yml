@@ -16,6 +16,8 @@ concurrency:
 # extensions), so the wall time is the slowest job, not the sum.
 jobs:
   type-check:
+    # INFRA-1218: job del upstream openchamber/openchamber; queda skipped en el fork
+    if: github.repository == 'openchamber/openchamber'
     runs-on: arc-k8s
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -29,6 +31,8 @@ jobs:
         run: bun run type-check
 
   lint:
+    # INFRA-1218: job del upstream openchamber/openchamber; queda skipped en el fork
+    if: github.repository == 'openchamber/openchamber'
     runs-on: arc-k8s
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -44,6 +48,8 @@ jobs:
         run: bun run changelog:check
 
   tests:
+    # INFRA-1218: job del upstream openchamber/openchamber; queda skipped en el fork
+    if: github.repository == 'openchamber/openchamber'
     runs-on: arc-k8s
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -65,6 +71,8 @@ jobs:
   # build's memory ceiling. The packages whose `build` is only `tsc --noEmit`
   # (ui) or a no-op (electron) are covered by the type-check job.
   build:
+    # INFRA-1218: job del upstream openchamber/openchamber; queda skipped en el fork
+    if: github.repository == 'openchamber/openchamber'
     runs-on: arc-k8s
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
