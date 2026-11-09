@@ -26,8 +26,10 @@ concurrency:
 jobs:
   checks:
     name: type-check + tests
-    # Regla de la org (skill ci-runners-arc).
-    runs-on: arc-k8s
+    # Regla de la org (skill ci-runners-arc). Excepción INFRA-1218 (2026-11-09, security/cto):
+    # repo público; el código de un PR de fork externo no se ejecuta en arc-k8s (DinD
+    # privilegiado con egress al clúster) → runner de GitHub. Los PRs internos, en arc-k8s.
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || 'arc-k8s' }}
     timeout-minutes: 45
     env:
       # tsc de web llega a ~2.5 GB de RSS (medido: 2573092 KB) y node deriva su
