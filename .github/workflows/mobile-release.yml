@@ -71,6 +71,8 @@ env:
 
 jobs:
   resolve-version:
+    # INFRA-1218: job del upstream openchamber/openchamber; queda skipped en el fork
+    if: github.repository == 'openchamber/openchamber'
     name: Resolve mobile version
     runs-on: arc-k8s
     outputs:
@@ -110,7 +112,8 @@ jobs:
 
   android-release:
     name: Android signed release
-    if: inputs.build_android
+    # INFRA-1218: job del upstream openchamber/openchamber; queda skipped en el fork
+    if: github.repository == 'openchamber/openchamber' && inputs.build_android
     runs-on: arc-k8s
     needs: resolve-version
     permissions:
@@ -188,7 +191,8 @@ jobs:
 
   ios-testflight:
     name: iOS TestFlight upload
-    if: inputs.build_ios
+    # INFRA-1218: job del upstream openchamber/openchamber; queda skipped en el fork
+    if: github.repository == 'openchamber/openchamber' && inputs.build_ios
     # 2026-10-31 devops · fuera de pool: no existe hardware de esa plataforma en el clúster (skill ci-runners-arc, INFRA-548)
     runs-on: macos-26
     needs: resolve-version
